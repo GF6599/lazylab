@@ -1,6 +1,6 @@
 # GitLab TUI
 
-GitLab TUI is a Bubble Tea–powered terminal UI for browsing your GitLab projects, viewing recent pipelines, exploring repositories, and previewing files without leaving the keyboard.
+GitLab TUI is a Bubble Tea–powered terminal UI for browsing your GitLab projects without leaving the keyboard.
 
 ## Requirements
 
@@ -30,11 +30,11 @@ Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emit
 ## Controls
 
 - Arrow keys / `j` `k`: move selection
-- `Tab`, `p`, `f`: toggle between Pipelines and Files views
-- `Enter`: open a folder or preview a file
-- `Left`/`Right`: move focus between project and content panes
-
-The left pane lists your GitLab projects, the middle pane alternates between pipelines and repository trees, and the right pane shows pipeline metadata or file previews.
+  <!-- - `Tab`, `p`, `f`: toggle between Pipelines and Files views -->
+  <!-- - `Enter`: open a folder or preview a file -->
+  <!-- - `Left`/`Right`: move focus between project and content panes -->
+  <!---->
+  <!-- The left pane lists your GitLab projects, the middle pane alternates between pipelines and repository trees, and the right pane shows pipeline metadata or file previews. -->
 
 ## Architecture
 

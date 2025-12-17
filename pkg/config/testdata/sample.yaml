@@ -1,0 +1,4 @@
+host: https://gitlab.example.com
+projects-per-page: 12
+log-level: warn
+token: file-token
