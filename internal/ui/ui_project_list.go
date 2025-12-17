@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 type Options struct {
 	ProjectsPerPage int
 	Logger          Logger
+	Host            string
 }
 
 // Logger is the subset of slog.Logger we care about.
@@ -44,6 +46,7 @@ type Model struct {
 	pagesLoaded       int
 	pagesReady        map[int]bool
 	backgroundLoading bool
+	cache             *projectCache
 }
 
 type searchState struct {
@@ -62,7 +65,7 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 	input.CharLimit = 128
 	input.Prompt = "/ "
 	input.Blur()
-	return Model{
+	m := Model{
 		client: client,
 		opts:   opts,
 		page:   1,
@@ -73,10 +76,19 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 		loading:    true,
 		pagesReady: make(map[int]bool),
 	}
+	if cache, err := newProjectCache(opts.Host); err == nil {
+		m.cache = cache
+	} else if opts.Logger != nil {
+		opts.Logger.Error("init cache", "err", err)
+	}
+	return m
 }
 
 // Init is invoked by Bubble Tea when the program starts.
 func (m Model) Init() tea.Cmd {
+	if m.cache != nil {
+		return loadCacheCmd(m.cache)
+	}
 	return fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, 1, false)
 }
 
@@ -90,11 +102,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 	case projectsLoadedMsg:
 		return m.handleProjectsLoaded(msg)
+	case cacheLoadedMsg:
+		return m.handleCacheLoaded(msg)
+	case cacheSavedMsg:
+		if msg.err != nil && m.opts.Logger != nil {
+			m.opts.Logger.Error("save cache", "err", msg.err)
+		}
+		return m, nil
 	}
 	return m, nil
 }
 
+func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		if m.opts.Logger != nil {
+			m.opts.Logger.Error("load cache", "err", msg.err)
+		}
+	}
+	if !msg.found || len(msg.projects) == 0 {
+		m.loading = true
+		m.status = "Cache empty, contacting GitLab..."
+		return m, fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, 1, false)
+	}
+	m.loading = false
+	m.err = nil
+	m.backgroundLoading = false
+	m.allProjects = msg.projects
+	totalProjects := len(msg.projects)
+	perPage := m.opts.ProjectsPerPage
+	if perPage <= 0 {
+		perPage = 30
+	}
+	m.totalPages = (totalProjects + perPage - 1) / perPage
+	if m.totalPages <= 0 {
+		m.totalPages = 1
+	}
+	m.pagesReady = make(map[int]bool, m.totalPages)
+	for p := 1; p <= m.totalPages; p++ {
+		m.pagesReady[p] = true
+	}
+	m.pagesLoaded = m.totalPages
+	m.page = 1
+	m.selected = 0
+	if totalProjects == 0 {
+		m.status = "Cache loaded (empty)"
+	} else {
+		m.status = fmt.Sprintf("Loaded %d cached projects", totalProjects)
+	}
+	m.ensureSelectionBounds()
+	return m, nil
+}
+
 func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
 	if msg.err != nil {
 		if msg.background {
 			m.backgroundLoading = false
@@ -115,17 +175,27 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 		if m.totalPages > 0 {
 			m.status = fmt.Sprintf("Caching %d/%d pages", m.pagesLoaded, m.totalPages)
 		}
+		if m.cache != nil && len(m.allProjects) > 0 {
+			cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
+		}
 		if m.pagesLoaded >= m.totalPages && m.totalPages > 0 {
 			m.backgroundLoading = false
 			m.status = "All projects cached"
-			return m, nil
+			if len(cmds) == 0 {
+				return m, nil
+			}
+			return m, tea.Batch(cmds...)
 		}
 		if msg.page.NextPage > 0 {
-			return m, fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, msg.page.NextPage, true)
+			cmds = append(cmds, fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, msg.page.NextPage, true))
+		} else {
+			m.backgroundLoading = false
+			m.status = "All projects cached"
 		}
-		m.backgroundLoading = false
-		m.status = "All projects cached"
-		return m, nil
+		if len(cmds) == 0 {
+			return m, nil
+		}
+		return m, tea.Batch(cmds...)
 	}
 
 	// Foreground load resets project cache.
@@ -150,11 +220,18 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	}
 	if msg.page.NextPage > 0 {
 		m.backgroundLoading = true
-		return m, fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, msg.page.NextPage, true)
+		cmds = append(cmds, fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, msg.page.NextPage, true))
+	} else {
+		m.backgroundLoading = false
 	}
-	m.backgroundLoading = false
 	m.ensureSelectionBounds()
-	return m, nil
+	if m.cache != nil && len(m.allProjects) > 0 {
+		cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
+	}
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -208,10 +285,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.movePage(1)
 	case "h", "left":
 		m.movePage(-1)
-	case "r":
+	case "r", "ctrl+r":
 		m.loading = true
 		m.err = nil
 		m.status = "Refreshing projects..."
+		m.backgroundLoading = false
 		m.page = 1
 		return m, fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, 1, false)
 	case "ctrl+o":
@@ -466,12 +544,44 @@ type projectsLoadedMsg struct {
 	background bool
 }
 
+type cacheLoadedMsg struct {
+	projects []gitlab.ProjectNode
+	err      error
+	found    bool
+}
+
+type cacheSavedMsg struct {
+	err error
+}
+
 func fetchProjectsCmd(client *gitlab.Client, perPage, page int, background bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		pageData, err := client.ListProjects(ctx, gitlab.ProjectListOptions{PerPage: perPage, Page: page})
 		return projectsLoadedMsg{page: pageData, err: err, background: background}
+	}
+}
+
+func loadCacheCmd(cache *projectCache) tea.Cmd {
+	return func() tea.Msg {
+		projects, err := cache.Load()
+		if err != nil {
+			if errors.Is(err, errCacheNotFound) {
+				return cacheLoadedMsg{found: false}
+			}
+			return cacheLoadedMsg{err: err}
+		}
+		return cacheLoadedMsg{projects: projects, found: true}
+	}
+}
+
+func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
+	return func() tea.Msg {
+		if err := cache.Save(projects); err != nil {
+			return cacheSavedMsg{err: err}
+		}
+		return cacheSavedMsg{}
 	}
 }
 

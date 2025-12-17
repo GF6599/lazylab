@@ -42,7 +42,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	model := ui.NewModel(client, ui.Options{ProjectsPerPage: cfg.ProjectsPerPage, Logger: logger})
+	model := ui.NewModel(client, ui.Options{ProjectsPerPage: cfg.ProjectsPerPage, Logger: logger, Host: cfg.Host})
 	program := tea.NewProgram(model, tea.WithAltScreen())
 
 	if cfg.ConfigFile != "" {

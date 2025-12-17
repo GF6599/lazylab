@@ -30,6 +30,12 @@ Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emit
 ## Controls
 
 - Arrow keys / `j` `k`: move selection
+<!-- keep future controls commented until implemented -->
+<!-- - `Tab`, `p`, `f`: toggle between Pipelines and Files views -->
+<!-- - `Enter`: open a folder or preview a file -->
+<!-- - `Left`/`Right`: move focus between project and content panes -->
+- `Ctrl+R`: refresh the cached project list from GitLab
+- `Ctrl+O`: copy the selected project's SSH `git clone` command
   <!-- - `Tab`, `p`, `f`: toggle between Pipelines and Files views -->
   <!-- - `Enter`: open a folder or preview a file -->
   <!-- - `Left`/`Right`: move focus between project and content panes -->
@@ -42,3 +48,5 @@ Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emit
 - `internal/gitlab`: lightweight wrapper around `go-gitlab` for projects, pipelines, trees, and file blobs
 - `internal/ui`: Bubble Tea model, view logic, and lipgloss styling
 - `cmd/gitlab-tui`: CLI entrypoint
+
+Project listings are cached between runs under `~/.cache/gitlab-tui/` (keyed per host) so subsequent launches open instantly. Use `Ctrl+R` or delete the cache file if you need to force a refresh.
