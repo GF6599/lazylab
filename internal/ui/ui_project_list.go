@@ -15,6 +15,11 @@ import (
 	"gitlab-tui-codex/internal/gitlab"
 )
 
+const (
+	modeProjects = "projects"
+	modeExplorer = "explorer"
+)
+
 // Options configures the model at creation time.
 type Options struct {
 	ProjectsPerPage int
@@ -47,12 +52,36 @@ type Model struct {
 	pagesReady        map[int]bool
 	backgroundLoading bool
 	cache             *projectCache
+	mode              string
+	explorer          explorerState
 }
 
 type searchState struct {
 	active bool
 	query  string
 	input  textinput.Model
+}
+
+type dirState struct {
+	path     string
+	entries  []gitlab.TreeNode
+	selected int
+	loading  bool
+	err      error
+}
+
+type previewState struct {
+	path    string
+	content string
+	loading bool
+	err     error
+}
+
+type explorerState struct {
+	project gitlab.ProjectNode
+	ref     string
+	stack   []dirState
+	preview previewState
 }
 
 // NewModel returns a ready-to-run Bubble Tea model.
@@ -69,6 +98,7 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 		client: client,
 		opts:   opts,
 		page:   1,
+		mode:   modeProjects,
 		search: searchState{
 			active: false,
 			input:  input,
@@ -99,7 +129,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 	case tea.KeyMsg:
-		return m.handleKeyMsg(msg)
+		if m.mode == modeExplorer {
+			return m.handleExplorerKey(msg)
+		}
+		return m.handleProjectKey(msg)
 	case projectsLoadedMsg:
 		return m.handleProjectsLoaded(msg)
 	case cacheLoadedMsg:
@@ -109,6 +142,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.opts.Logger.Error("save cache", "err", msg.err)
 		}
 		return m, nil
+	case treeLoadedMsg:
+		return m.handleTreeLoaded(msg)
+	case fileLoadedMsg:
+		return m.handleFileLoaded(msg)
 	}
 	return m, nil
 }
@@ -150,6 +187,77 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Loaded %d cached projects", totalProjects)
 	}
 	m.ensureSelectionBounds()
+	return m, nil
+}
+
+func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modeExplorer || m.explorer.project.ID != msg.projectID {
+		return m, nil
+	}
+	// If this was triggered for directory preview (path matches preview.path), format preview.
+	if m.explorer.preview.path != "" && m.explorer.preview.path == msg.path {
+		if msg.err != nil {
+			m.explorer.preview = previewState{path: msg.path, err: msg.err}
+			m.status = "Failed to load directory preview"
+			return m, nil
+		}
+		builder := &strings.Builder{}
+		builder.WriteString(fmt.Sprintf("%s/\n", msg.path))
+		for _, entry := range msg.entries {
+			name := entry.Name
+			if entry.IsDir() {
+				name += "/"
+			}
+			builder.WriteString(name)
+			builder.WriteString("\n")
+		}
+		m.explorer.preview = previewState{
+			path:    msg.path,
+			content: builder.String(),
+			loading: false,
+		}
+		return m, nil
+	}
+	idx := m.findDirIndex(msg.path)
+	if idx == -1 {
+		return m, nil
+	}
+	dir := &m.explorer.stack[idx]
+	if msg.err != nil {
+		dir.loading = false
+		dir.entries = nil
+		dir.err = msg.err
+		m.status = "Failed to load directory"
+		return m, nil
+	}
+	dir.loading = false
+	dir.err = nil
+	dir.entries = msg.entries
+	if dir.selected >= len(dir.entries) {
+		dir.selected = max(0, len(dir.entries)-1)
+	}
+	if idx == len(m.explorer.stack)-1 {
+		return m, m.queueExplorerPreview()
+	}
+	return m, nil
+}
+
+func (m Model) handleFileLoaded(msg fileLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modeExplorer || m.explorer.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.path != m.explorer.preview.path {
+		return m, nil
+	}
+	m.explorer.preview.loading = false
+	if msg.err != nil {
+		m.explorer.preview.err = msg.err
+		m.explorer.preview.content = ""
+		m.status = "Failed to load file"
+		return m, nil
+	}
+	m.explorer.preview.err = nil
+	m.explorer.preview.content = clipPreview(msg.content)
 	return m, nil
 }
 
@@ -234,7 +342,7 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	if m.search.active {
 		switch msg.Type {
@@ -273,6 +381,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search.input.CursorEnd()
 		m.search.input.Focus()
 		return m, textinput.Blink
+	case "enter":
+		if project, ok := m.selectedProject(); ok {
+			return m.openExplorer(project)
+		}
 	case "down", "j":
 		if m.selected < len(m.visibleProjects())-1 {
 			m.selected++
@@ -296,6 +408,99 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.copyCloneCommand()
 	}
 	return m, nil
+}
+
+func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	cur := m.currentDirState()
+	if cur == nil {
+		m.closeExplorer("Back to projects")
+		return m, nil
+	}
+	switch key {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc":
+		m.closeExplorer("Back to projects")
+		return m, nil
+	case "down", "j":
+		if cur.selected < len(cur.entries)-1 {
+			cur.selected++
+			return m, m.queueExplorerPreview()
+		}
+	case "up", "k":
+		if cur.selected > 0 {
+			cur.selected--
+			return m, m.queueExplorerPreview()
+		}
+	case "enter", "right", "l":
+		entry := m.selectedEntry()
+		if entry != nil && entry.IsDir() {
+			return m.descendDirectory(*entry)
+		}
+	case "left", "h", "backspace":
+		return m.navigateExplorerUp()
+	case "r", "ctrl+r":
+		return m.reloadExplorerPath()
+	}
+	return m, nil
+}
+
+func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
+	ref := project.DefaultBranch
+	if ref == "" {
+		ref = "main"
+	}
+	m.mode = modeExplorer
+	m.explorer = explorerState{
+		project: project,
+		ref:     ref,
+		stack: []dirState{
+			{path: "", loading: true},
+		},
+	}
+	m.status = fmt.Sprintf("Browsing %s", project.PathWithNamespace)
+	return m, fetchTreeCmd(m.client, project.ID, ref, "")
+}
+
+func (m Model) descendDirectory(entry gitlab.TreeNode) (tea.Model, tea.Cmd) {
+	newState := dirState{
+		path:    entry.Path,
+		loading: true,
+	}
+	m.explorer.stack = append(m.explorer.stack, newState)
+	m.explorer.preview = previewState{}
+	return m, fetchTreeCmd(m.client, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
+}
+
+func (m Model) navigateExplorerUp() (tea.Model, tea.Cmd) {
+	if len(m.explorer.stack) <= 1 {
+		m.closeExplorer("Back to projects")
+		return m, nil
+	}
+	m.explorer.stack = m.explorer.stack[:len(m.explorer.stack)-1]
+	m.explorer.preview = previewState{}
+	return m, m.queueExplorerPreview()
+}
+
+func (m Model) reloadExplorerPath() (tea.Model, tea.Cmd) {
+	cur := m.currentDirState()
+	if cur == nil {
+		return m, nil
+	}
+	cur.loading = true
+	cur.err = nil
+	cur.entries = nil
+	m.explorer.preview = previewState{}
+	return m, fetchTreeCmd(m.client, m.explorer.project.ID, displayRef(m.explorer), cur.path)
+}
+
+func (m *Model) closeExplorer(status string) {
+	m.mode = modeProjects
+	m.explorer = explorerState{}
+	if status != "" {
+		m.status = status
+	}
 }
 
 func (m *Model) movePage(delta int) {
@@ -405,11 +610,62 @@ func (m *Model) appendPage(page gitlab.ProjectPage) {
 	m.ensureSelectionBounds()
 }
 
+func (m *Model) queueExplorerPreview() tea.Cmd {
+	entry := m.selectedEntry()
+	if entry == nil {
+		m.explorer.preview = previewState{}
+		return nil
+	}
+	if entry.IsDir() {
+		m.explorer.preview = previewState{
+			path:    entry.Path,
+			loading: true,
+		}
+		return fetchTreeCmd(m.client, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
+	}
+	if m.explorer.preview.loading && m.explorer.preview.path == entry.Path {
+		return nil
+	}
+	if !m.explorer.preview.loading && m.explorer.preview.path == entry.Path && m.explorer.preview.content != "" && m.explorer.preview.err == nil {
+		return nil
+	}
+	m.explorer.preview = previewState{path: entry.Path, loading: true}
+	return fetchFileCmd(m.client, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
+}
+
+func (m *Model) currentDirState() *dirState {
+	if len(m.explorer.stack) == 0 {
+		return nil
+	}
+	return &m.explorer.stack[len(m.explorer.stack)-1]
+}
+
+func (m *Model) parentDirState() *dirState {
+	if len(m.explorer.stack) < 2 {
+		return nil
+	}
+	return &m.explorer.stack[len(m.explorer.stack)-2]
+}
+
+func (m *Model) selectedEntry() *gitlab.TreeNode {
+	dir := m.currentDirState()
+	if dir == nil || len(dir.entries) == 0 {
+		return nil
+	}
+	if dir.selected < 0 || dir.selected >= len(dir.entries) {
+		return nil
+	}
+	return &dir.entries[dir.selected]
+}
+
 // View renders the UI to the terminal.
 func (m Model) View() string {
 	width := m.width
 	if width <= 0 {
 		width = 80
+	}
+	if m.mode == modeExplorer {
+		return renderExplorerView(m, width)
 	}
 	listWidth := width / 2
 	detailWidth := width - listWidth
@@ -496,6 +752,149 @@ func renderDetailPane(m Model, width int) string {
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
+func renderExplorerView(m Model, width int) string {
+	if width < 80 {
+		width = 80
+	}
+	parentWidth := max(6, width*20/100)
+	currentWidth := max(6, width*40/100)
+	previewWidth := width - parentWidth - currentWidth
+	if previewWidth < 6 {
+		previewWidth = 6
+		currentWidth = max(6, width-parentWidth-previewWidth)
+	}
+	height := m.height
+	if height <= 5 {
+		height = 5
+	}
+	contentHeight := height - 2
+	parentLines := normalizeColumn(renderExplorerParents(m, parentWidth-2), parentWidth-2, contentHeight)
+	currentLines := normalizeColumn(renderExplorerCurrent(m, currentWidth-2), currentWidth-2, contentHeight)
+	previewLines := normalizeColumn(renderExplorerPreview(m, previewWidth-2), previewWidth-2, contentHeight)
+
+	var b strings.Builder
+	b.WriteString("┌" + strings.Repeat("─", parentWidth-2) + "┬" + strings.Repeat("─", currentWidth-2) + "┬" + strings.Repeat("─", previewWidth-2) + "┐\n")
+	for i := 0; i < contentHeight; i++ {
+		fmt.Fprintf(&b, "│%s│%s│%s│\n", parentLines[i], currentLines[i], previewLines[i])
+	}
+	b.WriteString("└" + strings.Repeat("─", parentWidth-2) + "┴" + strings.Repeat("─", currentWidth-2) + "┴" + strings.Repeat("─", previewWidth-2) + "┘")
+	return b.String()
+}
+
+func renderExplorerParents(m Model, width int) string {
+	b := &strings.Builder{}
+	b.WriteString("Parents\n")
+	parent := m.parentDirState()
+	if parent == nil {
+		b.WriteString(" (root)\n")
+		return b.String()
+	}
+	pathLabel := parent.path
+	if pathLabel == "" {
+		pathLabel = "/"
+	}
+	fmt.Fprintf(b, "Path: %s\n", pathLabel)
+	if parent.loading {
+		b.WriteString(" Loading...\n")
+	}
+	if parent.err != nil {
+		b.WriteString(" " + parent.err.Error() + "\n")
+		return b.String()
+	}
+	if len(parent.entries) == 0 {
+		b.WriteString(" (empty)\n")
+		return b.String()
+	}
+	for i, entry := range parent.entries {
+		cursor := " "
+		if i == parent.selected {
+			cursor = ">"
+		}
+		name := entry.Name
+		if entry.IsDir() {
+			name += "/"
+		}
+		line := fmt.Sprintf("%s%s", cursor, truncate(name, width-1))
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func renderExplorerCurrent(m Model, width int) string {
+	b := &strings.Builder{}
+	title := fmt.Sprintf("Explorer · %s @ %s", m.explorer.project.PathWithNamespace, displayRef(m.explorer))
+	b.WriteString(title)
+	b.WriteString("\n")
+	cur := m.currentDirState()
+	if cur == nil {
+		b.WriteString(" No directory selected.\n")
+		return b.String()
+	}
+	pathLabel := cur.path
+	if pathLabel == "" {
+		pathLabel = "/"
+	}
+	fmt.Fprintf(b, "Path: %s\n", pathLabel)
+	if cur.loading {
+		b.WriteString(" Loading directory...\n")
+	}
+	if cur.err != nil {
+		b.WriteString(" " + cur.err.Error() + "\n")
+		return b.String()
+	}
+	if len(cur.entries) == 0 && !cur.loading && cur.err == nil {
+		b.WriteString(" Directory is empty.\n")
+	}
+	for i, entry := range cur.entries {
+		cursor := " "
+		if i == cur.selected {
+			cursor = ">"
+		}
+		name := entry.Name
+		if entry.IsDir() {
+			name += "/"
+		}
+		line := fmt.Sprintf("%s%s", cursor, truncate(name, width-1))
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("Enter/→ descend · ←/Esc up\n")
+	return b.String()
+}
+
+func renderExplorerPreview(m Model, width int) string {
+	b := &strings.Builder{}
+	b.WriteString("Preview\n")
+	preview := m.explorer.preview
+	if preview.loading {
+		b.WriteString(" Loading file preview...\n")
+		return b.String()
+	}
+	if preview.err != nil {
+		b.WriteString(" " + preview.err.Error() + "\n")
+		return b.String()
+	}
+	if preview.content == "" {
+		b.WriteString(" Select a file to preview.\n")
+		return b.String()
+	}
+	lines := strings.Split(preview.content, "\n")
+	maxLines := 200
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		lines = append(lines, "… (truncated) …")
+	}
+	for _, line := range lines {
+		wrapped := wrapPreviewLine(line, width)
+		for _, segment := range wrapped {
+			b.WriteString(segment)
+			b.WriteString("\n")
+		}
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
 var (
 	titleStyle        = lipgloss.NewStyle().Bold(true)
 	itemStyle         = lipgloss.NewStyle()
@@ -505,6 +904,8 @@ var (
 	searchStyle       = lipgloss.NewStyle().Faint(true)
 	progressStyle     = lipgloss.NewStyle().Faint(true)
 )
+
+const maxPreviewLen = 8000
 
 func truncate(s string, max int) string {
 	if max <= 0 || len(s) <= max {
@@ -538,6 +939,51 @@ func wrapText(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+func clipPreview(s string) string {
+	if len(s) <= maxPreviewLen {
+		return s
+	}
+	return s[:maxPreviewLen] + "\n… truncated …"
+}
+
+func wrapPreviewLine(line string, width int) []string {
+	if width <= 0 {
+		return []string{line}
+	}
+	if line == "" {
+		return []string{""}
+	}
+	var segments []string
+	var b strings.Builder
+	currentWidth := 0
+	for _, r := range line {
+		rw := lipgloss.Width(string(r))
+		if currentWidth+rw > width && b.Len() > 0 {
+			segments = append(segments, b.String())
+			b.Reset()
+			currentWidth = 0
+		}
+		if rw > width {
+			segments = append(segments, string(r))
+			continue
+		}
+		b.WriteRune(r)
+		currentWidth += rw
+		if currentWidth == width {
+			segments = append(segments, b.String())
+			b.Reset()
+			currentWidth = 0
+		}
+	}
+	if b.Len() > 0 {
+		segments = append(segments, b.String())
+	}
+	if len(segments) == 0 {
+		return []string{""}
+	}
+	return segments
+}
+
 type projectsLoadedMsg struct {
 	page       gitlab.ProjectPage
 	err        error
@@ -552,6 +998,20 @@ type cacheLoadedMsg struct {
 
 type cacheSavedMsg struct {
 	err error
+}
+
+type treeLoadedMsg struct {
+	projectID int
+	path      string
+	entries   []gitlab.TreeNode
+	err       error
+}
+
+type fileLoadedMsg struct {
+	projectID int
+	path      string
+	content   string
+	err       error
 }
 
 func fetchProjectsCmd(client *gitlab.Client, perPage, page int, background bool) tea.Cmd {
@@ -582,6 +1042,27 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 			return cacheSavedMsg{err: err}
 		}
 		return cacheSavedMsg{}
+	}
+}
+
+func fetchTreeCmd(client *gitlab.Client, projectID int, ref, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		nodes, err := client.ListTree(ctx, projectID, gitlab.TreeListOptions{Ref: ref, Path: path})
+		return treeLoadedMsg{projectID: projectID, path: path, entries: nodes, err: err}
+	}
+}
+
+func fetchFileCmd(client *gitlab.Client, projectID int, ref, filePath string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		content, err := client.GetFileContent(ctx, projectID, filePath, ref)
+		if err != nil {
+			return fileLoadedMsg{projectID: projectID, path: filePath, err: err}
+		}
+		return fileLoadedMsg{projectID: projectID, path: filePath, content: clipPreview(content)}
 	}
 }
 
@@ -658,4 +1139,72 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func displayRef(ex explorerState) string {
+	if ex.ref == "" {
+		return "main"
+	}
+	return ex.ref
+}
+
+func parentDir(path string) string {
+	if path == "" {
+		return ""
+	}
+	path = strings.TrimSuffix(path, "/")
+	idx := strings.LastIndex(path, "/")
+	if idx == -1 {
+		return ""
+	}
+	return path[:idx]
+}
+
+func (m *Model) findDirIndex(path string) int {
+	for i := range m.explorer.stack {
+		if m.explorer.stack[i].path == path {
+			return i
+		}
+	}
+	return -1
+}
+
+func normalizeColumn(content string, width, height int) []string {
+	if width < 1 {
+		width = 1
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	result := make([]string, height)
+	for i := 0; i < height; i++ {
+		line := ""
+		if i < len(lines) {
+			line = lines[i]
+		}
+		result[i] = fitLine(line, width)
+	}
+	return result
+}
+
+func fitLine(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(line) > width {
+		var b strings.Builder
+		for _, r := range line {
+			if lipgloss.Width(b.String()+string(r)) > width {
+				break
+			}
+			b.WriteRune(r)
+		}
+		line = b.String()
+	}
+	pad := width - lipgloss.Width(line)
+	if pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	return line
 }
