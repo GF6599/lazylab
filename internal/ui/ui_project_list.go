@@ -20,6 +20,8 @@ const (
 	modeExplorer = "explorer"
 )
 
+const pipelineRefreshInterval = 5 * time.Second
+
 // Options configures the model at creation time.
 type Options struct {
 	ProjectsPerPage int
@@ -54,6 +56,7 @@ type Model struct {
 	cache             *projectCache
 	mode              string
 	explorer          explorerState
+	pipelineStatus    map[int]pipelineState
 }
 
 type searchState struct {
@@ -84,6 +87,16 @@ type explorerState struct {
 	preview previewState
 }
 
+type pipelineState struct {
+	info        gitlab.PipelineSummary
+	hasInfo     bool
+	loading     bool
+	err         error
+	empty       bool
+	ref         string
+	lastFetched time.Time
+}
+
 // NewModel returns a ready-to-run Bubble Tea model.
 func NewModel(client *gitlab.Client, opts Options) Model {
 	if opts.ProjectsPerPage <= 0 {
@@ -95,10 +108,11 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 	input.Prompt = "/ "
 	input.Blur()
 	m := Model{
-		client: client,
-		opts:   opts,
-		page:   1,
-		mode:   modeProjects,
+		client:         client,
+		opts:           opts,
+		page:           1,
+		mode:           modeProjects,
+		pipelineStatus: make(map[int]pipelineState),
 		search: searchState{
 			active: false,
 			input:  input,
@@ -116,10 +130,14 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 
 // Init is invoked by Bubble Tea when the program starts.
 func (m Model) Init() tea.Cmd {
+	var cmds []tea.Cmd
 	if m.cache != nil {
-		return loadCacheCmd(m.cache)
+		cmds = append(cmds, loadCacheCmd(m.cache))
+	} else {
+		cmds = append(cmds, fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, 1, false))
 	}
-	return fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, 1, false)
+	cmds = append(cmds, pipelineTickCmd())
+	return tea.Batch(cmds...)
 }
 
 // Update reacts to Bubble Tea messages and returns the new model state.
@@ -146,6 +164,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTreeLoaded(msg)
 	case fileLoadedMsg:
 		return m.handleFileLoaded(msg)
+	case pipelineStatusMsg:
+		return m.handlePipelineStatus(msg)
+	case pipelineTickMsg:
+		cmd := m.handlePipelineTick()
+		if cmd == nil {
+			return m, pipelineTickCmd()
+		}
+		return m, tea.Batch(cmd, pipelineTickCmd())
 	}
 	return m, nil
 }
@@ -187,7 +213,7 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Loaded %d cached projects", totalProjects)
 	}
 	m.ensureSelectionBounds()
-	return m, nil
+	return m, (&m).queuePipelineFetchForSelection(true)
 }
 
 func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
@@ -333,6 +359,9 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 		m.backgroundLoading = false
 	}
 	m.ensureSelectionBounds()
+	if pipelineCmd := (&m).queuePipelineFetchForSelection(true); pipelineCmd != nil {
+		cmds = append(cmds, pipelineCmd)
+	}
 	if m.cache != nil && len(m.allProjects) > 0 {
 		cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
 	}
@@ -342,9 +371,44 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	return m, tea.Batch(cmds...)
 }
 
+func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) {
+	state := m.pipelineStatus[msg.projectID]
+	state.loading = false
+	state.ref = msg.ref
+	state.lastFetched = time.Now()
+	if msg.err != nil {
+		if errors.Is(msg.err, gitlab.ErrNoPipelines) {
+			state.empty = true
+			state.err = nil
+			state.hasInfo = false
+			state.info = gitlab.PipelineSummary{}
+		} else {
+			state.err = msg.err
+			state.empty = false
+			state.hasInfo = false
+		}
+	} else {
+		state.info = msg.pipeline
+		state.hasInfo = true
+		state.err = nil
+		state.empty = false
+	}
+	m.pipelineStatus[msg.projectID] = state
+	return m, nil
+}
+
+func (m Model) handlePipelineTick() tea.Cmd {
+	if m.mode != modeProjects {
+		return nil
+	}
+	return (&m).queuePipelineFetchForSelection(false)
+}
+
 func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	prevID, prevOK := m.currentSelectedProjectID()
 	key := msg.String()
 	if m.search.active {
+		var cmd tea.Cmd
 		switch msg.Type {
 		case tea.KeyEsc:
 			m.search.active = false
@@ -353,22 +417,28 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.search.input.Blur()
 			m.ensureSelectionBounds()
 			m.status = "Search cleared"
-			return m, nil
 		case tea.KeyEnter:
 			m.search.active = false
 			m.search.query = m.search.input.Value()
 			m.search.input.Blur()
 			m.status = fmt.Sprintf("Search: %s", m.search.query)
 			m.ensureSelectionBounds()
-			return m, nil
-		}
-		if msg.Type == tea.KeyCtrlC {
+		case tea.KeyCtrlC:
 			return m, tea.Quit
+		default:
+			m.search.input, cmd = m.search.input.Update(msg)
+			m.search.query = m.search.input.Value()
+			m.ensureSelectionBounds()
 		}
-		var cmd tea.Cmd
-		m.search.input, cmd = m.search.input.Update(msg)
-		m.search.query = m.search.input.Value()
-		m.ensureSelectionBounds()
+		currID, currOK := m.currentSelectedProjectID()
+		if prevID != currID || prevOK != currOK {
+			if pipelineCmd := (&m).queuePipelineFetchForSelection(true); pipelineCmd != nil {
+				if cmd != nil {
+					return m, tea.Batch(cmd, pipelineCmd)
+				}
+				return m, pipelineCmd
+			}
+		}
 		return m, cmd
 	}
 
@@ -406,6 +476,12 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, fetchProjectsCmd(m.client, m.opts.ProjectsPerPage, 1, false)
 	case "ctrl+o":
 		m.copyCloneCommand()
+	}
+	currID, currOK := m.currentSelectedProjectID()
+	if prevID != currID || prevOK != currOK {
+		if pipelineCmd := (&m).queuePipelineFetchForSelection(true); pipelineCmd != nil {
+			return m, pipelineCmd
+		}
 	}
 	return m, nil
 }
@@ -552,6 +628,14 @@ func (m Model) selectedProject() (gitlab.ProjectNode, bool) {
 	return projects[m.selected], true
 }
 
+func (m Model) currentSelectedProjectID() (int, bool) {
+	project, ok := m.selectedProject()
+	if !ok {
+		return 0, false
+	}
+	return project.ID, true
+}
+
 func (m *Model) ensureSelectionBounds() {
 	projects := m.visibleProjects()
 	if len(projects) == 0 {
@@ -564,6 +648,34 @@ func (m *Model) ensureSelectionBounds() {
 	if m.selected < 0 {
 		m.selected = 0
 	}
+}
+
+func (m *Model) queuePipelineFetchForSelection(force bool) tea.Cmd {
+	project, ok := m.selectedProject()
+	if !ok {
+		return nil
+	}
+	return m.queuePipelineFetch(project, force)
+}
+
+func (m *Model) queuePipelineFetch(project gitlab.ProjectNode, force bool) tea.Cmd {
+	if m.pipelineStatus == nil {
+		m.pipelineStatus = make(map[int]pipelineState)
+	}
+	state := m.pipelineStatus[project.ID]
+	if state.loading {
+		return nil
+	}
+	if !force && !state.lastFetched.IsZero() && time.Since(state.lastFetched) < pipelineRefreshInterval {
+		return nil
+	}
+	ref := strings.TrimSpace(project.DefaultBranch)
+	state.loading = true
+	state.err = nil
+	state.empty = false
+	state.ref = ref
+	m.pipelineStatus[project.ID] = state
+	return fetchPipelineCmd(m.client, project.ID, ref)
 }
 
 func (m Model) visibleProjects() []gitlab.ProjectNode {
@@ -749,7 +861,70 @@ func renderDetailPane(m Model, width int) string {
 		b.WriteString(wrapText(project.Description, width))
 		b.WriteString("\n")
 	}
+	b.WriteString("\n")
+	b.WriteString(renderPipelineSection(m, project, width))
+	b.WriteString("\n")
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func renderPipelineSection(m Model, project gitlab.ProjectNode, width int) string {
+	state, ok := m.pipelineStatus[project.ID]
+	refLabel := pipelineRefLabel(project, state)
+	if refLabel == "" {
+		refLabel = "all refs"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, " Pipeline (%s):\n", refLabel)
+	switch {
+	case state.loading && !state.hasInfo:
+		b.WriteString("  Loading latest pipeline...\n")
+	case state.err != nil:
+		b.WriteString("  Error: " + state.err.Error() + "\n")
+	case state.empty:
+		fmt.Fprintf(&b, "  No pipelines found for %s.\n", refLabel)
+	case state.hasInfo:
+		fmt.Fprintf(&b, "  Status: %s (#%d)\n", state.info.Status, state.info.ID)
+		if state.info.SHA != "" {
+			fmt.Fprintf(&b, "  SHA: %s\n", truncate(state.info.SHA, 12))
+		}
+		if !state.info.UpdatedAt.IsZero() {
+			fmt.Fprintf(&b, "  Updated: %s\n", state.info.UpdatedAt.Format(time.RFC1123))
+		}
+		if state.info.WebURL != "" {
+			urlWidth := width - 4
+			if urlWidth < 4 {
+				urlWidth = width
+			}
+			fmt.Fprintf(&b, "  URL: %s\n", truncate(state.info.WebURL, urlWidth))
+		}
+		if len(state.info.Stages) > 0 {
+			stageWidth := width - 8
+			if stageWidth < 8 {
+				stageWidth = width
+			}
+			b.WriteString("  Stages:\n")
+			for _, stage := range state.info.Stages {
+				stageName := truncate(stage.Name, stageWidth)
+				stageStatus := truncate(stage.Status, stageWidth)
+				fmt.Fprintf(&b, "   - %s: %s\n", stageName, stageStatus)
+			}
+		}
+		if state.loading {
+			b.WriteString("  Refreshing...\n")
+		}
+	default:
+		if !ok {
+			b.WriteString("  Pipeline status pending...\n")
+		} else if state.loading {
+			b.WriteString("  Refreshing pipeline status...\n")
+		} else {
+			b.WriteString("  Pipeline status pending...\n")
+		}
+	}
+	if !state.lastFetched.IsZero() {
+		fmt.Fprintf(&b, "  Checked: %s\n", state.lastFetched.Format(time.RFC1123))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func renderExplorerView(m Model, width int) string {
@@ -917,6 +1092,16 @@ func truncate(s string, max int) string {
 	return s[:max-1] + "…"
 }
 
+func pipelineRefLabel(project gitlab.ProjectNode, state pipelineState) string {
+	if strings.TrimSpace(state.ref) != "" {
+		return state.ref
+	}
+	if strings.TrimSpace(project.DefaultBranch) != "" {
+		return strings.TrimSpace(project.DefaultBranch)
+	}
+	return "all refs"
+}
+
 func wrapText(s string, width int) string {
 	if width <= 0 {
 		return s
@@ -1014,6 +1199,15 @@ type fileLoadedMsg struct {
 	err       error
 }
 
+type pipelineStatusMsg struct {
+	projectID int
+	ref       string
+	pipeline  gitlab.PipelineSummary
+	err       error
+}
+
+type pipelineTickMsg struct{}
+
 func fetchProjectsCmd(client *gitlab.Client, perPage, page int, background bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -1064,6 +1258,21 @@ func fetchFileCmd(client *gitlab.Client, projectID int, ref, filePath string) te
 		}
 		return fileLoadedMsg{projectID: projectID, path: filePath, content: clipPreview(content)}
 	}
+}
+
+func fetchPipelineCmd(client *gitlab.Client, projectID int, ref string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		summary, err := client.LatestPipeline(ctx, projectID, ref)
+		return pipelineStatusMsg{projectID: projectID, ref: ref, pipeline: summary, err: err}
+	}
+}
+
+func pipelineTickCmd() tea.Cmd {
+	return tea.Tick(pipelineRefreshInterval, func(time.Time) tea.Msg {
+		return pipelineTickMsg{}
+	})
 }
 
 func renderListTitle(m Model) string {

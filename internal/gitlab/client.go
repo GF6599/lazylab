@@ -3,6 +3,7 @@ package gitlab
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -76,6 +77,26 @@ type TreeNode struct {
 func (n TreeNode) IsDir() bool {
 	return n.Type == "tree"
 }
+
+// PipelineSummary represents the last known pipeline for a project/ref.
+type PipelineSummary struct {
+	ID        int
+	Status    string
+	Ref       string
+	SHA       string
+	WebURL    string
+	UpdatedAt time.Time
+	Stages    []PipelineStage
+}
+
+// PipelineStage captures a GitLab CI stage and its aggregated status.
+type PipelineStage struct {
+	Name   string
+	Status string
+}
+
+// ErrNoPipelines indicates no pipeline runs were returned by GitLab.
+var ErrNoPipelines = errors.New("no pipelines found")
 
 // TreeListOptions configures repository tree listing.
 type TreeListOptions struct {
@@ -187,10 +208,140 @@ func (c *Client) GetFileContent(ctx context.Context, projectID int, path, ref st
 	return string(data), nil
 }
 
+// LatestPipeline returns the most recent pipeline for the given project/ref.
+func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) (PipelineSummary, error) {
+	opts := &gl.ListProjectPipelinesOptions{
+		ListOptions: gl.ListOptions{
+			PerPage: 1,
+			Page:    1,
+		},
+		OrderBy: gl.String("updated_at"),
+		Sort:    gl.String("desc"),
+	}
+	if strings.TrimSpace(ref) != "" {
+		opts.Ref = gl.String(ref)
+	}
+	pipelines, _, err := c.api.Pipelines.ListProjectPipelines(projectID, opts, gl.WithContext(ctx))
+	if err != nil {
+		return PipelineSummary{}, fmt.Errorf("list pipelines: %w", err)
+	}
+	if len(pipelines) == 0 {
+		return PipelineSummary{}, ErrNoPipelines
+	}
+	p := pipelines[0]
+	stages, err := c.collectPipelineStages(ctx, projectID, p.ID)
+	if err != nil {
+		return PipelineSummary{}, err
+	}
+	summary := PipelineSummary{
+		ID:     p.ID,
+		Status: string(p.Status),
+		Ref:    p.Ref,
+		SHA:    p.SHA,
+		WebURL: p.WebURL,
+		Stages: stages,
+	}
+	if p.UpdatedAt != nil {
+		summary.UpdatedAt = *p.UpdatedAt
+	}
+	return summary, nil
+}
+
+func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error) {
+	opts := &gl.ListJobsOptions{
+		ListOptions: gl.ListOptions{
+			PerPage: 100,
+			Page:    1,
+		},
+	}
+	stageStatus := make(map[string]string)
+	stageOrder := make([]string, 0)
+	seenStage := make(map[string]bool)
+	page := 1
+	for {
+		opts.Page = page
+		jobs, resp, err := c.api.Jobs.ListPipelineJobs(projectID, pipelineID, opts, gl.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("list pipeline jobs: %w", err)
+		}
+		for _, job := range jobs {
+			stageName := strings.TrimSpace(job.Stage)
+			if stageName == "" {
+				stageName = "(unknown stage)"
+			}
+			if !seenStage[stageName] {
+				seenStage[stageName] = true
+				stageOrder = append(stageOrder, stageName)
+			}
+			stageStatus[stageName] = mergeStageStatus(stageStatus[stageName], string(job.Status))
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		page = resp.NextPage
+	}
+	stages := make([]PipelineStage, 0, len(stageOrder))
+	for _, stage := range stageOrder {
+		status := stageStatus[stage]
+		if status == "" {
+			status = defaultStageStatus
+		}
+		stages = append(stages, PipelineStage{
+			Name:   stage,
+			Status: status,
+		})
+	}
+	return stages, nil
+}
+
 func ensureAPIBaseURL(host string) string {
 	host = strings.TrimSuffix(host, "/")
 	if strings.HasSuffix(host, "/api/v4") {
 		return host
 	}
 	return host + "/api/v4"
+}
+
+const defaultStageStatus = "unknown"
+
+var stageStatusPriority = map[string]int{
+	"failed":               0,
+	"canceled":             1,
+	"manual":               2,
+	"running":              3,
+	"pending":              4,
+	"waiting_for_resource": 4,
+	"scheduled":            4,
+	"created":              5,
+	"success":              6,
+	"skipped":              7,
+	"default":              8,
+	"unknown":              9,
+}
+
+func mergeStageStatus(current, candidate string) string {
+	candidate = normalizeStageStatus(candidate)
+	if current == "" {
+		return candidate
+	}
+	current = normalizeStageStatus(current)
+	if rank(candidate) < rank(current) {
+		return candidate
+	}
+	return current
+}
+
+func normalizeStageStatus(status string) string {
+	status = strings.TrimSpace(strings.ToLower(status))
+	if status == "" {
+		return defaultStageStatus
+	}
+	return status
+}
+
+func rank(status string) int {
+	if r, ok := stageStatusPriority[status]; ok {
+		return r
+	}
+	return stageStatusPriority["unknown"]
 }
