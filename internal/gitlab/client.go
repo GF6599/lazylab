@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -93,6 +94,15 @@ type PipelineSummary struct {
 type PipelineStage struct {
 	Name   string
 	Status string
+}
+
+// PipelineJob represents a single job in a pipeline.
+type PipelineJob struct {
+	ID     int
+	Name   string
+	Stage  string
+	Status string
+	WebURL string
 }
 
 // ErrNoPipelines indicates no pipeline runs were returned by GitLab.
@@ -245,6 +255,100 @@ func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) 
 		summary.UpdatedAt = *p.UpdatedAt
 	}
 	return summary, nil
+}
+
+// ListPipelines returns all pipelines for a project ordered by most recently updated.
+func (c *Client) ListPipelines(ctx context.Context, projectID int) ([]PipelineSummary, error) {
+	opts := &gl.ListProjectPipelinesOptions{
+		ListOptions: gl.ListOptions{
+			PerPage: 100,
+			Page:    1,
+		},
+		OrderBy: gl.String("updated_at"),
+		Sort:    gl.String("desc"),
+	}
+	var summaries []PipelineSummary
+	for {
+		pipelines, resp, err := c.api.Pipelines.ListProjectPipelines(projectID, opts, gl.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("list pipelines: %w", err)
+		}
+		for _, p := range pipelines {
+			summary := PipelineSummary{
+				ID:     p.ID,
+				Status: string(p.Status),
+				Ref:    p.Ref,
+				SHA:    p.SHA,
+				WebURL: p.WebURL,
+			}
+			if p.UpdatedAt != nil {
+				summary.UpdatedAt = *p.UpdatedAt
+			}
+			summaries = append(summaries, summary)
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	if len(summaries) == 0 {
+		return nil, ErrNoPipelines
+	}
+	return summaries, nil
+}
+
+// PipelineStages returns stage summaries for a pipeline.
+func (c *Client) PipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error) {
+	return c.collectPipelineStages(ctx, projectID, pipelineID)
+}
+
+// ListPipelineJobs returns all jobs for a pipeline.
+func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error) {
+	opts := &gl.ListJobsOptions{
+		ListOptions: gl.ListOptions{
+			PerPage: 100,
+			Page:    1,
+		},
+	}
+	var jobs []PipelineJob
+	page := 1
+	for {
+		opts.Page = page
+		items, resp, err := c.api.Jobs.ListPipelineJobs(projectID, pipelineID, opts, gl.WithContext(ctx))
+		if err != nil {
+			return nil, fmt.Errorf("list pipeline jobs: %w", err)
+		}
+		for _, job := range items {
+			jobs = append(jobs, PipelineJob{
+				ID:     job.ID,
+				Name:   job.Name,
+				Stage:  job.Stage,
+				Status: string(job.Status),
+				WebURL: job.WebURL,
+			})
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		page = resp.NextPage
+	}
+	if len(jobs) == 0 {
+		return nil, ErrNoPipelines
+	}
+	return jobs, nil
+}
+
+// GetJobTrace returns the log output for a job.
+func (c *Client) GetJobTrace(ctx context.Context, projectID, jobID int) (string, error) {
+	trace, _, err := c.api.Jobs.GetTraceFile(projectID, jobID, gl.WithContext(ctx))
+	if err != nil {
+		return "", fmt.Errorf("get job trace: %w", err)
+	}
+	data, err := io.ReadAll(trace)
+	if err != nil {
+		return "", fmt.Errorf("read job trace: %w", err)
+	}
+	return string(data), nil
 }
 
 func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error) {
