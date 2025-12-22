@@ -790,22 +790,25 @@ func (m Model) View() string {
 
 func renderListPane(m Model, width int) string {
 	b := &strings.Builder{}
-	title := titleStyle.Render(renderListTitle(m))
+	title := titleStyle.Render(clampLine(renderListTitle(m), width))
 	b.WriteString(title)
 	b.WriteString("\n")
 	if m.loading {
-		b.WriteString(" Loading projects...\n")
+		b.WriteString(clampLine(" Loading projects...", width))
+		b.WriteString("\n")
 	}
 	if m.err != nil {
-		b.WriteString(errorStyle.Render(" " + m.err.Error()))
+		b.WriteString(errorStyle.Render(clampLine(" "+m.err.Error(), width)))
 		b.WriteString("\n")
 	}
 	if len(m.allProjects) == 0 && !m.loading && m.err == nil {
-		b.WriteString(" No projects found.\n")
+		b.WriteString(clampLine(" No projects found.", width))
+		b.WriteString("\n")
 	}
 	visible := m.visibleProjects()
 	if m.search.query == "" && !m.pagesReady[m.page] && !m.loading {
-		b.WriteString(fmt.Sprintf(" Page %d is still loading...\n", m.page))
+		b.WriteString(clampLine(fmt.Sprintf(" Page %d is still loading...", m.page), width))
+		b.WriteString("\n")
 	}
 	for i, p := range visible {
 		cursor := " "
@@ -814,7 +817,7 @@ func renderListPane(m Model, width int) string {
 			cursor = ">"
 			style = selectedItemStyle
 		}
-		line := fmt.Sprintf("%s %s", cursor, truncate(p.PathWithNamespace, width-3))
+		line := clampLine(fmt.Sprintf("%s %s", cursor, p.PathWithNamespace), width)
 		b.WriteString(style.Render(line))
 		b.WriteString("\n")
 	}
@@ -823,10 +826,10 @@ func renderListPane(m Model, width int) string {
 		b.WriteString(progress)
 		b.WriteString("\n")
 	}
-	b.WriteString(renderSearchBar(m))
+	b.WriteString(renderSearchBar(m, width))
 	b.WriteString("\n")
 	if m.status != "" {
-		b.WriteString(statusStyle.Render(" " + m.status))
+		b.WriteString(statusStyle.Render(clampLine(" "+m.status, width)))
 		b.WriteString("\n")
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
@@ -834,35 +837,36 @@ func renderListPane(m Model, width int) string {
 
 func renderDetailPane(m Model, width int) string {
 	b := &strings.Builder{}
-	b.WriteString(titleStyle.Render("Details"))
+	b.WriteString(titleStyle.Render(clampLine("Details", width)))
 	b.WriteString("\n")
 	visible := m.visibleProjects()
 	if len(visible) == 0 {
-		b.WriteString(" Select a project to see more information.\n")
+		b.WriteString(clampLine(" Select a project to see more information.", width))
+		b.WriteString("\n")
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
 	project := visible[m.selected]
-	fmt.Fprintf(b, " Name: %s\n", project.Name)
-	fmt.Fprintf(b, " Path: %s\n", project.PathWithNamespace)
-	fmt.Fprintf(b, " Visibility: %s\n", project.Visibility)
-	fmt.Fprintf(b, " Stars: %d\n", project.StarCount)
+	writeDetailLine(b, fmt.Sprintf(" Name: %s", project.Name), width)
+	writeDetailLine(b, fmt.Sprintf(" Path: %s", project.PathWithNamespace), width)
+	writeDetailLine(b, fmt.Sprintf(" Visibility: %s", project.Visibility), width)
+	writeDetailLine(b, fmt.Sprintf(" Stars: %d", project.StarCount), width)
 	if !project.LastActivityAt.IsZero() {
-		fmt.Fprintf(b, " Last Activity: %s\n", project.LastActivityAt.Format(time.RFC1123))
+		writeDetailLine(b, fmt.Sprintf(" Last Activity: %s", project.LastActivityAt.Format(time.RFC1123)), width)
 	}
-	fmt.Fprintf(b, " URL: %s\n", project.WebURL)
+	writeDetailLine(b, fmt.Sprintf(" URL: %s", project.WebURL), width)
 	if project.DefaultBranch != "" {
-		fmt.Fprintf(b, " Default Branch: %s\n", project.DefaultBranch)
+		writeDetailLine(b, fmt.Sprintf(" Default Branch: %s", project.DefaultBranch), width)
 	}
 	if project.SSHURLToRepo != "" {
-		fmt.Fprintf(b, " Clone: git clone %s\n", project.SSHURLToRepo)
+		writeDetailLine(b, fmt.Sprintf(" Clone: git clone %s", project.SSHURLToRepo), width)
 	}
 	if project.Description != "" {
 		b.WriteString("\n")
-		b.WriteString(wrapText(project.Description, width))
+		b.WriteString(clampLines(wrapText(project.Description, width), width))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(renderPipelineSection(m, project, width))
+	b.WriteString(clampLines(renderPipelineSection(m, project, width), width))
 	b.WriteString("\n")
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
@@ -928,8 +932,11 @@ func renderPipelineSection(m Model, project gitlab.ProjectNode, width int) strin
 }
 
 func renderExplorerView(m Model, width int) string {
-	if width < 80 {
+	if width <= 0 {
 		width = 80
+	}
+	if width < 18 {
+		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for explorer view.")
 	}
 	parentWidth := max(6, width*20/100)
 	currentWidth := max(6, width*40/100)
@@ -1284,14 +1291,16 @@ func renderListTitle(m Model) string {
 	return fmt.Sprintf("Projects · Page %d/%d · Cached %d/%d pages", page, total, m.pagesLoaded, total)
 }
 
-func renderSearchBar(m Model) string {
+func renderSearchBar(m Model, width int) string {
+	var line string
 	if m.search.active {
-		return searchStyle.Render(m.search.input.View())
+		line = m.search.input.View()
+	} else if m.search.query != "" {
+		line = fmt.Sprintf("/ %s", m.search.query)
+	} else {
+		line = "/ (press / to search)"
 	}
-	if m.search.query != "" {
-		return searchStyle.Render(fmt.Sprintf("/ %s", m.search.query))
-	}
-	return searchStyle.Render("/ (press / to search)")
+	return searchStyle.Render(clampLine(line, width))
 }
 
 func renderProgressBar(m Model, width int) string {
@@ -1306,9 +1315,10 @@ func renderProgressBar(m Model, width int) string {
 	if loaded > total {
 		loaded = total
 	}
-	barWidth := width - 10
-	if barWidth < 10 {
-		barWidth = 10
+	label := fmt.Sprintf("Caching %d/%d pages ", loaded, total)
+	barWidth := width - lipgloss.Width(label) - 2
+	if barWidth < 6 {
+		return progressStyle.Render(clampLine(fmt.Sprintf("Caching %d/%d", loaded, total), width))
 	}
 	ratio := float64(loaded) / float64(total)
 	filled := int(ratio * float64(barWidth))
@@ -1316,7 +1326,7 @@ func renderProgressBar(m Model, width int) string {
 		filled = barWidth
 	}
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-	return progressStyle.Render(fmt.Sprintf("Caching %d/%d pages [%s]", loaded, total, bar))
+	return progressStyle.Render(clampLine(fmt.Sprintf("Caching %d/%d pages [%s]", loaded, total, bar), width))
 }
 
 func fuzzyMatch(target, pattern string) bool {
@@ -1416,4 +1426,43 @@ func fitLine(line string, width int) string {
 		line += strings.Repeat(" ", pad)
 	}
 	return line
+}
+
+func clampLine(line string, width int) string {
+	if width <= 0 {
+		return line
+	}
+	if lipgloss.Width(line) <= width {
+		return line
+	}
+	if width == 1 {
+		return "…"
+	}
+	var b strings.Builder
+	currentWidth := 0
+	for _, r := range line {
+		rw := lipgloss.Width(string(r))
+		if currentWidth+rw > width-1 {
+			break
+		}
+		b.WriteRune(r)
+		currentWidth += rw
+	}
+	return b.String() + "…"
+}
+
+func clampLines(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = clampLine(line, width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func writeDetailLine(b *strings.Builder, line string, width int) {
+	b.WriteString(clampLine(line, width))
+	b.WriteString("\n")
 }
