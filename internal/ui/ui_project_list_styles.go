@@ -1,0 +1,39 @@
+package ui
+
+import "github.com/charmbracelet/lipgloss"
+
+var (
+	titleStyle        = lipgloss.NewStyle().Bold(true)
+	itemStyle         = lipgloss.NewStyle()
+	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	statusStyle       = lipgloss.NewStyle().Faint(true)
+	errorStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	searchStyle       = lipgloss.NewStyle().Faint(true)
+	progressStyle     = lipgloss.NewStyle().Faint(true)
+	pipelineSuccess   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
+	pipelineFailed    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
+	pipelineRunning   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("208"))
+	pipelinePending   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("179"))
+	pipelineCanceled  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
+	pipelineSkipped   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("244"))
+	pipelineUnknown   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
+	rosePineText      = lipgloss.Color("#e0def4")
+	rosePineMuted     = lipgloss.Color("#6e6a86")
+	rosePineSubtle    = lipgloss.Color("#908caa")
+	rosePineOverlay   = lipgloss.Color("#26233a")
+	rosePineRose      = lipgloss.Color("#eb6f92")
+	rosePinePine      = lipgloss.Color("#31748f")
+	rosePineIris      = lipgloss.Color("#c4a7e7")
+	rosePineLove      = lipgloss.Color("#eb6f92")
+)
+
+var (
+	explorerBorderStyle   = lipgloss.NewStyle().Foreground(rosePineOverlay)
+	explorerHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)
+	explorerPathStyle     = lipgloss.NewStyle().Foreground(rosePineMuted)
+	explorerHintStyle     = lipgloss.NewStyle().Foreground(rosePineSubtle)
+	explorerErrorStyle    = lipgloss.NewStyle().Foreground(rosePineLove)
+	explorerDirStyle      = lipgloss.NewStyle().Foreground(rosePinePine)
+	explorerFileStyle     = lipgloss.NewStyle().Foreground(rosePineText)
+	explorerSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(rosePineRose)
+)
