@@ -243,7 +243,7 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 			if entry.IsDir() {
 				name += "/"
 			}
-			builder.WriteString(name)
+			builder.WriteString(fmt.Sprintf("%s %s", explorerEntryIcon(entry), name))
 			builder.WriteString("\n")
 		}
 		m.explorer.preview = previewState{
@@ -981,36 +981,51 @@ func renderExplorerView(m Model, width int) string {
 	previewLines := normalizeColumn(renderExplorerPreview(m, previewWidth-2), previewWidth-2, contentHeight)
 
 	var b strings.Builder
-	b.WriteString("┌" + strings.Repeat("─", parentWidth-2) + "┬" + strings.Repeat("─", currentWidth-2) + "┬" + strings.Repeat("─", previewWidth-2) + "┐\n")
+	b.WriteString(explorerBorderStyle.Render("┌" + strings.Repeat("─", parentWidth-2) + "┬" + strings.Repeat("─", currentWidth-2) + "┬" + strings.Repeat("─", previewWidth-2) + "┐"))
+	b.WriteString("\n")
 	for i := 0; i < contentHeight; i++ {
-		fmt.Fprintf(&b, "│%s│%s│%s│\n", parentLines[i], currentLines[i], previewLines[i])
+		fmt.Fprintf(&b, "%s%s%s%s%s%s%s\n",
+			explorerBorderStyle.Render("│"),
+			parentLines[i],
+			explorerBorderStyle.Render("│"),
+			currentLines[i],
+			explorerBorderStyle.Render("│"),
+			previewLines[i],
+			explorerBorderStyle.Render("│"),
+		)
 	}
-	b.WriteString("└" + strings.Repeat("─", parentWidth-2) + "┴" + strings.Repeat("─", currentWidth-2) + "┴" + strings.Repeat("─", previewWidth-2) + "┘")
+	b.WriteString(explorerBorderStyle.Render("└" + strings.Repeat("─", parentWidth-2) + "┴" + strings.Repeat("─", currentWidth-2) + "┴" + strings.Repeat("─", previewWidth-2) + "┘"))
 	return b.String()
 }
 
 func renderExplorerParents(m Model, width int) string {
 	b := &strings.Builder{}
-	b.WriteString("Parents\n")
+	b.WriteString(explorerHeaderStyle.Render(clampLine("Parents", width)))
+	b.WriteString("\n")
 	parent := m.parentDirState()
 	if parent == nil {
-		b.WriteString(" (root)\n")
+		b.WriteString(explorerHintStyle.Render(clampLine(" (root)", width)))
+		b.WriteString("\n")
 		return b.String()
 	}
 	pathLabel := parent.path
 	if pathLabel == "" {
 		pathLabel = "/"
 	}
-	fmt.Fprintf(b, "Path: %s\n", pathLabel)
+	b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Path: %s", pathLabel), width)))
+	b.WriteString("\n")
 	if parent.loading {
-		b.WriteString(" Loading...\n")
+		b.WriteString(explorerHintStyle.Render(clampLine(" Loading...", width)))
+		b.WriteString("\n")
 	}
 	if parent.err != nil {
-		b.WriteString(" " + parent.err.Error() + "\n")
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+parent.err.Error(), width)))
+		b.WriteString("\n")
 		return b.String()
 	}
 	if len(parent.entries) == 0 {
-		b.WriteString(" (empty)\n")
+		b.WriteString(explorerHintStyle.Render(clampLine(" (empty)", width)))
+		b.WriteString("\n")
 		return b.String()
 	}
 	for i, entry := range parent.entries {
@@ -1022,8 +1037,8 @@ func renderExplorerParents(m Model, width int) string {
 		if entry.IsDir() {
 			name += "/"
 		}
-		line := fmt.Sprintf("%s%s", cursor, truncate(name, width-1))
-		b.WriteString(line)
+		line := clampLine(fmt.Sprintf("%s%s %s", cursor, explorerEntryIcon(entry), name), width)
+		b.WriteString(renderExplorerEntryLine(line, entry.IsDir(), i == parent.selected))
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -1032,27 +1047,32 @@ func renderExplorerParents(m Model, width int) string {
 func renderExplorerCurrent(m Model, width int) string {
 	b := &strings.Builder{}
 	title := fmt.Sprintf("Explorer · %s @ %s", m.explorer.project.PathWithNamespace, displayRef(m.explorer))
-	b.WriteString(title)
+	b.WriteString(explorerHeaderStyle.Render(clampLine(title, width)))
 	b.WriteString("\n")
 	cur := m.currentDirState()
 	if cur == nil {
-		b.WriteString(" No directory selected.\n")
+		b.WriteString(explorerHintStyle.Render(clampLine(" No directory selected.", width)))
+		b.WriteString("\n")
 		return b.String()
 	}
 	pathLabel := cur.path
 	if pathLabel == "" {
 		pathLabel = "/"
 	}
-	fmt.Fprintf(b, "Path: %s\n", pathLabel)
+	b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Path: %s", pathLabel), width)))
+	b.WriteString("\n")
 	if cur.loading {
-		b.WriteString(" Loading directory...\n")
+		b.WriteString(explorerHintStyle.Render(clampLine(" Loading directory...", width)))
+		b.WriteString("\n")
 	}
 	if cur.err != nil {
-		b.WriteString(" " + cur.err.Error() + "\n")
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+cur.err.Error(), width)))
+		b.WriteString("\n")
 		return b.String()
 	}
 	if len(cur.entries) == 0 && !cur.loading && cur.err == nil {
-		b.WriteString(" Directory is empty.\n")
+		b.WriteString(explorerHintStyle.Render(clampLine(" Directory is empty.", width)))
+		b.WriteString("\n")
 	}
 	for i, entry := range cur.entries {
 		cursor := " "
@@ -1063,28 +1083,33 @@ func renderExplorerCurrent(m Model, width int) string {
 		if entry.IsDir() {
 			name += "/"
 		}
-		line := fmt.Sprintf("%s%s", cursor, truncate(name, width-1))
-		b.WriteString(line)
+		line := clampLine(fmt.Sprintf("%s%s %s", cursor, explorerEntryIcon(entry), name), width)
+		b.WriteString(renderExplorerEntryLine(line, entry.IsDir(), i == cur.selected))
 		b.WriteString("\n")
 	}
-	b.WriteString("Enter/→ descend · ←/Esc up\n")
+	b.WriteString(explorerHintStyle.Render(clampLine("Enter/→ descend · ←/Esc up", width)))
+	b.WriteString("\n")
 	return b.String()
 }
 
 func renderExplorerPreview(m Model, width int) string {
 	b := &strings.Builder{}
-	b.WriteString("Preview\n")
+	b.WriteString(explorerHeaderStyle.Render(clampLine("Preview", width)))
+	b.WriteString("\n")
 	preview := m.explorer.preview
 	if preview.loading {
-		b.WriteString(" Loading file preview...\n")
+		b.WriteString(explorerHintStyle.Render(clampLine(" Loading file preview...", width)))
+		b.WriteString("\n")
 		return b.String()
 	}
 	if preview.err != nil {
-		b.WriteString(" " + preview.err.Error() + "\n")
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+preview.err.Error(), width)))
+		b.WriteString("\n")
 		return b.String()
 	}
 	if preview.content == "" {
-		b.WriteString(" Select a file to preview.\n")
+		b.WriteString(explorerHintStyle.Render(clampLine(" Select a file to preview.", width)))
+		b.WriteString("\n")
 		return b.String()
 	}
 	lines := strings.Split(preview.content, "\n")
@@ -1110,6 +1135,30 @@ func renderExplorerPreview(m Model, width int) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
+func renderExplorerEntryLine(line string, isDir, selected bool) string {
+	style := explorerFileStyle
+	if isDir {
+		style = explorerDirStyle
+	}
+	if selected {
+		style = explorerSelectedStyle
+	}
+	return style.Render(line)
+}
+
+func explorerEntryIcon(entry gitlab.TreeNode) string {
+	switch entry.Type {
+	case "tree":
+		return "📁"
+	case "commit":
+		return "🔗"
+	case "blob":
+		return "📄"
+	default:
+		return "•"
+	}
+}
+
 var (
 	titleStyle        = lipgloss.NewStyle().Bold(true)
 	itemStyle         = lipgloss.NewStyle()
@@ -1118,6 +1167,25 @@ var (
 	errorStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	searchStyle       = lipgloss.NewStyle().Faint(true)
 	progressStyle     = lipgloss.NewStyle().Faint(true)
+	rosePineText      = lipgloss.Color("#e0def4")
+	rosePineMuted     = lipgloss.Color("#6e6a86")
+	rosePineSubtle    = lipgloss.Color("#908caa")
+	rosePineOverlay   = lipgloss.Color("#26233a")
+	rosePineRose      = lipgloss.Color("#eb6f92")
+	rosePinePine      = lipgloss.Color("#31748f")
+	rosePineIris      = lipgloss.Color("#c4a7e7")
+	rosePineLove      = lipgloss.Color("#eb6f92")
+)
+
+var (
+	explorerBorderStyle   = lipgloss.NewStyle().Foreground(rosePineOverlay)
+	explorerHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)
+	explorerPathStyle     = lipgloss.NewStyle().Foreground(rosePineMuted)
+	explorerHintStyle     = lipgloss.NewStyle().Foreground(rosePineSubtle)
+	explorerErrorStyle    = lipgloss.NewStyle().Foreground(rosePineLove)
+	explorerDirStyle      = lipgloss.NewStyle().Foreground(rosePinePine)
+	explorerFileStyle     = lipgloss.NewStyle().Foreground(rosePineText)
+	explorerSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(rosePineRose)
 )
 
 const maxPreviewLen = 8000
