@@ -86,6 +86,7 @@ type previewState struct {
 	err            error
 	highlighted    bool
 	highlightWidth int
+	offset         int
 }
 
 type explorerState struct {
@@ -155,6 +156,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.refreshPreviewHighlight()
+		m.clampPreviewOffset()
 	case tea.KeyMsg:
 		if m.mode == modeExplorer {
 			return m.handleExplorerKey(msg)
@@ -250,6 +252,7 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 			path:    msg.path,
 			content: builder.String(),
 			loading: false,
+			offset:  0,
 		}
 		return m, nil
 	}
@@ -310,6 +313,7 @@ func (m Model) handleFileLoaded(msg fileLoadedMsg) (tea.Model, tea.Cmd) {
 		m.explorer.preview.highlighted = false
 		m.explorer.preview.highlightWidth = 0
 	}
+	m.explorer.preview.offset = 0
 	return m, nil
 }
 
@@ -525,6 +529,14 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.closeExplorer("Back to projects")
 		return m, nil
+	case "J":
+		if m.scrollPreview(1) {
+			return m, nil
+		}
+	case "K":
+		if m.scrollPreview(-1) {
+			return m, nil
+		}
 	case "down", "j":
 		if cur.selected < len(cur.entries)-1 {
 			cur.selected++
@@ -758,6 +770,7 @@ func (m *Model) queueExplorerPreview() tea.Cmd {
 		m.explorer.preview = previewState{
 			path:    entry.Path,
 			loading: true,
+			offset:  0,
 		}
 		return fetchTreeCmd(m.client, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
 	}
@@ -767,7 +780,7 @@ func (m *Model) queueExplorerPreview() tea.Cmd {
 	if !m.explorer.preview.loading && m.explorer.preview.path == entry.Path && m.explorer.preview.content != "" && m.explorer.preview.err == nil {
 		return nil
 	}
-	m.explorer.preview = previewState{path: entry.Path, loading: true}
+	m.explorer.preview = previewState{path: entry.Path, loading: true, offset: 0}
 	return fetchFileCmd(m.client, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
 }
 
@@ -978,7 +991,7 @@ func renderExplorerView(m Model, width int) string {
 	contentHeight := height - 2
 	parentLines := normalizeColumn(renderExplorerParents(m, parentWidth-2), parentWidth-2, contentHeight)
 	currentLines := normalizeColumn(renderExplorerCurrent(m, currentWidth-2), currentWidth-2, contentHeight)
-	previewLines := normalizeColumn(renderExplorerPreview(m, previewWidth-2), previewWidth-2, contentHeight)
+	previewLines := normalizeColumn(renderExplorerPreview(m, previewWidth-2, contentHeight), previewWidth-2, contentHeight)
 
 	var b strings.Builder
 	b.WriteString(explorerBorderStyle.Render("┌" + strings.Repeat("─", parentWidth-2) + "┬" + strings.Repeat("─", currentWidth-2) + "┬" + strings.Repeat("─", previewWidth-2) + "┐"))
@@ -1092,7 +1105,7 @@ func renderExplorerCurrent(m Model, width int) string {
 	return b.String()
 }
 
-func renderExplorerPreview(m Model, width int) string {
+func renderExplorerPreview(m Model, width, height int) string {
 	b := &strings.Builder{}
 	b.WriteString(explorerHeaderStyle.Render(clampLine("Preview", width)))
 	b.WriteString("\n")
@@ -1112,25 +1125,22 @@ func renderExplorerPreview(m Model, width int) string {
 		b.WriteString("\n")
 		return b.String()
 	}
-	lines := strings.Split(preview.content, "\n")
-	maxLines := 200
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
-		lines = append(lines, "… (truncated) …")
+	contentLines := previewContentLines(preview, width)
+	visibleHeight := max(0, height-1)
+	maxOffset := max(0, len(contentLines)-visibleHeight)
+	offset := preview.offset
+	if offset < 0 {
+		offset = 0
 	}
-	if preview.highlighted {
-		for _, line := range lines {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-		return strings.TrimSuffix(b.String(), "\n")
+	if offset > maxOffset {
+		offset = maxOffset
 	}
-	for _, line := range lines {
-		wrapped := wrapPreviewLine(line, width)
-		for _, segment := range wrapped {
-			b.WriteString(segment)
-			b.WriteString("\n")
-		}
+	if visibleHeight > 0 && len(contentLines) > visibleHeight {
+		contentLines = contentLines[offset:min(offset+visibleHeight, len(contentLines))]
+	}
+	for _, line := range contentLines {
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -1669,6 +1679,66 @@ func previewContentWidth(width int) int {
 	return contentWidth
 }
 
+func previewContentHeight(height int) int {
+	if height <= 5 {
+		height = 5
+	}
+	return height - 2
+}
+
+func previewContentLines(preview previewState, width int) []string {
+	if preview.content == "" {
+		return nil
+	}
+	lines := strings.Split(preview.content, "\n")
+	maxLines := 200
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		lines = append(lines, "… (truncated) …")
+	}
+	if preview.highlighted {
+		return lines
+	}
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		segments := wrapPreviewLine(line, width)
+		wrapped = append(wrapped, segments...)
+	}
+	return wrapped
+}
+
+func (m *Model) scrollPreview(delta int) bool {
+	preview := &m.explorer.preview
+	if preview.raw == "" || preview.loading || preview.err != nil || preview.content == "" {
+		return false
+	}
+	height := previewContentHeight(m.height)
+	visibleHeight := max(0, height-1)
+	if visibleHeight <= 0 {
+		return false
+	}
+	width := previewContentWidth(m.width)
+	contentLines := previewContentLines(*preview, width)
+	maxOffset := max(0, len(contentLines)-visibleHeight)
+	if maxOffset == 0 {
+		preview.offset = 0
+		return false
+	}
+	step := max(1, visibleHeight/2)
+	next := preview.offset + (delta * step)
+	if next < 0 {
+		next = 0
+	}
+	if next > maxOffset {
+		next = maxOffset
+	}
+	if next == preview.offset {
+		return false
+	}
+	preview.offset = next
+	return true
+}
+
 func (m *Model) refreshPreviewHighlight() {
 	if m.mode != modeExplorer {
 		return
@@ -1691,4 +1761,36 @@ func (m *Model) refreshPreviewHighlight() {
 		preview.highlighted = true
 		preview.highlightWidth = width
 	}
+	m.clampPreviewOffset()
+}
+
+func (m *Model) clampPreviewOffset() {
+	preview := &m.explorer.preview
+	if preview.raw == "" || preview.loading || preview.content == "" {
+		preview.offset = 0
+		return
+	}
+	height := previewContentHeight(m.height)
+	visibleHeight := max(0, height-1)
+	if visibleHeight <= 0 {
+		preview.offset = 0
+		return
+	}
+	width := previewContentWidth(m.width)
+	contentLines := previewContentLines(*preview, width)
+	maxOffset := max(0, len(contentLines)-visibleHeight)
+	if preview.offset < 0 {
+		preview.offset = 0
+		return
+	}
+	if preview.offset > maxOffset {
+		preview.offset = maxOffset
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

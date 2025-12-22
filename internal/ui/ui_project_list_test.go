@@ -201,7 +201,7 @@ func TestRenderExplorerPreviewWrapsLongLines(t *testing.T) {
 		},
 	}
 	const width = 10
-	out := renderExplorerPreview(m, width)
+	out := renderExplorerPreview(m, width, 6)
 	lines := strings.Split(out, "\n")
 	if len(lines) <= 1 {
 		t.Fatalf("expected preview output lines, got %q", out)
