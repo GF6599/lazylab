@@ -1,15 +1,20 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"gitlab-tui-codex/internal/gitlab"
@@ -74,10 +79,13 @@ type dirState struct {
 }
 
 type previewState struct {
-	path    string
-	content string
-	loading bool
-	err     error
+	path           string
+	content        string
+	raw            string
+	loading        bool
+	err            error
+	highlighted    bool
+	highlightWidth int
 }
 
 type explorerState struct {
@@ -146,6 +154,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.refreshPreviewHighlight()
 	case tea.KeyMsg:
 		if m.mode == modeExplorer {
 			return m.handleExplorerKey(msg)
@@ -279,11 +288,28 @@ func (m Model) handleFileLoaded(msg fileLoadedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.explorer.preview.err = msg.err
 		m.explorer.preview.content = ""
+		m.explorer.preview.raw = ""
+		m.explorer.preview.highlighted = false
+		m.explorer.preview.highlightWidth = 0
 		m.status = "Failed to load file"
 		return m, nil
 	}
+	width := previewContentWidth(m.width)
+	highlighted, isHighlighted, err := highlightPreviewContent(msg.path, msg.content, width)
+	if err != nil && m.opts.Logger != nil {
+		m.opts.Logger.Debug("highlight preview", "err", err)
+	}
 	m.explorer.preview.err = nil
-	m.explorer.preview.content = clipPreview(msg.content)
+	m.explorer.preview.raw = msg.content
+	if isHighlighted {
+		m.explorer.preview.content = highlighted
+		m.explorer.preview.highlighted = true
+		m.explorer.preview.highlightWidth = width
+	} else {
+		m.explorer.preview.content = msg.content
+		m.explorer.preview.highlighted = false
+		m.explorer.preview.highlightWidth = 0
+	}
 	return m, nil
 }
 
@@ -1067,6 +1093,13 @@ func renderExplorerPreview(m Model, width int) string {
 		lines = lines[:maxLines]
 		lines = append(lines, "… (truncated) …")
 	}
+	if preview.highlighted {
+		for _, line := range lines {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		return strings.TrimSuffix(b.String(), "\n")
+	}
 	for _, line := range lines {
 		wrapped := wrapPreviewLine(line, width)
 		for _, segment := range wrapped {
@@ -1136,6 +1169,89 @@ func clipPreview(s string) string {
 		return s
 	}
 	return s[:maxPreviewLen] + "\n… truncated …"
+}
+
+func highlightPreviewContent(path, content string, width int) (string, bool, error) {
+	if content == "" {
+		return "", false, nil
+	}
+	if width <= 0 {
+		width = 80
+	}
+	if highlighted, err := highlightWithBat(path, content, width); err == nil {
+		return highlighted, true, nil
+	}
+	if highlighted, err := highlightWithGlamour(path, content, width); err == nil {
+		return highlighted, true, nil
+	}
+	return content, false, nil
+}
+
+func highlightWithBat(path, content string, width int) (string, error) {
+	batPath, err := exec.LookPath("bat")
+	if err != nil {
+		batPath, err = exec.LookPath("batcat")
+		if err != nil {
+			return "", err
+		}
+	}
+	args := []string{
+		"--color=always",
+		"--style=plain",
+		"--paging=never",
+		"--wrap=character",
+		"--terminal-width",
+		strconv.Itoa(width),
+	}
+	if path != "" {
+		args = append(args, "--file-name", path)
+	}
+	cmd := exec.Command(batPath, args...)
+	cmd.Stdin = strings.NewReader(content)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(out.String(), "\n"), nil
+}
+
+func highlightWithGlamour(path, content string, width int) (string, error) {
+	lang := languageFromPath(path)
+	fence := "```"
+	for strings.Contains(content, fence) {
+		fence += "`"
+	}
+	header := fence
+	if lang != "" {
+		header += lang
+	}
+	markdown := header + "\n" + content + "\n" + fence + "\n"
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return "", err
+	}
+	out, err := renderer.Render(markdown)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(out, "\n"), nil
+}
+
+func languageFromPath(path string) string {
+	base := filepath.Base(path)
+	switch base {
+	case "Dockerfile":
+		return "dockerfile"
+	case "Makefile":
+		return "makefile"
+	}
+	ext := strings.TrimPrefix(filepath.Ext(base), ".")
+	return ext
 }
 
 func wrapPreviewLine(line string, width int) []string {
@@ -1465,4 +1581,46 @@ func clampLines(text string, width int) string {
 func writeDetailLine(b *strings.Builder, line string, width int) {
 	b.WriteString(clampLine(line, width))
 	b.WriteString("\n")
+}
+
+func previewContentWidth(width int) int {
+	if width <= 0 {
+		width = 80
+	}
+	parentWidth := max(6, width*20/100)
+	currentWidth := max(6, width*40/100)
+	previewWidth := width - parentWidth - currentWidth
+	if previewWidth < 6 {
+		previewWidth = 6
+		currentWidth = max(6, width-parentWidth-previewWidth)
+	}
+	contentWidth := previewWidth - 2
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	return contentWidth
+}
+
+func (m *Model) refreshPreviewHighlight() {
+	if m.mode != modeExplorer {
+		return
+	}
+	preview := &m.explorer.preview
+	if preview.raw == "" || preview.loading || !preview.highlighted {
+		return
+	}
+	width := previewContentWidth(m.width)
+	if preview.highlightWidth == width {
+		return
+	}
+	highlighted, isHighlighted, err := highlightPreviewContent(preview.path, preview.raw, width)
+	if err != nil && m.opts.Logger != nil {
+		m.opts.Logger.Debug("rehighlight preview", "err", err)
+		return
+	}
+	if isHighlighted {
+		preview.content = highlighted
+		preview.highlighted = true
+		preview.highlightWidth = width
+	}
 }
