@@ -488,11 +488,6 @@ func previewContentLines(preview previewState, width int) []string {
 		return nil
 	}
 	lines := strings.Split(preview.content, "\n")
-	maxLines := 200
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
-		lines = append(lines, "… (truncated) …")
-	}
 	if preview.highlighted {
 		return lines
 	}
