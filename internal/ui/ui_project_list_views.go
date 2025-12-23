@@ -24,37 +24,52 @@ func (m Model) View() string {
 	case modePipelines:
 		return renderPipelineView(m, width)
 	}
-	listWidth := width / 2
-	detailWidth := width - listWidth
-
-	left := renderListPane(m, listWidth)
-	right := renderDetailPane(m, detailWidth)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	return renderProjectsView(m, width)
 }
 
-func renderListPane(m Model, width int) string {
+func renderProjectsView(m Model, width int) string {
+	if width <= 0 {
+		width = 80
+	}
+	if width < 50 {
+		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for project view.")
+	}
+	height := m.height
+	if height <= 5 {
+		height = 5
+	}
+	listWidth := max(24, width*45/100)
+	detailWidth := width - listWidth
+	if detailWidth < 24 {
+		detailWidth = 24
+		listWidth = max(24, width-detailWidth)
+	}
+	contentHeight := height - 2
+	listLines := normalizeColumn(renderListPane(m, listWidth-2, contentHeight), listWidth-2, contentHeight)
+	detailLines := normalizeColumn(renderDetailPane(m, detailWidth-2, contentHeight), detailWidth-2, contentHeight)
+
+	var b strings.Builder
+	b.WriteString(explorerBorderStyle.Render("╔" + strings.Repeat("═", listWidth-2) + "╦" + strings.Repeat("═", detailWidth-2) + "╗"))
+	b.WriteString("\n")
+	for i := 0; i < contentHeight; i++ {
+		fmt.Fprintf(&b, "%s%s%s%s%s\n",
+			explorerBorderStyle.Render("║"),
+			listLines[i],
+			explorerBorderStyle.Render("║"),
+			detailLines[i],
+			explorerBorderStyle.Render("║"),
+		)
+	}
+	b.WriteString(explorerBorderStyle.Render("╚" + strings.Repeat("═", listWidth-2) + "╩" + strings.Repeat("═", detailWidth-2) + "╝"))
+	return b.String()
+}
+
+func renderListPane(m Model, width, height int) string {
 	b := &strings.Builder{}
 	title := titleStyle.Render(clampLine(renderListTitle(m), width))
 	b.WriteString(title)
 	b.WriteString("\n")
-	if m.loading {
-		b.WriteString(clampLine(" Loading projects...", width))
-		b.WriteString("\n")
-	}
-	if m.err != nil {
-		b.WriteString(errorStyle.Render(clampLine(" "+m.err.Error(), width)))
-		b.WriteString("\n")
-	}
-	if len(m.allProjects) == 0 && !m.loading && m.err == nil {
-		b.WriteString(clampLine(" No projects found.", width))
-		b.WriteString("\n")
-	}
 	visible := m.visibleProjects()
-	if m.search.query == "" && !m.pagesReady[m.page] && !m.loading {
-		b.WriteString(clampLine(fmt.Sprintf(" Page %d is still loading...", m.page), width))
-		b.WriteString("\n")
-	}
 	for i, p := range visible {
 		cursor := " "
 		style := itemStyle
@@ -66,24 +81,33 @@ func renderListPane(m Model, width int) string {
 		b.WriteString(style.Render(line))
 		b.WriteString("\n")
 	}
-	progress := renderProgressBar(m, width)
-	if progress != "" {
-		b.WriteString(progress)
-		b.WriteString("\n")
+	content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
+	bottomLines := make([]string, 0, 5)
+	switch {
+	case m.err != nil:
+		bottomLines = append(bottomLines, errorStyle.Render(clampLine(" "+m.err.Error(), width)))
+	case len(m.allProjects) == 0 && !m.loading:
+		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(" No projects found.", width)))
+	case m.loading && len(m.allProjects) == 0:
+		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(" Loading projects...", width)))
+	case m.search.query == "" && !m.pagesReady[m.page] && !m.loading:
+		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(fmt.Sprintf(" Page %d is still loading...", m.page), width)))
 	}
-	b.WriteString(renderSearchBar(m, width))
-	b.WriteString("\n")
+	if progress := renderProgressBar(m, width); progress != "" {
+		bottomLines = append(bottomLines, progress)
+	}
 	if m.status != "" {
-		b.WriteString(statusStyle.Render(clampLine(" "+m.status, width)))
-		b.WriteString("\n")
+		bottomLines = append(bottomLines, statusStyle.Render(clampLine(" "+m.status, width)))
 	}
-	return lipgloss.NewStyle().Width(width).Render(b.String())
+	bottomLines = append(bottomLines, renderSearchBar(m, width))
+	bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine("Enter actions · / search · Ctrl+D/U page · </> jump", width)))
+	return renderWithBottomLines(content, bottomLines, height)
 }
 
-func renderDetailPane(m Model, width int) string {
+func renderDetailPane(m Model, width, height int) string {
 	b := &strings.Builder{}
-	b.WriteString(titleStyle.Render(clampLine("Details", width)))
-	b.WriteString("\n")
+	b.WriteString(detailHeaderStyle.Render(clampLine("Details", width)))
+	b.WriteString("\n\n")
 	visible := m.visibleProjects()
 	if len(visible) == 0 {
 		b.WriteString(clampLine(" Select a project to see more information.", width))
@@ -91,37 +115,52 @@ func renderDetailPane(m Model, width int) string {
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
 	project := visible[m.selected]
-	writeDetailLine(b, fmt.Sprintf(" Name: %s", project.Name), width)
-	writeDetailLine(b, fmt.Sprintf(" Path: %s", project.PathWithNamespace), width)
-	writeDetailLine(b, fmt.Sprintf(" Visibility: %s", project.Visibility), width)
-	writeDetailLine(b, fmt.Sprintf(" Stars: %d", project.StarCount), width)
+	writeDetailSection(b, "Project", width)
+	writeDetailKV(b, "Name", project.Name, width)
+	writeDetailKV(b, "Path", project.PathWithNamespace, width)
+	writeDetailKV(b, "Visibility", project.Visibility, width)
+	writeDetailKV(b, "Stars", fmt.Sprintf("%d", project.StarCount), width)
 	if !project.LastActivityAt.IsZero() {
-		writeDetailLine(b, fmt.Sprintf(" Last Activity: %s", project.LastActivityAt.Format(time.RFC1123)), width)
+		writeDetailKV(b, "Last Activity", project.LastActivityAt.Format(time.RFC1123), width)
 	}
-	writeDetailLine(b, fmt.Sprintf(" URL: %s", project.WebURL), width)
 	if project.DefaultBranch != "" {
-		writeDetailLine(b, fmt.Sprintf(" Default Branch: %s", project.DefaultBranch), width)
+		writeDetailKV(b, "Default Branch", project.DefaultBranch, width)
 	}
+	writeDetailDivider(b, width)
+
+	writeDetailSection(b, "Links", width)
+	writeDetailKV(b, "URL", project.WebURL, width)
 	if project.SSHURLToRepo != "" {
-		writeDetailLine(b, fmt.Sprintf(" Clone: git clone %s", project.SSHURLToRepo), width)
+		writeDetailKV(b, "Clone", fmt.Sprintf("git clone %s", project.SSHURLToRepo), width)
 	}
 	if project.Description != "" {
-		b.WriteString("\n")
-		b.WriteString(clampLines(wrapText(project.Description, width), width))
+		writeDetailDivider(b, width)
+		writeDetailSection(b, "Description", width)
+		desc := clampLines(wrapText(project.Description, width), width)
+		for _, line := range strings.Split(desc, "\n") {
+			b.WriteString(detailValueStyle.Render(line))
+			b.WriteString("\n")
+		}
+	}
+	writeDetailDivider(b, width)
+	writeDetailSection(b, "Pipeline", width)
+	pipe := clampLines(renderPipelineSection(m, project, width), width)
+	for _, line := range strings.Split(strings.TrimSuffix(pipe, "\n"), "\n") {
+		b.WriteString(detailValueStyle.Render(line))
 		b.WriteString("\n")
 	}
-	b.WriteString("\n")
-	b.WriteString(clampLines(renderPipelineSection(m, project, width), width))
-	b.WriteString("\n")
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
-func renderPipelineListPane(m Model, width int) string {
+func renderPipelineListPane(m Model, width, height int) string {
 	b := &strings.Builder{}
 	title := fmt.Sprintf("Pipelines · %s", m.pipelineView.project.PathWithNamespace)
+	if m.pipelineView.loading && len(m.pipelineView.pipelines) > 0 {
+		title += " (refreshing)"
+	}
 	header := explorerHeaderStyle
 	if m.pipelineView.focus == pipelineFocusPipelines {
-		header = explorerHeaderStyle.Bold(true)
+		header = explorerFocusHeaderStyle
 	}
 	b.WriteString(header.Render(clampLine(title, width)))
 	b.WriteString("\n")
@@ -151,25 +190,36 @@ func renderPipelineListPane(m Model, width int) string {
 		b.WriteString(renderPipelineEntryLine(line, i == m.pipelineView.selected, m.pipelineView.focus == pipelineFocusPipelines))
 		b.WriteString("\n")
 	}
-	b.WriteString("\n")
-	b.WriteString(explorerHintStyle.Render(clampLine(" ← back · → stages · r refresh", width)))
-	b.WriteString("\n")
-	return lipgloss.NewStyle().Width(width).Render(b.String())
+	content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
+	hint := explorerHintStyle.Render(clampLine(" ← back · → stages · r refresh · Ctrl+D/U page · </> jump", width))
+	return renderWithBottomHint(content, hint, height)
 }
 
-func renderPipelineStagesPane(m Model, width int) string {
+func renderPipelineStagesPane(m Model, width, height int) string {
 	b := &strings.Builder{}
+	pipeline := m.selectedPipeline()
+	title := "Stages"
 	header := explorerHeaderStyle
 	if m.pipelineView.focus == pipelineFocusStages {
-		header = explorerHeaderStyle.Bold(true)
+		header = explorerFocusHeaderStyle
 	}
-	b.WriteString(header.Render(clampLine("Stages", width)))
+	if pipeline != nil {
+		stages := m.pipelineView.stageCache[pipeline.ID]
+		if m.pipelineView.stageLoading[pipeline.ID] && len(stages) > 0 {
+			title += " (refreshing)"
+		}
+	}
+	b.WriteString(header.Render(clampLine(title, width)))
 	b.WriteString("\n")
-	pipeline := m.selectedPipeline()
+	hint := explorerHintStyle.Render(clampLine(" ↑/↓ stages · ← pipelines · J/K scroll logs · Ctrl+D/U page · </> jump", width))
+	finalize := func() string {
+		content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
+		return renderWithBottomHint(content, hint, height)
+	}
 	if pipeline == nil {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Select a pipeline to see stages.", width)))
 		b.WriteString("\n")
-		return lipgloss.NewStyle().Width(width).Render(b.String())
+		return finalize()
 	}
 	b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Pipeline: #%d", pipeline.ID), width)))
 	b.WriteString("\n")
@@ -182,7 +232,7 @@ func renderPipelineStagesPane(m Model, width int) string {
 	if m.pipelineView.stageLoading[pipeline.ID] && len(stages) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading stages...", width)))
 		b.WriteString("\n")
-		return lipgloss.NewStyle().Width(width).Render(b.String())
+		return finalize()
 	}
 	if m.pipelineView.jobsLoading[pipeline.ID] && len(jobs) == 0 && len(stages) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading jobs...", width)))
@@ -196,13 +246,13 @@ func renderPipelineStagesPane(m Model, width int) string {
 		b.WriteString(explorerErrorStyle.Render(clampLine(" "+err.Error(), width)))
 		b.WriteString("\n")
 		if len(stages) == 0 {
-			return lipgloss.NewStyle().Width(width).Render(b.String())
+			return finalize()
 		}
 	}
 	if len(stages) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" No stage data available.", width)))
 		b.WriteString("\n")
-		return lipgloss.NewStyle().Width(width).Render(b.String())
+		return finalize()
 	}
 	for i, stage := range stages {
 		cursor := " "
@@ -218,18 +268,31 @@ func renderPipelineStagesPane(m Model, width int) string {
 		b.WriteString(renderPipelineEntryLine(clampLine(stageLine, width), i == m.pipelineView.stageSelected, m.pipelineView.focus == pipelineFocusStages))
 		b.WriteString("\n")
 	}
-	b.WriteString(explorerHintStyle.Render(clampLine(" ↑/↓ stages · ← pipelines · J/K scroll logs", width)))
-	b.WriteString("\n")
-	return lipgloss.NewStyle().Width(width).Render(b.String())
+	return finalize()
 }
 
 func renderPipelineLogPane(m Model, width, height int) string {
 	b := &strings.Builder{}
 	title := "Log Preview"
-	if job := m.pipelineLogJob(); job != nil {
+	job := m.pipelineLogJob()
+	if job != nil {
 		title = fmt.Sprintf("Log · %s", job.Name)
 	}
-	b.WriteString(explorerHeaderStyle.Render(clampLine(title, width)))
+	if job != nil {
+		if m.pipelineView.logAutoFollow {
+			title += " [LIVE]"
+		} else {
+			title += " [PAUSED]"
+		}
+	}
+	if m.pipelineView.logPreview.loading && m.pipelineView.logPreview.content != "" {
+		title += " (refreshing)"
+	}
+	header := explorerHeaderStyle
+	if m.pipelineView.focus == pipelineFocusStages {
+		header = explorerFocusHeaderStyle
+	}
+	b.WriteString(header.Render(clampLine(title, width)))
 	b.WriteString("\n")
 	preview := m.pipelineView.logPreview
 	if preview.loading && preview.content == "" {
@@ -347,33 +410,44 @@ func renderExplorerView(m Model, width int) string {
 	}
 	contentHeight := height - 2
 	parentLines := normalizeColumn(renderExplorerParents(m, parentWidth-2), parentWidth-2, contentHeight)
-	currentLines := normalizeColumn(renderExplorerCurrent(m, currentWidth-2), currentWidth-2, contentHeight)
+	currentLines := normalizeColumn(renderExplorerCurrent(m, currentWidth-2, contentHeight), currentWidth-2, contentHeight)
 	previewLines := normalizeColumn(renderExplorerPreview(m, previewWidth-2, contentHeight), previewWidth-2, contentHeight)
 
 	var b strings.Builder
-	b.WriteString(explorerBorderStyle.Render("┌" + strings.Repeat("─", parentWidth-2) + "┬" + strings.Repeat("─", currentWidth-2) + "┬" + strings.Repeat("─", previewWidth-2) + "┐"))
+	b.WriteString(explorerBorderStyle.Render("╔" + strings.Repeat("═", parentWidth-2) + "╦" + strings.Repeat("═", currentWidth-2) + "╦" + strings.Repeat("═", previewWidth-2) + "╗"))
 	b.WriteString("\n")
 	for i := 0; i < contentHeight; i++ {
 		fmt.Fprintf(&b, "%s%s%s%s%s%s%s\n",
-			explorerBorderStyle.Render("│"),
+			explorerBorderStyle.Render("║"),
 			parentLines[i],
-			explorerBorderStyle.Render("│"),
+			explorerBorderStyle.Render("║"),
 			currentLines[i],
-			explorerBorderStyle.Render("│"),
+			explorerBorderStyle.Render("║"),
 			previewLines[i],
-			explorerBorderStyle.Render("│"),
+			explorerBorderStyle.Render("║"),
 		)
 	}
-	b.WriteString(explorerBorderStyle.Render("└" + strings.Repeat("─", parentWidth-2) + "┴" + strings.Repeat("─", currentWidth-2) + "┴" + strings.Repeat("─", previewWidth-2) + "┘"))
+	b.WriteString(explorerBorderStyle.Render("╚" + strings.Repeat("═", parentWidth-2) + "╩" + strings.Repeat("═", currentWidth-2) + "╩" + strings.Repeat("═", previewWidth-2) + "╝"))
 	return b.String()
 }
 
 func renderProjectActionView(m Model, width int) string {
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+	innerWidth := min(60, width-10)
+	if innerWidth < 20 {
+		innerWidth = max(12, width-6)
+	}
 	b := &strings.Builder{}
 	title := fmt.Sprintf("Project Actions · %s", m.actionMenu.project.PathWithNamespace)
-	b.WriteString(titleStyle.Render(clampLine(title, width)))
+	b.WriteString(detailHeaderStyle.Render(clampLine(title, innerWidth)))
 	b.WriteString("\n")
-	b.WriteString(clampLine("Choose what to open:", width))
+	b.WriteString(explorerHintStyle.Render(clampLine("Choose what to open:", innerWidth)))
 	b.WriteString("\n\n")
 	for i, option := range projectActionOptions {
 		cursor := " "
@@ -382,14 +456,19 @@ func renderProjectActionView(m Model, width int) string {
 			cursor = ">"
 			style = selectedItemStyle
 		}
-		line := clampLine(fmt.Sprintf("%s %s", cursor, option), width)
+		line := clampLine(fmt.Sprintf("%s %s", cursor, option), innerWidth)
 		b.WriteString(style.Render(line))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(statusStyle.Render(clampLine(" Enter to select · Esc to cancel", width)))
-	b.WriteString("\n")
-	return lipgloss.NewStyle().Width(width).Render(b.String())
+	b.WriteString(explorerHintStyle.Render(clampLine("Enter to select · Esc to cancel", innerWidth)))
+	modal := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(rosePineSubtle).
+		Padding(1, 2).
+		Width(innerWidth).
+		Render(strings.TrimSuffix(b.String(), "\n"))
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, modal)
 }
 
 func renderPipelineView(m Model, width int) string {
@@ -411,25 +490,25 @@ func renderPipelineView(m Model, width int) string {
 		height = 5
 	}
 	contentHeight := height - 2
-	parentLines := normalizeColumn(renderPipelineListPane(m, parentWidth-2), parentWidth-2, contentHeight)
-	currentLines := normalizeColumn(renderPipelineStagesPane(m, currentWidth-2), currentWidth-2, contentHeight)
+	parentLines := normalizeColumn(renderPipelineListPane(m, parentWidth-2, contentHeight), parentWidth-2, contentHeight)
+	currentLines := normalizeColumn(renderPipelineStagesPane(m, currentWidth-2, contentHeight), currentWidth-2, contentHeight)
 	previewLines := normalizeColumn(renderPipelineLogPane(m, previewWidth-2, contentHeight), previewWidth-2, contentHeight)
 
 	var b strings.Builder
-	b.WriteString(explorerBorderStyle.Render("┌" + strings.Repeat("─", parentWidth-2) + "┬" + strings.Repeat("─", currentWidth-2) + "┬" + strings.Repeat("─", previewWidth-2) + "┐"))
+	b.WriteString(explorerBorderStyle.Render("╔" + strings.Repeat("═", parentWidth-2) + "╦" + strings.Repeat("═", currentWidth-2) + "╦" + strings.Repeat("═", previewWidth-2) + "╗"))
 	b.WriteString("\n")
 	for i := 0; i < contentHeight; i++ {
 		fmt.Fprintf(&b, "%s%s%s%s%s%s%s\n",
-			explorerBorderStyle.Render("│"),
+			explorerBorderStyle.Render("║"),
 			parentLines[i],
-			explorerBorderStyle.Render("│"),
+			explorerBorderStyle.Render("║"),
 			currentLines[i],
-			explorerBorderStyle.Render("│"),
+			explorerBorderStyle.Render("║"),
 			previewLines[i],
-			explorerBorderStyle.Render("│"),
+			explorerBorderStyle.Render("║"),
 		)
 	}
-	b.WriteString(explorerBorderStyle.Render("└" + strings.Repeat("─", parentWidth-2) + "┴" + strings.Repeat("─", currentWidth-2) + "┴" + strings.Repeat("─", previewWidth-2) + "┘"))
+	b.WriteString(explorerBorderStyle.Render("╚" + strings.Repeat("═", parentWidth-2) + "╩" + strings.Repeat("═", currentWidth-2) + "╩" + strings.Repeat("═", previewWidth-2) + "╝"))
 	return b.String()
 }
 
@@ -479,16 +558,21 @@ func renderExplorerParents(m Model, width int) string {
 	return b.String()
 }
 
-func renderExplorerCurrent(m Model, width int) string {
+func renderExplorerCurrent(m Model, width, height int) string {
 	b := &strings.Builder{}
 	title := fmt.Sprintf("Explorer · %s @ %s", m.explorer.project.PathWithNamespace, displayRef(m.explorer))
-	b.WriteString(explorerHeaderStyle.Render(clampLine(title, width)))
+	b.WriteString(explorerFocusHeaderStyle.Render(clampLine(title, width)))
 	b.WriteString("\n")
+	hint := explorerHintStyle.Render(clampLine("Enter/→ descend · ←/Esc up · J/K preview · Ctrl+D/U page · </> jump", width))
+	finalize := func() string {
+		content := strings.TrimSuffix(b.String(), "\n")
+		return renderWithBottomHint(content, hint, height)
+	}
 	cur := m.currentDirState()
 	if cur == nil {
 		b.WriteString(explorerHintStyle.Render(clampLine(" No directory selected.", width)))
 		b.WriteString("\n")
-		return b.String()
+		return finalize()
 	}
 	pathLabel := cur.path
 	if pathLabel == "" {
@@ -503,7 +587,7 @@ func renderExplorerCurrent(m Model, width int) string {
 	if cur.err != nil {
 		b.WriteString(explorerErrorStyle.Render(clampLine(" "+cur.err.Error(), width)))
 		b.WriteString("\n")
-		return b.String()
+		return finalize()
 	}
 	if len(cur.entries) == 0 && !cur.loading && cur.err == nil {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Directory is empty.", width)))
@@ -522,9 +606,7 @@ func renderExplorerCurrent(m Model, width int) string {
 		b.WriteString(renderExplorerEntryLine(line, entry.IsDir(), i == cur.selected))
 		b.WriteString("\n")
 	}
-	b.WriteString(explorerHintStyle.Render(clampLine("Enter/→ descend · ←/Esc up", width)))
-	b.WriteString("\n")
-	return b.String()
+	return finalize()
 }
 
 func renderExplorerPreview(m Model, width, height int) string {
@@ -597,7 +679,7 @@ func renderListTitle(m Model) string {
 	}
 	total := max(1, m.totalPages)
 	page := max(1, m.page)
-	return fmt.Sprintf("Projects · Page %d/%d · Cached %d/%d pages", page, total, m.pagesLoaded, total)
+	return fmt.Sprintf("Projects · Page %d/%d", page, total)
 }
 
 func renderSearchBar(m Model, width int) string {
@@ -640,6 +722,31 @@ func renderProgressBar(m Model, width int) string {
 }
 
 func writeDetailLine(b *strings.Builder, line string, width int) {
+	b.WriteString(clampLine(line, width))
+	b.WriteString("\n")
+}
+
+func writeDetailSection(b *strings.Builder, title string, width int) {
+	label := " " + title
+	b.WriteString(detailHeaderStyle.Render(clampLine(label, width)))
+	b.WriteString("\n")
+	writeDetailDivider(b, width)
+}
+
+func writeDetailDivider(b *strings.Builder, width int) {
+	if width <= 0 {
+		return
+	}
+	b.WriteString(detailDividerStyle.Render(strings.Repeat("─", max(1, width))))
+	b.WriteString("\n")
+}
+
+func writeDetailKV(b *strings.Builder, label, value string, width int) {
+	if value == "" {
+		return
+	}
+	prefix := detailLabelStyle.Render(label + ":")
+	line := fmt.Sprintf(" %s %s", prefix, detailValueStyle.Render(value))
 	b.WriteString(clampLine(line, width))
 	b.WriteString("\n")
 }

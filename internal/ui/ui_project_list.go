@@ -1040,19 +1040,19 @@ func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	m.mode = modePipelines
 	m.pipelineView = pipelineViewState{
-		project:      project,
-		loading:      true,
-		stageCache:   make(map[int][]gitlab.PipelineStage),
-		stageLoading: make(map[int]bool),
-		stageErr:     make(map[int]error),
-		jobsCache:    make(map[int][]gitlab.PipelineJob),
-		jobsLoading:  make(map[int]bool),
-		jobsErr:      make(map[int]error),
-		logCache:     make(map[int]string),
-		logLoading:   make(map[int]bool),
-		logErr:       make(map[int]error),
+		project:       project,
+		loading:       true,
+		stageCache:    make(map[int][]gitlab.PipelineStage),
+		stageLoading:  make(map[int]bool),
+		stageErr:      make(map[int]error),
+		jobsCache:     make(map[int][]gitlab.PipelineJob),
+		jobsLoading:   make(map[int]bool),
+		jobsErr:       make(map[int]error),
+		logCache:      make(map[int]string),
+		logLoading:    make(map[int]bool),
+		logErr:        make(map[int]error),
 		logAutoFollow: true,
-		focus:        pipelineFocusPipelines,
+		focus:         pipelineFocusPipelines,
 	}
 	m.status = fmt.Sprintf("Pipelines for %s", project.PathWithNamespace)
 	return m, fetchPipelinesCmd(m.client, project.ID)

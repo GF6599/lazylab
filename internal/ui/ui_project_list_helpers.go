@@ -338,6 +338,50 @@ func listPageStep(height int) int {
 	return step
 }
 
+func renderWithBottomHint(content, hint string, height int) string {
+	if hint == "" {
+		return content
+	}
+	return renderWithBottomLines(content, []string{hint}, height)
+}
+
+func renderWithBottomLines(content string, hints []string, height int) string {
+	filtered := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		if strings.TrimSpace(hint) != "" {
+			filtered = append(filtered, hint)
+		}
+	}
+	if len(filtered) == 0 {
+		return content
+	}
+	if height <= 0 {
+		trimmed := strings.TrimSuffix(content, "\n")
+		lines := filtered
+		if trimmed != "" {
+			lines = append([]string{trimmed}, lines...)
+		}
+		return strings.Join(lines, "\n")
+	}
+	if height <= len(filtered) {
+		return strings.Join(filtered[len(filtered)-height:], "\n")
+	}
+	trimmed := strings.TrimSuffix(content, "\n")
+	var lines []string
+	if trimmed != "" {
+		lines = strings.Split(trimmed, "\n")
+	}
+	available := height - len(filtered)
+	if len(lines) > available {
+		lines = lines[:available]
+	}
+	for len(lines) < available {
+		lines = append(lines, "")
+	}
+	lines = append(lines, filtered...)
+	return strings.Join(lines, "\n")
+}
+
 func displayRef(ex explorerState) string {
 	if ex.ref == "" {
 		return "main"
