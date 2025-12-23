@@ -703,6 +703,7 @@ func (m *Model) scrollPipelineLog(delta int) bool {
 	if maxOffset == 0 {
 		preview.offset = 0
 		m.pipelineView.logAutoFollow = true
+		m.refreshPipelineLogPreviewFromCache()
 		return false
 	}
 	step := max(1, visibleHeight/2)
@@ -719,6 +720,8 @@ func (m *Model) scrollPipelineLog(delta int) bool {
 	preview.offset = next
 	if preview.offset == maxOffset {
 		m.pipelineView.logAutoFollow = true
+		m.refreshPipelineLogPreviewFromCache()
+		m.tailPipelineLog()
 	} else if delta < 0 {
 		m.pipelineView.logAutoFollow = false
 	}
@@ -763,11 +766,12 @@ func (m *Model) scrollPipelineLogToEnd() bool {
 	width := pipelineLogContentWidth(m.width)
 	contentLines := pipelineLogContentLines(*preview, width)
 	maxOffset := max(0, len(contentLines)-visibleHeight)
-	if preview.offset == maxOffset {
+	if preview.offset == maxOffset && m.pipelineView.logAutoFollow && !m.refreshPipelineLogPreviewFromCache() {
 		return false
 	}
-	preview.offset = maxOffset
 	m.pipelineView.logAutoFollow = true
+	m.refreshPipelineLogPreviewFromCache()
+	m.tailPipelineLog()
 	return true
 }
 

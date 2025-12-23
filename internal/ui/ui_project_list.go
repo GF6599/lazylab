@@ -21,7 +21,10 @@ const (
 	modePipelines      = "pipelines"
 )
 
-const pipelineRefreshInterval = 5 * time.Second
+const (
+	pipelineRefreshInterval = 5 * time.Second
+	pipelinePerPage         = 25
+)
 
 var projectActionOptions = []string{
 	"Browse files",
@@ -110,6 +113,9 @@ type pipelineViewState struct {
 	selected        int
 	loading         bool
 	err             error
+	page            int
+	totalPages      int
+	perPage         int
 	stageCache      map[int][]gitlab.PipelineStage
 	stageLoading    map[int]bool
 	stageErr        map[int]error
@@ -493,12 +499,29 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 		if errors.Is(msg.err, gitlab.ErrNoPipelines) {
 			m.pipelineView.err = nil
 			m.pipelineView.pipelines = nil
+			m.pipelineView.page = 1
+			m.pipelineView.totalPages = 0
 			return m, nil
 		}
 		m.pipelineView.err = msg.err
 		return m, nil
 	}
 	m.pipelineView.err = nil
+	if msg.page > 0 {
+		m.pipelineView.page = msg.page
+	}
+	if msg.totalPages > 0 {
+		m.pipelineView.totalPages = msg.totalPages
+	}
+	if m.pipelineView.totalPages > 0 && m.pipelineView.page > m.pipelineView.totalPages {
+		m.pipelineView.page = m.pipelineView.totalPages
+		m.pipelineView.loading = true
+		perPage := m.pipelineView.perPage
+		if perPage <= 0 {
+			perPage = pipelinePerPage
+		}
+		return m, fetchPipelinesCmd(m.client, m.pipelineView.project.ID, m.pipelineView.page, perPage)
+	}
 	m.pipelineView.pipelines = msg.pipelines
 	sort.SliceStable(m.pipelineView.pipelines, func(i, j int) bool {
 		a := m.pipelineView.pipelines[i]
@@ -622,6 +645,9 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 	if msg.jobID != m.pipelineView.logJobID && msg.jobID != m.pipelineView.pendingLogJobID {
 		return m, nil
 	}
+	if !m.pipelineView.logAutoFollow {
+		return m, nil
+	}
 	if msg.jobID == m.pipelineView.pendingLogJobID {
 		m.pipelineView.pendingLogJobID = 0
 	}
@@ -632,11 +658,7 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 		loading: false,
 	}
 	m.pipelineView.logJobID = msg.jobID
-	if m.pipelineView.logAutoFollow {
-		m.tailPipelineLog()
-	} else {
-		m.clampPipelineLogOffset()
-	}
+	m.tailPipelineLog()
 	return m, nil
 }
 
@@ -874,6 +896,18 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right", "l":
 		m.pipelineView.focus = pipelineFocusStages
 		return m, m.queuePipelineLogPreview()
+	case "]":
+		if m.pipelineView.focus == pipelineFocusPipelines {
+			if cmd := m.changePipelinePage(1); cmd != nil {
+				return m, cmd
+			}
+		}
+	case "[":
+		if m.pipelineView.focus == pipelineFocusPipelines {
+			if cmd := m.changePipelinePage(-1); cmd != nil {
+				return m, cmd
+			}
+		}
 	case "J":
 		if m.scrollPipelineLog(1) {
 			return m, nil
@@ -1042,6 +1076,9 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 	m.pipelineView = pipelineViewState{
 		project:       project,
 		loading:       true,
+		page:          1,
+		totalPages:    1,
+		perPage:       pipelinePerPage,
 		stageCache:    make(map[int][]gitlab.PipelineStage),
 		stageLoading:  make(map[int]bool),
 		stageErr:      make(map[int]error),
@@ -1055,7 +1092,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		focus:         pipelineFocusPipelines,
 	}
 	m.status = fmt.Sprintf("Pipelines for %s", project.PathWithNamespace)
-	return m, fetchPipelinesCmd(m.client, project.ID)
+	return m, fetchPipelinesCmd(m.client, project.ID, m.pipelineView.page, m.pipelineView.perPage)
 }
 
 func (m *Model) closePipelineView() {
@@ -1068,10 +1105,20 @@ func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
 	if m.pipelineView.project.ID == 0 {
 		return *m, nil
 	}
+	page := m.pipelineView.page
+	if page <= 0 {
+		page = 1
+	}
+	perPage := m.pipelineView.perPage
+	if perPage <= 0 {
+		perPage = pipelinePerPage
+	}
 	m.pipelineView.loading = true
 	m.pipelineView.err = nil
 	m.pipelineView.pipelines = nil
 	m.pipelineView.selected = 0
+	m.pipelineView.page = page
+	m.pipelineView.perPage = perPage
 	m.pipelineView.stageCache = make(map[int][]gitlab.PipelineStage)
 	m.pipelineView.stageLoading = make(map[int]bool)
 	m.pipelineView.stageErr = make(map[int]error)
@@ -1087,7 +1134,50 @@ func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
 	m.pipelineView.pendingLogJobID = 0
 	m.pipelineView.logAutoFollow = true
 	m.pipelineView.focus = pipelineFocusPipelines
-	return *m, fetchPipelinesCmd(m.client, m.pipelineView.project.ID)
+	return *m, fetchPipelinesCmd(m.client, m.pipelineView.project.ID, page, perPage)
+}
+
+func (m *Model) changePipelinePage(delta int) tea.Cmd {
+	if m.pipelineView.project.ID == 0 {
+		return nil
+	}
+	page := m.pipelineView.page
+	if page <= 0 {
+		page = 1
+	}
+	target := page + delta
+	if target < 1 {
+		target = 1
+	}
+	if m.pipelineView.totalPages > 0 && target > m.pipelineView.totalPages {
+		target = m.pipelineView.totalPages
+	}
+	if target == page {
+		return nil
+	}
+	perPage := m.pipelineView.perPage
+	if perPage <= 0 {
+		perPage = pipelinePerPage
+	}
+	m.pipelineView.loading = true
+	m.pipelineView.err = nil
+	m.pipelineView.pipelines = nil
+	m.pipelineView.selected = 0
+	m.pipelineView.page = target
+	m.pipelineView.perPage = perPage
+	m.pipelineView.totalPages = max(1, m.pipelineView.totalPages)
+	m.pipelineView.stageCache = make(map[int][]gitlab.PipelineStage)
+	m.pipelineView.stageLoading = make(map[int]bool)
+	m.pipelineView.stageErr = make(map[int]error)
+	m.pipelineView.stageSelected = 0
+	m.pipelineView.jobsCache = make(map[int][]gitlab.PipelineJob)
+	m.pipelineView.jobsLoading = make(map[int]bool)
+	m.pipelineView.jobsErr = make(map[int]error)
+	m.pipelineView.logCache = make(map[int]string)
+	m.pipelineView.logLoading = make(map[int]bool)
+	m.pipelineView.logErr = make(map[int]error)
+	m.resetPipelineLogPreview()
+	return fetchPipelinesCmd(m.client, m.pipelineView.project.ID, target, perPage)
 }
 
 func (m Model) descendDirectory(entry gitlab.TreeNode) (tea.Model, tea.Cmd) {
@@ -1234,9 +1324,17 @@ func (m *Model) queuePipelineViewRefresh() tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
+	page := m.pipelineView.page
+	if page <= 0 {
+		page = 1
+	}
+	perPage := m.pipelineView.perPage
+	if perPage <= 0 {
+		perPage = pipelinePerPage
+	}
 	if !m.pipelineView.loading {
 		m.pipelineView.loading = true
-		cmds = append(cmds, fetchPipelinesCmd(m.client, m.pipelineView.project.ID))
+		cmds = append(cmds, fetchPipelinesCmd(m.client, m.pipelineView.project.ID, page, perPage))
 	}
 	if cmd := m.queuePipelineStagesRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
@@ -1396,6 +1494,8 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 	}
 	if m.pipelineView.logCache != nil {
 		if content, ok := m.pipelineView.logCache[job.ID]; ok {
+			prevOffset := m.pipelineView.logPreview.offset
+			prevJobID := m.pipelineView.logJobID
 			m.pipelineView.logPreview = previewState{
 				path:    job.Name,
 				content: content,
@@ -1406,6 +1506,9 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 			if m.pipelineView.logAutoFollow {
 				m.tailPipelineLog()
 			} else {
+				if prevJobID == job.ID {
+					m.pipelineView.logPreview.offset = prevOffset
+				}
 				m.clampPipelineLogOffset()
 			}
 			return nil
@@ -1475,6 +1578,33 @@ func (m *Model) queuePipelineLogRefresh() tea.Cmd {
 		m.pipelineView.logPreview = previewState{path: job.Name, loading: true}
 	}
 	return fetchPipelineLogCmd(m.client, m.pipelineView.project.ID, job.ID)
+}
+
+func (m *Model) refreshPipelineLogPreviewFromCache() bool {
+	if m.pipelineView.logCache == nil {
+		return false
+	}
+	if m.pipelineView.logAutoFollow && m.pipelineView.pendingLogJobID != 0 {
+		m.pipelineView.logJobID = m.pipelineView.pendingLogJobID
+		m.pipelineView.pendingLogJobID = 0
+	}
+	if m.pipelineView.logJobID == 0 {
+		return false
+	}
+	content, ok := m.pipelineView.logCache[m.pipelineView.logJobID]
+	if !ok || content == "" {
+		return false
+	}
+	if content == m.pipelineView.logPreview.raw && m.pipelineView.logPreview.content != "" {
+		return false
+	}
+	m.pipelineView.logPreview = previewState{
+		path:    fmt.Sprintf("job-%d", m.pipelineView.logJobID),
+		content: content,
+		raw:     content,
+		loading: false,
+	}
+	return true
 }
 
 func (m *Model) resetPipelineLogPreview() {

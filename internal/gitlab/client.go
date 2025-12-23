@@ -66,6 +66,21 @@ type ProjectPage struct {
 	TotalPages int
 }
 
+// PipelineListOptions describe pagination parameters for pipeline listings.
+type PipelineListOptions struct {
+	Page    int
+	PerPage int
+}
+
+// PipelinePage contains a slice of pipelines along with pagination metadata.
+type PipelinePage struct {
+	Pipelines  []PipelineSummary
+	Page       int
+	PrevPage   int
+	NextPage   int
+	TotalPages int
+}
+
 // TreeNode represents a repository tree entry (file or directory).
 type TreeNode struct {
 	Path string
@@ -257,44 +272,59 @@ func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) 
 	return summary, nil
 }
 
-// ListPipelines returns all pipelines for a project ordered by most recently updated.
-func (c *Client) ListPipelines(ctx context.Context, projectID int) ([]PipelineSummary, error) {
-	opts := &gl.ListProjectPipelinesOptions{
+// ListPipelines returns a page of pipelines for a project ordered by most recently updated.
+func (c *Client) ListPipelines(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error) {
+	if opts.PerPage <= 0 {
+		opts.PerPage = 25
+	}
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	apiOpts := &gl.ListProjectPipelinesOptions{
 		ListOptions: gl.ListOptions{
-			PerPage: 100,
-			Page:    1,
+			PerPage: opts.PerPage,
+			Page:    opts.Page,
 		},
 		OrderBy: gl.String("updated_at"),
 		Sort:    gl.String("desc"),
 	}
-	var summaries []PipelineSummary
-	for {
-		pipelines, resp, err := c.api.Pipelines.ListProjectPipelines(projectID, opts, gl.WithContext(ctx))
-		if err != nil {
-			return nil, fmt.Errorf("list pipelines: %w", err)
+	pipelines, resp, err := c.api.Pipelines.ListProjectPipelines(projectID, apiOpts, gl.WithContext(ctx))
+	if err != nil {
+		return PipelinePage{}, fmt.Errorf("list pipelines: %w", err)
+	}
+	summaries := make([]PipelineSummary, 0, len(pipelines))
+	for _, p := range pipelines {
+		summary := PipelineSummary{
+			ID:     p.ID,
+			Status: string(p.Status),
+			Ref:    p.Ref,
+			SHA:    p.SHA,
+			WebURL: p.WebURL,
 		}
-		for _, p := range pipelines {
-			summary := PipelineSummary{
-				ID:     p.ID,
-				Status: string(p.Status),
-				Ref:    p.Ref,
-				SHA:    p.SHA,
-				WebURL: p.WebURL,
-			}
-			if p.UpdatedAt != nil {
-				summary.UpdatedAt = *p.UpdatedAt
-			}
-			summaries = append(summaries, summary)
+		if p.UpdatedAt != nil {
+			summary.UpdatedAt = *p.UpdatedAt
 		}
-		if resp == nil || resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
+		summaries = append(summaries, summary)
 	}
 	if len(summaries) == 0 {
-		return nil, ErrNoPipelines
+		if opts.Page <= 1 {
+			return PipelinePage{}, ErrNoPipelines
+		}
+		return PipelinePage{
+			Pipelines:  summaries,
+			Page:       opts.Page,
+			PrevPage:   resp.PreviousPage,
+			NextPage:   resp.NextPage,
+			TotalPages: resp.TotalPages,
+		}, nil
 	}
-	return summaries, nil
+	return PipelinePage{
+		Pipelines:  summaries,
+		Page:       opts.Page,
+		PrevPage:   resp.PreviousPage,
+		NextPage:   resp.NextPage,
+		TotalPages: resp.TotalPages,
+	}, nil
 }
 
 // PipelineStages returns stage summaries for a pipeline.

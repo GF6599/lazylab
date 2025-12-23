@@ -154,7 +154,9 @@ func renderDetailPane(m Model, width, height int) string {
 
 func renderPipelineListPane(m Model, width, height int) string {
 	b := &strings.Builder{}
-	title := fmt.Sprintf("Pipelines · %s", m.pipelineView.project.PathWithNamespace)
+	page := max(1, m.pipelineView.page)
+	total := max(1, m.pipelineView.totalPages)
+	title := fmt.Sprintf("Pipelines · %s · Page %d/%d", m.pipelineView.project.PathWithNamespace, page, total)
 	if m.pipelineView.loading && len(m.pipelineView.pipelines) > 0 {
 		title += " (refreshing)"
 	}
@@ -191,7 +193,7 @@ func renderPipelineListPane(m Model, width, height int) string {
 		b.WriteString("\n")
 	}
 	content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
-	hint := explorerHintStyle.Render(clampLine(" ← back · → stages · r refresh · Ctrl+D/U page · </> jump", width))
+	hint := explorerHintStyle.Render(clampLine(" ← back · → stages · r refresh · [ and ] page · Ctrl+D/U page · </> jump", width))
 	return renderWithBottomHint(content, hint, height)
 }
 

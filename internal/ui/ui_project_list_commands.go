@@ -48,9 +48,13 @@ type pipelineStatusMsg struct {
 }
 
 type pipelinesLoadedMsg struct {
-	projectID int
-	pipelines []gitlab.PipelineSummary
-	err       error
+	projectID  int
+	pipelines  []gitlab.PipelineSummary
+	page       int
+	prevPage   int
+	nextPage   int
+	totalPages int
+	err        error
 }
 
 type pipelineStagesLoadedMsg struct {
@@ -137,12 +141,22 @@ func fetchPipelineCmd(client *gitlab.Client, projectID int, ref string) tea.Cmd 
 	}
 }
 
-func fetchPipelinesCmd(client *gitlab.Client, projectID int) tea.Cmd {
+func fetchPipelinesCmd(client *gitlab.Client, projectID, page, perPage int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		pipelines, err := client.ListPipelines(ctx, projectID)
-		return pipelinesLoadedMsg{projectID: projectID, pipelines: pipelines, err: err}
+		pipelinePage, err := client.ListPipelines(ctx, projectID, gitlab.PipelineListOptions{Page: page, PerPage: perPage})
+		if err != nil {
+			return pipelinesLoadedMsg{projectID: projectID, page: page, err: err}
+		}
+		return pipelinesLoadedMsg{
+			projectID:  projectID,
+			pipelines:  pipelinePage.Pipelines,
+			page:       pipelinePage.Page,
+			prevPage:   pipelinePage.PrevPage,
+			nextPage:   pipelinePage.NextPage,
+			totalPages: pipelinePage.TotalPages,
+		}
 	}
 }
 

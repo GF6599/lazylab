@@ -74,6 +74,36 @@ func TestHandlePipelineLogLoadedIgnoresStale(t *testing.T) {
 	}
 }
 
+func TestQueuePipelineLogPreviewPreservesOffset(t *testing.T) {
+	content := strings.Repeat("line\n", 40)
+	m := Model{
+		width:  80,
+		height: 20,
+		pipelineView: pipelineViewState{
+			project:    gitlab.ProjectNode{ID: 1},
+			pipelines:  []gitlab.PipelineSummary{{ID: 10}},
+			selected:   0,
+			stageCache: map[int][]gitlab.PipelineStage{10: {{Name: "build"}}},
+			jobsCache: map[int][]gitlab.PipelineJob{
+				10: {{ID: 100, Name: "build-job", Stage: "build"}},
+			},
+			logCache:      map[int]string{100: content},
+			logPreview:    previewState{content: "old", raw: "old", offset: 5},
+			logJobID:      100,
+			logAutoFollow: false,
+		},
+	}
+
+	m.queuePipelineLogPreview()
+
+	if m.pipelineView.logPreview.offset != 5 {
+		t.Fatalf("expected log offset to stay at 5, got %d", m.pipelineView.logPreview.offset)
+	}
+	if m.pipelineView.logPreview.content != content {
+		t.Fatalf("expected log content to update from cache")
+	}
+}
+
 func TestNormalizeColumnBounds(t *testing.T) {
 	lines := normalizeColumn("one very very long line", 5, 2)
 	if len(lines) != 2 {
