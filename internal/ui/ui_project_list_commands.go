@@ -120,12 +120,12 @@ func fetchFileCmd(client *gitlab.Client, projectID int, ref, filePath string) te
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-	content, err := client.GetFileContent(ctx, projectID, filePath, ref)
-	if err != nil {
-		return fileLoadedMsg{projectID: projectID, path: filePath, err: err}
+		content, err := client.GetFileContent(ctx, projectID, filePath, ref)
+		if err != nil {
+			return fileLoadedMsg{projectID: projectID, path: filePath, err: err}
+		}
+		return fileLoadedMsg{projectID: projectID, path: filePath, content: content}
 	}
-	return fileLoadedMsg{projectID: projectID, path: filePath, content: content}
-}
 }
 
 func fetchPipelineCmd(client *gitlab.Client, projectID int, ref string) tea.Cmd {
@@ -172,7 +172,7 @@ func fetchPipelineLogCmd(client *gitlab.Client, projectID, jobID int) tea.Cmd {
 		if err != nil {
 			return pipelineLogLoadedMsg{projectID: projectID, jobID: jobID, err: err}
 		}
-		return pipelineLogLoadedMsg{projectID: projectID, jobID: jobID, content: clipPreview(content)}
+		return pipelineLogLoadedMsg{projectID: projectID, jobID: jobID, content: content}
 	}
 }
 

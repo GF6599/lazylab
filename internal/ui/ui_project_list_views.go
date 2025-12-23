@@ -125,7 +125,7 @@ func renderPipelineListPane(m Model, width int) string {
 	}
 	b.WriteString(header.Render(clampLine(title, width)))
 	b.WriteString("\n")
-	if m.pipelineView.loading {
+	if m.pipelineView.loading && len(m.pipelineView.pipelines) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading pipelines...", width)))
 		b.WriteString("\n")
 	}
@@ -177,12 +177,14 @@ func renderPipelineStagesPane(m Model, width int) string {
 		b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Ref: %s", pipeline.Ref), width)))
 		b.WriteString("\n")
 	}
-	if m.pipelineView.stageLoading[pipeline.ID] {
+	stages := m.pipelineView.stageCache[pipeline.ID]
+	jobs := m.pipelineView.jobsCache[pipeline.ID]
+	if m.pipelineView.stageLoading[pipeline.ID] && len(stages) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading stages...", width)))
 		b.WriteString("\n")
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
-	if m.pipelineView.jobsLoading[pipeline.ID] {
+	if m.pipelineView.jobsLoading[pipeline.ID] && len(jobs) == 0 && len(stages) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading jobs...", width)))
 		b.WriteString("\n")
 	}
@@ -193,15 +195,15 @@ func renderPipelineStagesPane(m Model, width int) string {
 	if err := m.pipelineView.stageErr[pipeline.ID]; err != nil {
 		b.WriteString(explorerErrorStyle.Render(clampLine(" "+err.Error(), width)))
 		b.WriteString("\n")
-		return lipgloss.NewStyle().Width(width).Render(b.String())
+		if len(stages) == 0 {
+			return lipgloss.NewStyle().Width(width).Render(b.String())
+		}
 	}
-	stages := m.pipelineView.stageCache[pipeline.ID]
 	if len(stages) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" No stage data available.", width)))
 		b.WriteString("\n")
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
-	jobs := m.pipelineView.jobsCache[pipeline.ID]
 	for i, stage := range stages {
 		cursor := " "
 		if i == m.pipelineView.stageSelected {
@@ -230,12 +232,12 @@ func renderPipelineLogPane(m Model, width, height int) string {
 	b.WriteString(explorerHeaderStyle.Render(clampLine(title, width)))
 	b.WriteString("\n")
 	preview := m.pipelineView.logPreview
-	if preview.loading {
+	if preview.loading && preview.content == "" {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading job log...", width)))
 		b.WriteString("\n")
 		return b.String()
 	}
-	if preview.err != nil {
+	if preview.err != nil && preview.content == "" {
 		b.WriteString(explorerErrorStyle.Render(clampLine(" "+preview.err.Error(), width)))
 		b.WriteString("\n")
 		return b.String()
@@ -245,7 +247,7 @@ func renderPipelineLogPane(m Model, width, height int) string {
 		b.WriteString("\n")
 		return b.String()
 	}
-	contentLines := previewContentLines(preview, width)
+	contentLines := pipelineLogContentLines(preview, width)
 	visibleHeight := max(0, height-1)
 	maxOffset := max(0, len(contentLines)-visibleHeight)
 	offset := preview.offset

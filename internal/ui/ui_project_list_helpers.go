@@ -10,11 +10,10 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"gitlab-tui-codex/internal/gitlab"
 )
-
-const maxPreviewLen = 8000
 
 func truncate(s string, max int) string {
 	if max <= 0 || len(s) <= max {
@@ -166,13 +165,6 @@ func wrapText(s string, width int) string {
 	}
 	lines = append(lines, line)
 	return strings.Join(lines, "\n")
-}
-
-func clipPreview(s string) string {
-	if len(s) <= maxPreviewLen {
-		return s
-	}
-	return s[:maxPreviewLen] + "\n… truncated …"
 }
 
 func highlightPreviewContent(path, content string, width int) (string, bool, error) {
@@ -334,6 +326,18 @@ func min(a, b int) int {
 	return b
 }
 
+func listPageStep(height int) int {
+	visible := height - 6
+	if visible < 1 {
+		visible = 1
+	}
+	step := visible / 2
+	if step < 1 {
+		step = 1
+	}
+	return step
+}
+
 func displayRef(ex explorerState) string {
 	if ex.ref == "" {
 		return "main"
@@ -483,6 +487,27 @@ func pipelineLogContentHeight(height int) int {
 	return height - 2
 }
 
+func normalizePipelineLogContent(content string) string {
+	if content == "" {
+		return ""
+	}
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	if !strings.Contains(content, "\t") {
+		return content
+	}
+	return strings.ReplaceAll(content, "\t", "    ")
+}
+
+func pipelineLogContentLines(preview previewState, width int) []string {
+	if preview.content == "" {
+		return nil
+	}
+	normalized := normalizePipelineLogContent(preview.content)
+	wrapped := ansi.Wrap(normalized, width, "")
+	return strings.Split(wrapped, "\n")
+}
+
 func previewContentLines(preview previewState, width int) []string {
 	if preview.content == "" {
 		return nil
@@ -528,6 +553,38 @@ func (m *Model) scrollPreview(delta int) bool {
 		return false
 	}
 	preview.offset = next
+	return true
+}
+
+func (m *Model) scrollPreviewToStart() bool {
+	preview := &m.explorer.preview
+	if preview.raw == "" || preview.loading || preview.err != nil || preview.content == "" {
+		return false
+	}
+	if preview.offset == 0 {
+		return false
+	}
+	preview.offset = 0
+	return true
+}
+
+func (m *Model) scrollPreviewToEnd() bool {
+	preview := &m.explorer.preview
+	if preview.raw == "" || preview.loading || preview.err != nil || preview.content == "" {
+		return false
+	}
+	height := previewContentHeight(m.height)
+	visibleHeight := max(0, height-1)
+	if visibleHeight <= 0 {
+		return false
+	}
+	width := previewContentWidth(m.width)
+	contentLines := previewContentLines(*preview, width)
+	maxOffset := max(0, len(contentLines)-visibleHeight)
+	if preview.offset == maxOffset {
+		return false
+	}
+	preview.offset = maxOffset
 	return true
 }
 
@@ -597,10 +654,11 @@ func (m *Model) scrollPipelineLog(delta int) bool {
 		return false
 	}
 	width := pipelineLogContentWidth(m.width)
-	contentLines := previewContentLines(*preview, width)
+	contentLines := pipelineLogContentLines(*preview, width)
 	maxOffset := max(0, len(contentLines)-visibleHeight)
 	if maxOffset == 0 {
 		preview.offset = 0
+		m.pipelineView.logAutoFollow = true
 		return false
 	}
 	step := max(1, visibleHeight/2)
@@ -615,6 +673,57 @@ func (m *Model) scrollPipelineLog(delta int) bool {
 		return false
 	}
 	preview.offset = next
+	if preview.offset == maxOffset {
+		m.pipelineView.logAutoFollow = true
+	} else if delta < 0 {
+		m.pipelineView.logAutoFollow = false
+	}
+	return true
+}
+
+func (m *Model) scrollPipelineLogToStart() bool {
+	if m.mode != modePipelines {
+		return false
+	}
+	preview := &m.pipelineView.logPreview
+	if preview.raw == "" && preview.content == "" {
+		return false
+	}
+	if preview.loading || preview.err != nil {
+		return false
+	}
+	if preview.offset == 0 {
+		return false
+	}
+	preview.offset = 0
+	m.pipelineView.logAutoFollow = false
+	return true
+}
+
+func (m *Model) scrollPipelineLogToEnd() bool {
+	if m.mode != modePipelines {
+		return false
+	}
+	preview := &m.pipelineView.logPreview
+	if preview.raw == "" && preview.content == "" {
+		return false
+	}
+	if preview.loading || preview.err != nil {
+		return false
+	}
+	height := pipelineLogContentHeight(m.height)
+	visibleHeight := max(0, height-1)
+	if visibleHeight <= 0 {
+		return false
+	}
+	width := pipelineLogContentWidth(m.width)
+	contentLines := pipelineLogContentLines(*preview, width)
+	maxOffset := max(0, len(contentLines)-visibleHeight)
+	if preview.offset == maxOffset {
+		return false
+	}
+	preview.offset = maxOffset
+	m.pipelineView.logAutoFollow = true
 	return true
 }
 
@@ -634,7 +743,7 @@ func (m *Model) clampPipelineLogOffset() {
 		return
 	}
 	width := pipelineLogContentWidth(m.width)
-	contentLines := previewContentLines(*preview, width)
+	contentLines := pipelineLogContentLines(*preview, width)
 	maxOffset := max(0, len(contentLines)-visibleHeight)
 	if preview.offset < 0 {
 		preview.offset = 0
@@ -643,4 +752,28 @@ func (m *Model) clampPipelineLogOffset() {
 	if preview.offset > maxOffset {
 		preview.offset = maxOffset
 	}
+	m.pipelineView.logAutoFollow = preview.offset == maxOffset
+}
+
+func (m *Model) tailPipelineLog() {
+	if m.mode != modePipelines {
+		return
+	}
+	preview := &m.pipelineView.logPreview
+	if preview.content == "" || preview.loading {
+		preview.offset = 0
+		return
+	}
+	height := pipelineLogContentHeight(m.height)
+	visibleHeight := max(0, height-1)
+	if visibleHeight <= 0 {
+		preview.offset = 0
+		m.pipelineView.logAutoFollow = true
+		return
+	}
+	width := pipelineLogContentWidth(m.width)
+	contentLines := pipelineLogContentLines(*preview, width)
+	maxOffset := max(0, len(contentLines)-visibleHeight)
+	preview.offset = maxOffset
+	m.pipelineView.logAutoFollow = true
 }

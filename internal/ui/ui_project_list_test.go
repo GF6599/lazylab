@@ -27,17 +27,6 @@ func TestParentDir(t *testing.T) {
 	}
 }
 
-func TestClipPreviewTruncates(t *testing.T) {
-	long := strings.Repeat("a", maxPreviewLen+10)
-	if !strings.Contains(clipPreview(long), "truncated") {
-		t.Fatalf("expected truncation marker for long preview")
-	}
-	short := "hello"
-	if got := clipPreview(short); got != short {
-		t.Fatalf("short preview should not change, got %q", got)
-	}
-}
-
 func TestVisibleProjectsSearch(t *testing.T) {
 	m := Model{
 		allProjects: []gitlab.ProjectNode{
@@ -58,6 +47,30 @@ func TestVisibleProjectsSearch(t *testing.T) {
 	page := m.visibleProjects()
 	if len(page) != len(m.allProjects) {
 		t.Fatalf("expected %d projects, got %d", len(m.allProjects), len(page))
+	}
+}
+
+func TestHandlePipelineLogLoadedIgnoresStale(t *testing.T) {
+	m := Model{
+		mode: modePipelines,
+		pipelineView: pipelineViewState{
+			project:    gitlab.ProjectNode{ID: 1},
+			logJobID:   20,
+			logLoading: map[int]bool{10: true, 20: true},
+			logPreview: previewState{content: "current"},
+		},
+	}
+	msg := pipelineLogLoadedMsg{projectID: 1, jobID: 10, content: "stale"}
+	updated, _ := m.handlePipelineLogLoaded(msg)
+	got := updated.(Model).pipelineView
+	if got.logPreview.content != "current" {
+		t.Fatalf("expected preview to stay on current job, got %q", got.logPreview.content)
+	}
+	if got.logCache == nil || got.logCache[10] != "stale" {
+		t.Fatalf("expected stale log to be cached, got %#v", got.logCache)
+	}
+	if got.logLoading[10] {
+		t.Fatalf("expected stale log loading to clear")
 	}
 }
 
@@ -212,6 +225,33 @@ func TestRenderExplorerPreviewWrapsLongLines(t *testing.T) {
 		}
 		if lipgloss.Width(line) > width {
 			t.Fatalf("line %q exceeds preview width %d", line, width)
+		}
+	}
+}
+
+func TestRenderPipelineLogPaneWrapsLongLines(t *testing.T) {
+	m := Model{
+		pipelineView: pipelineViewState{
+			logPreview: previewState{
+				content: "\x1b[31m" + strings.Repeat("abc", 20) + "\x1b[0m\tend",
+			},
+		},
+	}
+	const width = 12
+	out := renderPipelineLogPane(m, width, 6)
+	lines := strings.Split(out, "\n")
+	if len(lines) <= 1 {
+		t.Fatalf("expected log output lines, got %q", out)
+	}
+	for i, line := range lines {
+		if i == 0 {
+			continue // header
+		}
+		if lipgloss.Width(line) > width {
+			t.Fatalf("line %q exceeds log width %d", line, width)
+		}
+		if strings.Contains(line, "\t") || strings.Contains(line, "\r") {
+			t.Fatalf("line %q should not contain tabs or carriage returns", line)
 		}
 	}
 }

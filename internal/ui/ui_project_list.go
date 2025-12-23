@@ -105,24 +105,26 @@ type actionMenuState struct {
 }
 
 type pipelineViewState struct {
-	project       gitlab.ProjectNode
-	pipelines     []gitlab.PipelineSummary
-	selected      int
-	loading       bool
-	err           error
-	stageCache    map[int][]gitlab.PipelineStage
-	stageLoading  map[int]bool
-	stageErr      map[int]error
-	stageSelected int
-	jobsCache     map[int][]gitlab.PipelineJob
-	jobsLoading   map[int]bool
-	jobsErr       map[int]error
-	logCache      map[int]string
-	logLoading    map[int]bool
-	logErr        map[int]error
-	logPreview    previewState
-	logJobID      int
-	focus         pipelineFocus
+	project         gitlab.ProjectNode
+	pipelines       []gitlab.PipelineSummary
+	selected        int
+	loading         bool
+	err             error
+	stageCache      map[int][]gitlab.PipelineStage
+	stageLoading    map[int]bool
+	stageErr        map[int]error
+	stageSelected   int
+	jobsCache       map[int][]gitlab.PipelineJob
+	jobsLoading     map[int]bool
+	jobsErr         map[int]error
+	logCache        map[int]string
+	logLoading      map[int]bool
+	logErr          map[int]error
+	logPreview      previewState
+	logJobID        int
+	pendingLogJobID int
+	logAutoFollow   bool
+	focus           pipelineFocus
 }
 
 type pipelineState struct {
@@ -482,6 +484,10 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
 	}
+	prevSelectedID := 0
+	if m.pipelineView.selected >= 0 && m.pipelineView.selected < len(m.pipelineView.pipelines) {
+		prevSelectedID = m.pipelineView.pipelines[m.pipelineView.selected].ID
+	}
 	m.pipelineView.loading = false
 	if msg.err != nil {
 		if errors.Is(msg.err, gitlab.ErrNoPipelines) {
@@ -508,11 +514,25 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 		}
 		return a.Ref > b.Ref
 	})
-	if m.pipelineView.selected >= len(m.pipelineView.pipelines) {
-		m.pipelineView.selected = max(0, len(m.pipelineView.pipelines)-1)
+	selectedSame := false
+	if prevSelectedID != 0 {
+		for i, p := range m.pipelineView.pipelines {
+			if p.ID == prevSelectedID {
+				m.pipelineView.selected = i
+				selectedSame = true
+				break
+			}
+		}
 	}
-	m.pipelineView.stageSelected = 0
-	m.resetPipelineLogPreview()
+	if !selectedSame {
+		if len(m.pipelineView.pipelines) == 0 {
+			m.pipelineView.selected = 0
+		} else if m.pipelineView.selected >= len(m.pipelineView.pipelines) {
+			m.pipelineView.selected = max(0, len(m.pipelineView.pipelines)-1)
+		}
+		m.pipelineView.stageSelected = 0
+		m.resetPipelineLogPreview()
+	}
 	cmds := []tea.Cmd{
 		m.queuePipelineStagesForSelection(),
 		m.queuePipelineJobsForSelection(),
@@ -584,7 +604,12 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 			m.pipelineView.logErr = make(map[int]error)
 		}
 		m.pipelineView.logErr[msg.jobID] = msg.err
-		m.pipelineView.logPreview = previewState{err: msg.err}
+		if msg.jobID == m.pipelineView.pendingLogJobID {
+			m.pipelineView.pendingLogJobID = 0
+		}
+		if msg.jobID == m.pipelineView.logJobID && m.pipelineView.logPreview.content == "" {
+			m.pipelineView.logPreview = previewState{err: msg.err}
+		}
 		return m, nil
 	}
 	if m.pipelineView.logCache == nil {
@@ -594,22 +619,36 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 	if m.pipelineView.logErr != nil {
 		delete(m.pipelineView.logErr, msg.jobID)
 	}
+	if msg.jobID != m.pipelineView.logJobID && msg.jobID != m.pipelineView.pendingLogJobID {
+		return m, nil
+	}
+	if msg.jobID == m.pipelineView.pendingLogJobID {
+		m.pipelineView.pendingLogJobID = 0
+	}
 	m.pipelineView.logPreview = previewState{
 		path:    fmt.Sprintf("job-%d", msg.jobID),
 		content: msg.content,
 		raw:     msg.content,
 		loading: false,
-		offset:  0,
 	}
 	m.pipelineView.logJobID = msg.jobID
+	if m.pipelineView.logAutoFollow {
+		m.tailPipelineLog()
+	} else {
+		m.clampPipelineLogOffset()
+	}
 	return m, nil
 }
 
 func (m Model) handlePipelineTick() tea.Cmd {
-	if m.mode != modeProjects {
+	switch m.mode {
+	case modeProjects:
+		return (&m).queuePipelineFetchForSelection(false)
+	case modePipelines:
+		return (&m).queuePipelineViewRefresh()
+	default:
 		return nil
 	}
-	return (&m).queuePipelineFetchForSelection(false)
 }
 
 func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -670,6 +709,27 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.selected > 0 {
 			m.selected--
+		}
+	case "ctrl+d":
+		visible := m.visibleProjects()
+		if len(visible) > 0 {
+			step := listPageStep(m.height)
+			m.selected = min(m.selected+step, len(visible)-1)
+		}
+	case "ctrl+u":
+		visible := m.visibleProjects()
+		if len(visible) > 0 {
+			step := listPageStep(m.height)
+			m.selected = max(m.selected-step, 0)
+		}
+	case "<":
+		if len(m.visibleProjects()) > 0 {
+			m.selected = 0
+		}
+	case ">":
+		visible := m.visibleProjects()
+		if len(visible) > 0 {
+			m.selected = len(visible) - 1
 		}
 	case "l", "right":
 		m.movePage(1)
@@ -742,6 +802,40 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.scrollPreview(-1) {
 			return m, nil
 		}
+	case "ctrl+d":
+		if m.scrollPreview(1) {
+			return m, nil
+		}
+		if cur.selected < len(cur.entries)-1 {
+			step := listPageStep(m.height)
+			cur.selected = min(cur.selected+step, len(cur.entries)-1)
+			return m, m.queueExplorerPreview()
+		}
+	case "ctrl+u":
+		if m.scrollPreview(-1) {
+			return m, nil
+		}
+		if cur.selected > 0 {
+			step := listPageStep(m.height)
+			cur.selected = max(cur.selected-step, 0)
+			return m, m.queueExplorerPreview()
+		}
+	case "<":
+		if m.scrollPreviewToStart() {
+			return m, nil
+		}
+		if cur.selected > 0 {
+			cur.selected = 0
+			return m, m.queueExplorerPreview()
+		}
+	case ">":
+		if m.scrollPreviewToEnd() {
+			return m, nil
+		}
+		if cur.selected < len(cur.entries)-1 {
+			cur.selected = len(cur.entries) - 1
+			return m, m.queueExplorerPreview()
+		}
 	case "down", "j":
 		if cur.selected < len(cur.entries)-1 {
 			cur.selected++
@@ -787,6 +881,90 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "K":
 		if m.scrollPipelineLog(-1) {
 			return m, nil
+		}
+	case "ctrl+d":
+		if m.scrollPipelineLog(1) {
+			return m, nil
+		}
+		step := listPageStep(m.height)
+		if m.pipelineView.focus == pipelineFocusPipelines {
+			if m.pipelineView.selected < len(m.pipelineView.pipelines)-1 {
+				m.pipelineView.selected = min(m.pipelineView.selected+step, len(m.pipelineView.pipelines)-1)
+				m.pipelineView.stageSelected = 0
+				m.resetPipelineLogPreview()
+				cmd := m.queuePipelineStagesForSelection()
+				return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+			}
+		} else {
+			stages := m.selectedPipelineStages()
+			if m.pipelineView.stageSelected < len(stages)-1 {
+				m.pipelineView.stageSelected = min(m.pipelineView.stageSelected+step, len(stages)-1)
+				m.resetPipelineLogPreview()
+				return m, m.queuePipelineLogPreview()
+			}
+		}
+	case "ctrl+u":
+		if m.scrollPipelineLog(-1) {
+			return m, nil
+		}
+		step := listPageStep(m.height)
+		if m.pipelineView.focus == pipelineFocusPipelines {
+			if m.pipelineView.selected > 0 {
+				m.pipelineView.selected = max(m.pipelineView.selected-step, 0)
+				m.pipelineView.stageSelected = 0
+				m.resetPipelineLogPreview()
+				cmd := m.queuePipelineStagesForSelection()
+				return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+			}
+		} else {
+			if m.pipelineView.stageSelected > 0 {
+				m.pipelineView.stageSelected = max(m.pipelineView.stageSelected-step, 0)
+				m.resetPipelineLogPreview()
+				return m, m.queuePipelineLogPreview()
+			}
+		}
+	case "<":
+		if m.scrollPipelineLogToStart() {
+			return m, nil
+		}
+		if m.pipelineView.focus == pipelineFocusPipelines {
+			if len(m.pipelineView.pipelines) > 0 && m.pipelineView.selected != 0 {
+				m.pipelineView.selected = 0
+				m.pipelineView.stageSelected = 0
+				m.resetPipelineLogPreview()
+				cmd := m.queuePipelineStagesForSelection()
+				return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+			}
+		} else if m.pipelineView.stageSelected != 0 {
+			m.pipelineView.stageSelected = 0
+			m.resetPipelineLogPreview()
+			return m, m.queuePipelineLogPreview()
+		}
+	case ">":
+		if m.scrollPipelineLogToEnd() {
+			return m, nil
+		}
+		if m.pipelineView.focus == pipelineFocusPipelines {
+			if len(m.pipelineView.pipelines) > 0 {
+				last := len(m.pipelineView.pipelines) - 1
+				if m.pipelineView.selected != last {
+					m.pipelineView.selected = last
+					m.pipelineView.stageSelected = 0
+					m.resetPipelineLogPreview()
+					cmd := m.queuePipelineStagesForSelection()
+					return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+				}
+			}
+		} else {
+			stages := m.selectedPipelineStages()
+			if len(stages) > 0 {
+				last := len(stages) - 1
+				if m.pipelineView.stageSelected != last {
+					m.pipelineView.stageSelected = last
+					m.resetPipelineLogPreview()
+					return m, m.queuePipelineLogPreview()
+				}
+			}
 		}
 	case "down", "j":
 		if m.pipelineView.focus == pipelineFocusPipelines {
@@ -873,6 +1051,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		logCache:     make(map[int]string),
 		logLoading:   make(map[int]bool),
 		logErr:       make(map[int]error),
+		logAutoFollow: true,
 		focus:        pipelineFocusPipelines,
 	}
 	m.status = fmt.Sprintf("Pipelines for %s", project.PathWithNamespace)
@@ -905,6 +1084,8 @@ func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
 	m.pipelineView.logErr = make(map[int]error)
 	m.pipelineView.logPreview = previewState{}
 	m.pipelineView.logJobID = 0
+	m.pipelineView.pendingLogJobID = 0
+	m.pipelineView.logAutoFollow = true
 	m.pipelineView.focus = pipelineFocusPipelines
 	return *m, fetchPipelinesCmd(m.client, m.pipelineView.project.ID)
 }
@@ -1048,6 +1229,30 @@ func (m *Model) queuePipelineFetch(project gitlab.ProjectNode, force bool) tea.C
 	return fetchPipelineCmd(m.client, project.ID, ref)
 }
 
+func (m *Model) queuePipelineViewRefresh() tea.Cmd {
+	if m.pipelineView.project.ID == 0 {
+		return nil
+	}
+	var cmds []tea.Cmd
+	if !m.pipelineView.loading {
+		m.pipelineView.loading = true
+		cmds = append(cmds, fetchPipelinesCmd(m.client, m.pipelineView.project.ID))
+	}
+	if cmd := m.queuePipelineStagesRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queuePipelineJobsRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queuePipelineLogRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
 func (m *Model) selectedPipeline() *gitlab.PipelineSummary {
 	if len(m.pipelineView.pipelines) == 0 {
 		return nil
@@ -1110,6 +1315,48 @@ func (m *Model) queuePipelineJobsForSelection() tea.Cmd {
 	return fetchPipelineJobsCmd(m.client, m.pipelineView.project.ID, pipeline.ID)
 }
 
+func (m *Model) queuePipelineStagesRefresh() tea.Cmd {
+	if m.pipelineView.project.ID == 0 {
+		return nil
+	}
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return nil
+	}
+	if m.pipelineView.stageLoading == nil {
+		m.pipelineView.stageLoading = make(map[int]bool)
+	}
+	if m.pipelineView.stageLoading[pipeline.ID] {
+		return nil
+	}
+	m.pipelineView.stageLoading[pipeline.ID] = true
+	if m.pipelineView.stageErr != nil {
+		delete(m.pipelineView.stageErr, pipeline.ID)
+	}
+	return fetchPipelineStagesCmd(m.client, m.pipelineView.project.ID, pipeline.ID)
+}
+
+func (m *Model) queuePipelineJobsRefresh() tea.Cmd {
+	if m.pipelineView.project.ID == 0 {
+		return nil
+	}
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return nil
+	}
+	if m.pipelineView.jobsLoading == nil {
+		m.pipelineView.jobsLoading = make(map[int]bool)
+	}
+	if m.pipelineView.jobsLoading[pipeline.ID] {
+		return nil
+	}
+	m.pipelineView.jobsLoading[pipeline.ID] = true
+	if m.pipelineView.jobsErr != nil {
+		delete(m.pipelineView.jobsErr, pipeline.ID)
+	}
+	return fetchPipelineJobsCmd(m.client, m.pipelineView.project.ID, pipeline.ID)
+}
+
 func (m *Model) selectedPipelineStages() []gitlab.PipelineStage {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
@@ -1154,9 +1401,13 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 				content: content,
 				raw:     content,
 				loading: false,
-				offset:  0,
 			}
 			m.pipelineView.logJobID = job.ID
+			if m.pipelineView.logAutoFollow {
+				m.tailPipelineLog()
+			} else {
+				m.clampPipelineLogOffset()
+			}
 			return nil
 		}
 	}
@@ -1175,9 +1426,62 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 	return fetchPipelineLogCmd(m.client, m.pipelineView.project.ID, job.ID)
 }
 
+func (m *Model) queuePipelineLogRefresh() tea.Cmd {
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return nil
+	}
+	if m.pipelineView.jobsCache == nil {
+		return m.queuePipelineJobsForSelection()
+	}
+	jobs, ok := m.pipelineView.jobsCache[pipeline.ID]
+	if !ok {
+		return m.queuePipelineJobsForSelection()
+	}
+	stages := m.selectedPipelineStages()
+	if len(stages) == 0 {
+		if m.pipelineView.logPreview.content == "" {
+			m.pipelineView.logPreview = previewState{content: "No stages available.", loading: false}
+		}
+		return nil
+	}
+	if m.pipelineView.stageSelected >= len(stages) {
+		m.pipelineView.stageSelected = max(0, len(stages)-1)
+	}
+	stageName := stages[m.pipelineView.stageSelected].Name
+	job := latestJobForStage(jobs, stageName)
+	if job == nil {
+		if m.pipelineView.logPreview.content == "" {
+			m.pipelineView.logPreview = previewState{content: "No jobs available for stage.", loading: false}
+		}
+		return nil
+	}
+	if m.pipelineView.logLoading == nil {
+		m.pipelineView.logLoading = make(map[int]bool)
+	}
+	if m.pipelineView.logLoading[job.ID] {
+		return nil
+	}
+	m.pipelineView.logLoading[job.ID] = true
+	if m.pipelineView.logErr != nil {
+		delete(m.pipelineView.logErr, job.ID)
+	}
+	if job.ID != m.pipelineView.logJobID {
+		m.pipelineView.pendingLogJobID = job.ID
+		if m.pipelineView.logPreview.err != nil && m.pipelineView.logPreview.content == "" {
+			m.pipelineView.logPreview = previewState{path: job.Name, loading: true}
+		}
+	} else if m.pipelineView.logPreview.content == "" || m.pipelineView.logPreview.err != nil {
+		m.pipelineView.logPreview = previewState{path: job.Name, loading: true}
+	}
+	return fetchPipelineLogCmd(m.client, m.pipelineView.project.ID, job.ID)
+}
+
 func (m *Model) resetPipelineLogPreview() {
 	m.pipelineView.logPreview = previewState{}
 	m.pipelineView.logJobID = 0
+	m.pipelineView.pendingLogJobID = 0
+	m.pipelineView.logAutoFollow = true
 }
 
 func (m Model) visibleProjects() []gitlab.ProjectNode {
