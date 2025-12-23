@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"gitlab-tui-codex/internal/gitlab"
+	"lablense/internal/gitlab"
 )
 
 const (

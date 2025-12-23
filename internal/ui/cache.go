@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab-tui-codex/internal/gitlab"
+	"lablense/internal/gitlab"
 )
 
 const cacheVersion = 1
@@ -33,7 +33,7 @@ func newProjectCache(host string) (*projectCache, error) {
 	if err != nil {
 		return nil, fmt.Errorf("user cache dir: %w", err)
 	}
-	dir := filepath.Join(base, "gitlab-tui")
+	dir := filepath.Join(base, "lablense")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
 	}

@@ -9,13 +9,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/pflag"
 
-	"gitlab-tui-codex/internal/gitlab"
-	"gitlab-tui-codex/internal/ui"
-	"gitlab-tui-codex/pkg/config"
+	"lablense/internal/gitlab"
+	"lablense/internal/ui"
+	"lablense/pkg/config"
 )
 
 func main() {
-	fs := pflag.NewFlagSet("gitlab-tui", pflag.ExitOnError)
+	fs := pflag.NewFlagSet("lablense", pflag.ExitOnError)
 	config.RegisterFlags(fs)
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "parse flags:", err)

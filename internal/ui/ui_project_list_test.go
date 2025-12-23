@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"gitlab-tui-codex/internal/gitlab"
+	"lablense/internal/gitlab"
 )
 
 func TestParentDir(t *testing.T) {

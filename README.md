@@ -1,6 +1,6 @@
-# GitLab TUI
+# Lablense
 
-GitLab TUI is a Bubble Tea–powered terminal UI for browsing your GitLab projects without leaving the keyboard.
+Lablense is a Bubble Tea–powered terminal UI for browsing your GitLab projects without leaving the keyboard.
 
 ## Requirements
 
@@ -14,16 +14,16 @@ GitLab TUI is a Bubble Tea–powered terminal UI for browsing your GitLab projec
 export GITLAB_TOKEN=glpat-xxxx
 # export GITLAB_HOST=https://gitlab.mycompany.com if needed
 
-go run ./cmd/gitlab-tui
+go run ./cmd/lablense
 ```
 
 Flags override env variables when needed:
 
 ```bash
-go run ./cmd/gitlab-tui --token glpat-xxxx --host https://gitlab.mycompany.com --projects-per-page 100
+go run ./cmd/lablense --token glpat-xxxx --host https://gitlab.mycompany.com --projects-per-page 100
 ```
 
-You can also point to a config file (`--config ./gitlab-tui.yaml`) that Viper can parse as YAML/TOML/JSON. The UI opens in an alternate screen. Quit anytime with `q` or `Ctrl+C`.
+You can also point to a config file (`--config ./lablense.yaml`) that Viper can parse as YAML/TOML/JSON. The UI opens in an alternate screen. Quit anytime with `q` or `Ctrl+C`.
 
 Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emitted to stderr in text format for easy piping or redirection.
 
@@ -64,8 +64,8 @@ Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emit
 - `pkg/config`: loads host/token settings from the environment
 - `internal/gitlab`: lightweight wrapper around `go-gitlab` for projects, pipelines, trees, and file blobs
 - `internal/ui`: Bubble Tea model, view logic, caching, and lipgloss styling (includes the project list, explorer, and pipeline/log views)
-- `cmd/gitlab-tui`: CLI entrypoint
+- `cmd/lablense`: CLI entrypoint
 
-Project listings are cached between runs under `~/.cache/gitlab-tui/` (keyed per host) so subsequent launches open instantly. Use `Ctrl+R` or delete the cache file if you need to force a refresh.
+Project listings are cached between runs under `~/.cache/lablense/` (keyed per host) so subsequent launches open instantly. Use `Ctrl+R` or delete the cache file if you need to force a refresh.
 
 The explorer is inspired by TUI file managers like yazi/ranger: once inside a project you can walk directories, preview files, and navigate back without leaving the keyboard. The pipeline view auto-refreshes and keeps the log preview pinned to the newest output when you are already at the end.

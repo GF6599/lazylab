@@ -60,7 +60,10 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 
 	configPath, _ := fs.GetString(FlagConfig)
 	if configPath == "" {
-		configPath = os.Getenv("GITLAB_TUI_CONFIG")
+		configPath = os.Getenv("LABLENSE_CONFIG")
+		if configPath == "" {
+			configPath = os.Getenv("GITLAB_TUI_CONFIG")
+		}
 	}
 	if configPath != "" {
 		v.SetConfigFile(configPath)
