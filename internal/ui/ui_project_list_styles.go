@@ -20,7 +20,6 @@ var (
 	rosePineText      = lipgloss.Color("#e0def4")
 	rosePineMuted     = lipgloss.Color("#6e6a86")
 	rosePineSubtle    = lipgloss.Color("#908caa")
-	rosePineOverlay   = lipgloss.Color("#26233a")
 	rosePineRose      = lipgloss.Color("#eb6f92")
 	rosePinePine      = lipgloss.Color("#31748f")
 	rosePineIris      = lipgloss.Color("#c4a7e7")

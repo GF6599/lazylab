@@ -1,3 +1,4 @@
+// Package main provides the lablense CLI entrypoint.
 package main
 
 import (

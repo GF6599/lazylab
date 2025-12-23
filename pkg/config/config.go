@@ -1,3 +1,4 @@
+// Package config loads and validates configuration for lablense.
 package config
 
 import (

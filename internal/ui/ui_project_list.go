@@ -1,3 +1,4 @@
+// Package ui contains the Bubble Tea models, views, and styles for the TUI.
 package ui
 
 import (

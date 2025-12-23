@@ -1,3 +1,4 @@
+// Package gitlab wraps the GitLab API client with TUI-focused helpers.
 package gitlab
 
 import (
@@ -10,17 +11,17 @@ import (
 	"strings"
 	"time"
 
-	gl "github.com/xanzy/go-gitlab"
+	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// Client is a small façade over go-gitlab that exposes higher-level types
+// Client is a small façade over the GitLab client-go API that exposes higher-level types
 // tailored for the TUI.
 type Client struct {
 	api  *gl.Client
 	host string
 }
 
-// NewClient wires go-gitlab with the provided token and host.
+// NewClient wires the GitLab client with the provided token and host.
 func NewClient(token, host string) (*Client, error) {
 	if token == "" {
 		return nil, fmt.Errorf("gitlab token must not be empty")
@@ -136,10 +137,10 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 		opts.PerPage = 30
 	}
 	listOpts := &gl.ListProjectsOptions{
-		Membership: gl.Bool(true),
-		OrderBy:    gl.String("last_activity_at"),
-		Sort:       gl.String("desc"),
-		Simple:     gl.Bool(true),
+		Membership: gl.Ptr(true),
+		OrderBy:    gl.Ptr("last_activity_at"),
+		Sort:       gl.Ptr("desc"),
+		Simple:     gl.Ptr(true),
 		ListOptions: gl.ListOptions{
 			Page:    opts.Page,
 			PerPage: opts.PerPage,
@@ -186,9 +187,9 @@ func (c *Client) ListTree(ctx context.Context, projectID int, opts TreeListOptio
 			PerPage: 200,
 			Page:    1,
 		},
-		Ref:       gl.String(opts.Ref),
-		Path:      gl.String(opts.Path),
-		Recursive: gl.Bool(false),
+		Ref:       gl.Ptr(opts.Ref),
+		Path:      gl.Ptr(opts.Path),
+		Recursive: gl.Ptr(false),
 	}
 	nodes, _, err := c.api.Repositories.ListTree(projectID, treeOpts, gl.WithContext(ctx))
 	if err != nil {
@@ -221,7 +222,7 @@ func (c *Client) GetFileContent(ctx context.Context, projectID int, path, ref st
 		return "", fmt.Errorf("file path required")
 	}
 	file, _, err := c.api.RepositoryFiles.GetFile(projectID, path, &gl.GetFileOptions{
-		Ref: gl.String(ref),
+		Ref: gl.Ptr(ref),
 	}, gl.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("get file: %w", err)
@@ -240,11 +241,11 @@ func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) 
 			PerPage: 1,
 			Page:    1,
 		},
-		OrderBy: gl.String("updated_at"),
-		Sort:    gl.String("desc"),
+		OrderBy: gl.Ptr("updated_at"),
+		Sort:    gl.Ptr("desc"),
 	}
 	if strings.TrimSpace(ref) != "" {
-		opts.Ref = gl.String(ref)
+		opts.Ref = gl.Ptr(ref)
 	}
 	pipelines, _, err := c.api.Pipelines.ListProjectPipelines(projectID, opts, gl.WithContext(ctx))
 	if err != nil {
@@ -285,8 +286,8 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 			PerPage: opts.PerPage,
 			Page:    opts.Page,
 		},
-		OrderBy: gl.String("updated_at"),
-		Sort:    gl.String("desc"),
+		OrderBy: gl.Ptr("updated_at"),
+		Sort:    gl.Ptr("desc"),
 	}
 	pipelines, resp, err := c.api.Pipelines.ListProjectPipelines(projectID, apiOpts, gl.WithContext(ctx))
 	if err != nil {

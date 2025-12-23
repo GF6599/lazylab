@@ -62,13 +62,6 @@ func pipelineStatusBadge(status string) string {
 	return pipelineStatusStyle(status).Render(fmt.Sprintf("[%s]", label))
 }
 
-func shortSHA(sha string) string {
-	if len(sha) <= 8 {
-		return sha
-	}
-	return sha[:8]
-}
-
 func renderPipelineEntryLine(line string, selected, focused bool) string {
 	if selected && focused {
 		return explorerSelectedStyle.Render(line)
@@ -310,20 +303,6 @@ func fuzzyMatch(target, pattern string) bool {
 		}
 	}
 	return true
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func listPageStep(height int) int {

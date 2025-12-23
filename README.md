@@ -62,7 +62,7 @@ Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emit
 ## Architecture
 
 - `pkg/config`: loads host/token settings from the environment
-- `internal/gitlab`: lightweight wrapper around `go-gitlab` for projects, pipelines, trees, and file blobs
+- `internal/gitlab`: lightweight wrapper around GitLab client-go for projects, pipelines, trees, and file blobs
 - `internal/ui`: Bubble Tea model, view logic, caching, and lipgloss styling (includes the project list, explorer, and pipeline/log views)
 - `cmd/lablense`: CLI entrypoint
 
