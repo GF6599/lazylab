@@ -151,7 +151,11 @@ func fetchPipelineCmd(client *gitlab.Client, projectID int, ref string) tea.Cmd 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		summary, err := client.LatestPipeline(ctx, projectID, ref)
+		requestRef := ref
+		if ref == pipelineAllRefsRef {
+			requestRef = ""
+		}
+		summary, err := client.LatestPipeline(ctx, projectID, requestRef)
 		return pipelineStatusMsg{projectID: projectID, ref: ref, pipeline: summary, err: err}
 	}
 }

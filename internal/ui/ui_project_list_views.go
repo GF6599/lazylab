@@ -510,8 +510,8 @@ func renderPipelineView(m Model, width int) string {
 	if width < 24 {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for pipeline view.")
 	}
-	parentWidth := max(12, width*20/100)
-	currentWidth := max(12, width*40/100)
+	parentWidth := max(12, width*30/100)
+	currentWidth := max(12, width*25/100)
 	previewWidth := width - parentWidth - currentWidth
 	if previewWidth < 12 {
 		previewWidth = 12
@@ -554,22 +554,50 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 	}
 	b := &strings.Builder{}
 	title := fmt.Sprintf("Retry Pipeline · %s", m.pipelineView.project.PathWithNamespace)
+	if m.pipelineView.confirmRetryIsJob {
+		title = fmt.Sprintf("Retry Job · %s", m.pipelineView.project.PathWithNamespace)
+	}
 	b.WriteString(detailHeaderStyle.Render(clampLine(title, innerWidth)))
 	b.WriteString("\n")
-	pipelineLabel := "Pipeline: (unknown)"
-	if m.pipelineView.confirmRetryID != 0 {
-		pipelineLabel = fmt.Sprintf("Pipeline: #%d", m.pipelineView.confirmRetryID)
-	}
-	b.WriteString(explorerPathStyle.Render(clampLine(pipelineLabel, innerWidth)))
-	b.WriteString("\n")
-	if ref := strings.TrimSpace(m.pipelineView.confirmRetryRef); ref != "" {
-		b.WriteString(explorerPathStyle.Render(clampLine("Ref: "+ref, innerWidth)))
+	if m.pipelineView.confirmRetryIsJob {
+		jobLabel := "Job: (unknown)"
+		if m.pipelineView.confirmRetryJobID != 0 {
+			if name := strings.TrimSpace(m.pipelineView.confirmRetryJobName); name != "" {
+				jobLabel = fmt.Sprintf("Job: %s (#%d)", name, m.pipelineView.confirmRetryJobID)
+			} else {
+				jobLabel = fmt.Sprintf("Job: #%d", m.pipelineView.confirmRetryJobID)
+			}
+		}
+		b.WriteString(explorerPathStyle.Render(clampLine(jobLabel, innerWidth)))
 		b.WriteString("\n")
+		if stage := strings.TrimSpace(m.pipelineView.confirmRetryJobStage); stage != "" {
+			b.WriteString(explorerPathStyle.Render(clampLine("Stage: "+stage, innerWidth)))
+			b.WriteString("\n")
+		}
+		if m.pipelineView.confirmRetryID != 0 {
+			b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Pipeline: #%d", m.pipelineView.confirmRetryID), innerWidth)))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		b.WriteString(explorerHintStyle.Render(clampLine("This will retry the selected job only.", innerWidth)))
+		b.WriteString("\n\n")
+		b.WriteString(explorerHintStyle.Render(clampLine("Enter to retry job · Esc to cancel", innerWidth)))
+	} else {
+		pipelineLabel := "Pipeline: (unknown)"
+		if m.pipelineView.confirmRetryID != 0 {
+			pipelineLabel = fmt.Sprintf("Pipeline: #%d", m.pipelineView.confirmRetryID)
+		}
+		b.WriteString(explorerPathStyle.Render(clampLine(pipelineLabel, innerWidth)))
+		b.WriteString("\n")
+		if ref := strings.TrimSpace(m.pipelineView.confirmRetryRef); ref != "" {
+			b.WriteString(explorerPathStyle.Render(clampLine("Ref: "+ref, innerWidth)))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		b.WriteString(explorerHintStyle.Render(clampLine("This will retry failed jobs or start a new pipeline run.", innerWidth)))
+		b.WriteString("\n\n")
+		b.WriteString(explorerHintStyle.Render(clampLine("Enter to retry pipeline · Esc to cancel", innerWidth)))
 	}
-	b.WriteString("\n")
-	b.WriteString(explorerHintStyle.Render(clampLine("This will retry failed jobs or start a new pipeline run.", innerWidth)))
-	b.WriteString("\n\n")
-	b.WriteString(explorerHintStyle.Render(clampLine("Enter to retry · Esc to cancel", innerWidth)))
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.DoubleBorder()).
 		BorderForeground(rosePineSubtle).

@@ -25,11 +25,13 @@ const (
 const (
 	pipelineRefreshInterval = 5 * time.Second
 	pipelinePerPage         = 25
+	pipelineAllRefsRef      = "__all__"
+	pipelineAllRefsLabel    = "all refs"
 )
 
 var projectActionOptions = []string{
-	"Browse files",
 	"View pipelines",
+	"Browse files",
 }
 
 // Options configures the model at creation time.
@@ -135,6 +137,10 @@ type pipelineViewState struct {
 	confirmRetry    bool
 	confirmRetryID  int
 	confirmRetryRef string
+	confirmRetryIsJob   bool
+	confirmRetryJobID   int
+	confirmRetryJobName string
+	confirmRetryJobStage string
 	retrying        bool
 	retryErr        error
 	pendingSelectID int
@@ -691,6 +697,10 @@ func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd
 	m.pipelineView.confirmRetry = false
 	m.pipelineView.confirmRetryID = 0
 	m.pipelineView.confirmRetryRef = ""
+	m.pipelineView.confirmRetryIsJob = false
+	m.pipelineView.confirmRetryJobID = 0
+	m.pipelineView.confirmRetryJobName = ""
+	m.pipelineView.confirmRetryJobStage = ""
 	if msg.err != nil {
 		m.pipelineView.retryErr = msg.err
 		m.status = fmt.Sprintf("Failed to retry pipeline #%d", msg.pipelineID)
@@ -719,6 +729,13 @@ func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, t
 		return m, nil
 	}
 	m.pipelineView.retrying = false
+	m.pipelineView.confirmRetry = false
+	m.pipelineView.confirmRetryID = 0
+	m.pipelineView.confirmRetryRef = ""
+	m.pipelineView.confirmRetryIsJob = false
+	m.pipelineView.confirmRetryJobID = 0
+	m.pipelineView.confirmRetryJobName = ""
+	m.pipelineView.confirmRetryJobStage = ""
 	if msg.err != nil {
 		m.pipelineView.retryErr = msg.err
 		m.status = fmt.Sprintf("Failed to retry job #%d", msg.jobID)
@@ -885,9 +902,9 @@ func (m Model) handleProjectActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		switch m.actionMenu.selected {
 		case 0:
-			return m.openExplorer(m.actionMenu.project)
-		case 1:
 			return m.openPipelineView(m.actionMenu.project)
+		case 1:
+			return m.openExplorer(m.actionMenu.project)
 		}
 	}
 	return m, nil
@@ -1155,18 +1172,22 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "No job selected"
 				return m, nil
 			}
-			m.pipelineView.retrying = true
-			m.pipelineView.retryErr = nil
-			jobLabel := fmt.Sprintf("#%d", job.ID)
-			if job.Name != "" {
-				jobLabel = fmt.Sprintf("%s (#%d)", job.Name, job.ID)
-			}
-			m.status = fmt.Sprintf("Retrying job %s", jobLabel)
-			return m, retryJobCmd(m.client, m.pipelineView.project.ID, pipeline.ID, job.ID)
+			m.pipelineView.confirmRetry = true
+			m.pipelineView.confirmRetryIsJob = true
+			m.pipelineView.confirmRetryID = pipeline.ID
+			m.pipelineView.confirmRetryRef = ""
+			m.pipelineView.confirmRetryJobID = job.ID
+			m.pipelineView.confirmRetryJobName = job.Name
+			m.pipelineView.confirmRetryJobStage = job.Stage
+			return m, nil
 		}
 		m.pipelineView.confirmRetry = true
+		m.pipelineView.confirmRetryIsJob = false
 		m.pipelineView.confirmRetryID = pipeline.ID
 		m.pipelineView.confirmRetryRef = pipeline.Ref
+		m.pipelineView.confirmRetryJobID = 0
+		m.pipelineView.confirmRetryJobName = ""
+		m.pipelineView.confirmRetryJobStage = ""
 	}
 	return m, nil
 }
@@ -1180,14 +1201,46 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		m.pipelineView.confirmRetry = false
 		m.pipelineView.confirmRetryID = 0
 		m.pipelineView.confirmRetryRef = ""
+		m.pipelineView.confirmRetryIsJob = false
+		m.pipelineView.confirmRetryJobID = 0
+		m.pipelineView.confirmRetryJobName = ""
+		m.pipelineView.confirmRetryJobStage = ""
 		return m, nil
 	case "enter":
+		isJob := m.pipelineView.confirmRetryIsJob
 		pipelineID := m.pipelineView.confirmRetryID
 		ref := strings.TrimSpace(m.pipelineView.confirmRetryRef)
+		jobID := m.pipelineView.confirmRetryJobID
+		jobName := m.pipelineView.confirmRetryJobName
 		m.pipelineView.confirmRetry = false
 		m.pipelineView.confirmRetryID = 0
 		m.pipelineView.confirmRetryRef = ""
-		if pipelineID == 0 || m.pipelineView.project.ID == 0 || m.pipelineView.retrying {
+		m.pipelineView.confirmRetryIsJob = false
+		m.pipelineView.confirmRetryJobID = 0
+		m.pipelineView.confirmRetryJobName = ""
+		m.pipelineView.confirmRetryJobStage = ""
+		if m.pipelineView.project.ID == 0 || m.pipelineView.retrying {
+			return m, nil
+		}
+		if isJob {
+			if jobID == 0 {
+				return m, nil
+			}
+			if pipelineID == 0 {
+				if pipeline := m.selectedPipeline(); pipeline != nil {
+					pipelineID = pipeline.ID
+				}
+			}
+			m.pipelineView.retrying = true
+			m.pipelineView.retryErr = nil
+			jobLabel := fmt.Sprintf("#%d", jobID)
+			if jobName != "" {
+				jobLabel = fmt.Sprintf("%s (#%d)", jobName, jobID)
+			}
+			m.status = fmt.Sprintf("Retrying job %s", jobLabel)
+			return m, retryJobCmd(m.client, m.pipelineView.project.ID, pipelineID, jobID)
+		}
+		if pipelineID == 0 {
 			return m, nil
 		}
 		if ref == "" {
@@ -1203,13 +1256,9 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 
 func (m Model) openProjectActions(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	m.mode = modeProjectActions
-	defaultSelection := 0
-	if len(projectActionOptions) > 1 {
-		defaultSelection = 1
-	}
 	m.actionMenu = actionMenuState{
 		project:  project,
-		selected: defaultSelection,
+		selected: 0,
 	}
 	m.status = fmt.Sprintf("Actions for %s", project.PathWithNamespace)
 	return m, nil
@@ -1262,9 +1311,9 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 }
 
 func (m *Model) closePipelineView() {
-	m.mode = modeProjectActions
+	m.mode = modeProjects
 	m.pipelineView = pipelineViewState{}
-	m.actionMenu.selected = 1
+	m.actionMenu = actionMenuState{}
 }
 
 func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
@@ -1476,7 +1525,7 @@ func (m *Model) queuePipelineFetch(project gitlab.ProjectNode, force bool) tea.C
 	if !force && !state.lastFetched.IsZero() && time.Since(state.lastFetched) < pipelineRefreshInterval {
 		return nil
 	}
-	ref := strings.TrimSpace(project.DefaultBranch)
+	ref := pipelineAllRefsRef
 	state.loading = true
 	state.err = nil
 	state.empty = false

@@ -27,6 +27,12 @@ func truncate(s string, max int) string {
 
 func pipelineRefLabel(project gitlab.ProjectNode, state pipelineState) string {
 	if strings.TrimSpace(state.ref) != "" {
+		if state.ref == pipelineAllRefsRef {
+			if state.hasInfo && strings.TrimSpace(state.info.Ref) != "" {
+				return strings.TrimSpace(state.info.Ref)
+			}
+			return pipelineAllRefsLabel
+		}
 		return state.ref
 	}
 	if strings.TrimSpace(project.DefaultBranch) != "" {
@@ -553,8 +559,8 @@ func previewContentWidth(width int) int {
 	if width <= 0 {
 		width = 80
 	}
-	parentWidth := max(6, width*20/100)
-	currentWidth := max(6, width*40/100)
+	parentWidth := max(6, width*25/100)
+	currentWidth := max(6, width*45/100)
 	previewWidth := width - parentWidth - currentWidth
 	if previewWidth < 6 {
 		previewWidth = 6
@@ -578,8 +584,8 @@ func pipelineLogContentWidth(width int) int {
 	if width <= 0 {
 		width = 80
 	}
-	parentWidth := max(12, width*20/100)
-	currentWidth := max(12, width*40/100)
+	parentWidth := max(12, width*30/100)
+	currentWidth := max(12, width*25/100)
 	previewWidth := width - parentWidth - currentWidth
 	if previewWidth < 12 {
 		previewWidth = 12
