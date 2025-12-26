@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"lazylab/internal/gitlab"
 )
@@ -182,7 +183,7 @@ func renderPipelineListPane(m Model, width, height int) string {
 		b.WriteString("\n")
 	}
 	if m.pipelineView.retrying {
-		b.WriteString(explorerHintStyle.Render(clampLine(" Retrying pipeline...", width)))
+		b.WriteString(explorerHintStyle.Render(clampLine(" Retrying...", width)))
 		b.WriteString("\n")
 	}
 	if m.pipelineView.retryErr != nil {
@@ -193,17 +194,28 @@ func renderPipelineListPane(m Model, width, height int) string {
 		b.WriteString(explorerHintStyle.Render(clampLine(" No pipelines found.", width)))
 		b.WriteString("\n")
 	}
+	labelWidth := 0
+	for _, p := range m.pipelineView.pipelines {
+		labelWidth = max(labelWidth, ansi.StringWidth(pipelineStatusLabel(p.Status)))
+	}
+	if labelWidth == 0 {
+		labelWidth = ansi.StringWidth(pipelineStatusLabel(""))
+	}
 	for i, p := range m.pipelineView.pipelines {
 		cursor := " "
 		if i == m.pipelineView.selected {
 			cursor = ">"
 		}
-		statusBadge := pipelineStatusBadge(p.Status)
+		statusBadge := pipelineStatusBadgeWithWidth(p.Status, labelWidth)
 		ref := p.Ref
 		if ref == "" {
 			ref = "unknown-ref"
 		}
-		line := clampLine(fmt.Sprintf("%s %s #%d %s", cursor, statusBadge, p.ID, ref), width)
+		timestamp := "unknown-time"
+		if !p.UpdatedAt.IsZero() {
+			timestamp = p.UpdatedAt.Local().Format("01-02 15:04")
+		}
+		line := clampLineANSI(fmt.Sprintf("%s %s #%d %s %s", cursor, statusBadge, p.ID, timestamp, ref), width)
 		b.WriteString(renderPipelineEntryLine(line, i == m.pipelineView.selected, m.pipelineView.focus == pipelineFocusPipelines))
 		b.WriteString("\n")
 	}
@@ -271,6 +283,13 @@ func renderPipelineStagesPane(m Model, width, height int) string {
 		b.WriteString("\n")
 		return finalize()
 	}
+	stageLabelWidth := 0
+	for _, stage := range stages {
+		stageLabelWidth = max(stageLabelWidth, ansi.StringWidth(pipelineStatusLabel(stage.Status)))
+	}
+	if stageLabelWidth == 0 {
+		stageLabelWidth = ansi.StringWidth(pipelineStatusLabel(""))
+	}
 	for i, stage := range stages {
 		cursor := " "
 		if i == m.pipelineView.stageSelected {
@@ -281,8 +300,8 @@ func renderPipelineStagesPane(m Model, width, height int) string {
 			status = "unknown"
 		}
 		summary := stageJobSummary(jobs, stage.Name)
-		stageLine := fmt.Sprintf("%s %s %s%s", cursor, pipelineStatusBadge(status), stage.Name, summary)
-		b.WriteString(renderPipelineEntryLine(clampLine(stageLine, width), i == m.pipelineView.stageSelected, m.pipelineView.focus == pipelineFocusStages))
+		stageLine := fmt.Sprintf("%s %s %s%s", cursor, pipelineStatusBadgeWithWidth(status, stageLabelWidth), stage.Name, summary)
+		b.WriteString(renderPipelineEntryLine(clampLineANSI(stageLine, width), i == m.pipelineView.stageSelected, m.pipelineView.focus == pipelineFocusStages))
 		b.WriteString("\n")
 	}
 	return finalize()

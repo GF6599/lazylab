@@ -245,6 +245,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePipelineLogLoaded(msg)
 	case pipelineRetriedMsg:
 		return m.handlePipelineRetried(msg)
+	case pipelineJobRetriedMsg:
+		return m.handlePipelineJobRetried(msg)
 	case pipelineTickMsg:
 		cmd := m.handlePipelineTick()
 		if cmd == nil {
@@ -712,6 +714,44 @@ func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd
 	return m.reloadPipelineView()
 }
 
+func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	m.pipelineView.retrying = false
+	if msg.err != nil {
+		m.pipelineView.retryErr = msg.err
+		m.status = fmt.Sprintf("Failed to retry job #%d", msg.jobID)
+		return m, nil
+	}
+	m.pipelineView.retryErr = nil
+	if msg.job.ID != 0 {
+		if msg.job.Name != "" {
+			m.status = fmt.Sprintf("Retried job %s (#%d)", msg.job.Name, msg.job.ID)
+		} else {
+			m.status = fmt.Sprintf("Retried job #%d", msg.job.ID)
+		}
+	} else if msg.jobID != 0 {
+		m.status = fmt.Sprintf("Retried job #%d", msg.jobID)
+	} else {
+		m.status = "Job retried"
+	}
+	var cmds []tea.Cmd
+	if cmd := m.queuePipelineStagesRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queuePipelineJobsRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queuePipelineLogRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
+}
+
 func (m Model) handlePipelineTick() tea.Cmd {
 	switch m.mode {
 	case modeProjects:
@@ -1090,13 +1130,39 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.reloadPipelineView()
 	case "R":
 		if m.pipelineView.retrying {
-			m.status = "Pipeline retry already in progress"
+			m.status = "Retry already in progress"
 			return m, nil
 		}
 		pipeline := m.selectedPipeline()
 		if pipeline == nil {
 			m.status = "No pipeline selected"
 			return m, nil
+		}
+		if m.pipelineView.focus == pipelineFocusStages {
+			job := m.selectedPipelineJob()
+			if job == nil {
+				var cmds []tea.Cmd
+				if cmd := m.queuePipelineStagesForSelection(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				if cmd := m.queuePipelineJobsForSelection(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				if len(cmds) > 0 {
+					m.status = "Loading pipeline jobs..."
+					return m, tea.Batch(cmds...)
+				}
+				m.status = "No job selected"
+				return m, nil
+			}
+			m.pipelineView.retrying = true
+			m.pipelineView.retryErr = nil
+			jobLabel := fmt.Sprintf("#%d", job.ID)
+			if job.Name != "" {
+				jobLabel = fmt.Sprintf("%s (#%d)", job.Name, job.ID)
+			}
+			m.status = fmt.Sprintf("Retrying job %s", jobLabel)
+			return m, retryJobCmd(m.client, m.pipelineView.project.ID, pipeline.ID, job.ID)
 		}
 		m.pipelineView.confirmRetry = true
 		m.pipelineView.confirmRetryID = pipeline.ID
@@ -1137,9 +1203,13 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 
 func (m Model) openProjectActions(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	m.mode = modeProjectActions
+	defaultSelection := 0
+	if len(projectActionOptions) > 1 {
+		defaultSelection = 1
+	}
 	m.actionMenu = actionMenuState{
 		project:  project,
-		selected: 0,
+		selected: defaultSelection,
 	}
 	m.status = fmt.Sprintf("Actions for %s", project.PathWithNamespace)
 	return m, nil
@@ -1560,6 +1630,30 @@ func (m *Model) selectedPipelineStages() []gitlab.PipelineStage {
 		return nil
 	}
 	return m.pipelineView.stageCache[pipeline.ID]
+}
+
+func (m *Model) selectedPipelineJob() *gitlab.PipelineJob {
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return nil
+	}
+	if m.pipelineView.jobsCache == nil {
+		return nil
+	}
+	jobs, ok := m.pipelineView.jobsCache[pipeline.ID]
+	if !ok {
+		return nil
+	}
+	stages := m.selectedPipelineStages()
+	if len(stages) == 0 {
+		return nil
+	}
+	stageIndex := m.pipelineView.stageSelected
+	if stageIndex < 0 || stageIndex >= len(stages) {
+		stageIndex = max(0, len(stages)-1)
+	}
+	stageName := stages[stageIndex].Name
+	return latestJobForStage(jobs, stageName)
 }
 
 func (m *Model) queuePipelineLogPreview() tea.Cmd {

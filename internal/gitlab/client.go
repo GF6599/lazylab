@@ -269,6 +269,8 @@ func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) 
 	}
 	if p.UpdatedAt != nil {
 		summary.UpdatedAt = *p.UpdatedAt
+	} else if p.CreatedAt != nil {
+		summary.UpdatedAt = *p.CreatedAt
 	}
 	return summary, nil
 }
@@ -304,6 +306,8 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 		}
 		if p.UpdatedAt != nil {
 			summary.UpdatedAt = *p.UpdatedAt
+		} else if p.CreatedAt != nil {
+			summary.UpdatedAt = *p.CreatedAt
 		}
 		summaries = append(summaries, summary)
 	}
@@ -346,6 +350,27 @@ func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, r
 	return pipelineSummary(pipeline), nil
 }
 
+// RetryJob retries a single job run.
+func (c *Client) RetryJob(ctx context.Context, projectID, jobID int) (PipelineJob, error) {
+	if jobID == 0 {
+		return PipelineJob{}, fmt.Errorf("retry job: missing job id")
+	}
+	job, _, err := c.api.Jobs.RetryJob(projectID, jobID, gl.WithContext(ctx))
+	if err != nil {
+		return PipelineJob{}, fmt.Errorf("retry job: %w", err)
+	}
+	if job == nil {
+		return PipelineJob{}, nil
+	}
+	return PipelineJob{
+		ID:     job.ID,
+		Name:   job.Name,
+		Stage:  job.Stage,
+		Status: job.Status,
+		WebURL: job.WebURL,
+	}, nil
+}
+
 func pipelineSummary(pipeline *gl.Pipeline) PipelineSummary {
 	if pipeline == nil {
 		return PipelineSummary{}
@@ -359,6 +384,8 @@ func pipelineSummary(pipeline *gl.Pipeline) PipelineSummary {
 	}
 	if pipeline.UpdatedAt != nil {
 		summary.UpdatedAt = *pipeline.UpdatedAt
+	} else if pipeline.CreatedAt != nil {
+		summary.UpdatedAt = *pipeline.CreatedAt
 	}
 	return summary
 }

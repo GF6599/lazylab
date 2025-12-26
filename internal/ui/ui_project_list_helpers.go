@@ -54,10 +54,25 @@ func pipelineStatusStyle(status string) lipgloss.Style {
 	}
 }
 
-func pipelineStatusBadge(status string) string {
+func pipelineStatusLabel(status string) string {
 	label := strings.ToUpper(strings.TrimSpace(status))
 	if label == "" {
-		label = "UNKNOWN"
+		return "UNKNOWN"
+	}
+	return label
+}
+
+func pipelineStatusBadge(status string) string {
+	return pipelineStatusBadgeWithWidth(status, 0)
+}
+
+func pipelineStatusBadgeWithWidth(status string, labelWidth int) string {
+	label := pipelineStatusLabel(status)
+	if labelWidth > 0 {
+		pad := labelWidth - ansi.StringWidth(label)
+		if pad > 0 {
+			label += strings.Repeat(" ", pad)
+		}
 	}
 	return pipelineStatusStyle(status).Render(fmt.Sprintf("[%s]", label))
 }
@@ -458,6 +473,19 @@ func clampLines(text string, width int) string {
 		lines[i] = clampLine(line, width)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func clampLineANSI(line string, width int) string {
+	if width <= 0 {
+		return line
+	}
+	if ansi.StringWidth(line) <= width {
+		return line
+	}
+	if width == 1 {
+		return "…"
+	}
+	return ansi.Truncate(line, width, "…")
 }
 
 func overlayCentered(base, overlay string, width int) string {

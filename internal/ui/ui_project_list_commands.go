@@ -85,6 +85,14 @@ type pipelineRetriedMsg struct {
 	err        error
 }
 
+type pipelineJobRetriedMsg struct {
+	projectID  int
+	pipelineID int
+	jobID      int
+	job        gitlab.PipelineJob
+	err        error
+}
+
 type pipelineTickMsg struct{}
 
 func fetchProjectsCmd(client *gitlab.Client, perPage, page int, background bool) tea.Cmd {
@@ -203,6 +211,15 @@ func retryPipelineCmd(client *gitlab.Client, projectID, pipelineID int, ref stri
 		defer cancel()
 		pipeline, err := client.RetryPipeline(ctx, projectID, pipelineID, ref)
 		return pipelineRetriedMsg{projectID: projectID, pipelineID: pipelineID, pipeline: pipeline, err: err}
+	}
+}
+
+func retryJobCmd(client *gitlab.Client, projectID, pipelineID, jobID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		job, err := client.RetryJob(ctx, projectID, jobID)
+		return pipelineJobRetriedMsg{projectID: projectID, pipelineID: pipelineID, jobID: jobID, job: job, err: err}
 	}
 }
 
