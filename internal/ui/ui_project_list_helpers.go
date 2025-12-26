@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"lablense/internal/gitlab"
+	"lazylab/internal/gitlab"
 )
 
 func truncate(s string, max int) string {

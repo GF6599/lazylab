@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"lablense/internal/gitlab"
+	"lazylab/internal/gitlab"
 )
 
 const cacheVersion = 1
@@ -33,7 +33,7 @@ func newProjectCache(host string) (*projectCache, error) {
 	if err != nil {
 		return nil, fmt.Errorf("user cache dir: %w", err)
 	}
-	dir := filepath.Join(base, "lablense")
+	dir := filepath.Join(base, "lazylab")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"lablense/internal/gitlab"
+	"lazylab/internal/gitlab"
 )
 
 type projectsLoadedMsg struct {
@@ -76,6 +76,13 @@ type pipelineLogLoadedMsg struct {
 	jobID     int
 	content   string
 	err       error
+}
+
+type pipelineRetriedMsg struct {
+	projectID  int
+	pipelineID int
+	pipeline   gitlab.PipelineSummary
+	err        error
 }
 
 type pipelineTickMsg struct{}
@@ -187,6 +194,15 @@ func fetchPipelineLogCmd(client *gitlab.Client, projectID, jobID int) tea.Cmd {
 			return pipelineLogLoadedMsg{projectID: projectID, jobID: jobID, err: err}
 		}
 		return pipelineLogLoadedMsg{projectID: projectID, jobID: jobID, content: content}
+	}
+}
+
+func retryPipelineCmd(client *gitlab.Client, projectID, pipelineID int, ref string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		pipeline, err := client.RetryPipeline(ctx, projectID, pipelineID, ref)
+		return pipelineRetriedMsg{projectID: projectID, pipelineID: pipelineID, pipeline: pipeline, err: err}
 	}
 }
 

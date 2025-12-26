@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"lablense/internal/gitlab"
+	"lazylab/internal/gitlab"
 )
 
 // View renders the UI to the terminal.
@@ -174,6 +174,14 @@ func renderPipelineListPane(m Model, width, height int) string {
 		b.WriteString(explorerErrorStyle.Render(clampLine(" "+m.pipelineView.err.Error(), width)))
 		b.WriteString("\n")
 	}
+	if m.pipelineView.retrying {
+		b.WriteString(explorerHintStyle.Render(clampLine(" Retrying pipeline...", width)))
+		b.WriteString("\n")
+	}
+	if m.pipelineView.retryErr != nil {
+		b.WriteString(explorerErrorStyle.Render(clampLine(" Retry failed: "+m.pipelineView.retryErr.Error(), width)))
+		b.WriteString("\n")
+	}
 	if len(m.pipelineView.pipelines) == 0 && !m.pipelineView.loading && m.pipelineView.err == nil {
 		b.WriteString(explorerHintStyle.Render(clampLine(" No pipelines found.", width)))
 		b.WriteString("\n")
@@ -193,7 +201,7 @@ func renderPipelineListPane(m Model, width, height int) string {
 		b.WriteString("\n")
 	}
 	content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
-	hint := explorerHintStyle.Render(clampLine(" ← back · → stages · r refresh · [ and ] page · Ctrl+D/U page · </> jump", width))
+	hint := explorerHintStyle.Render(clampLine(" ← back · → stages · r refresh · R retry · [ and ] page · Ctrl+D/U page · </> jump", width))
 	return renderWithBottomHint(content, hint, height)
 }
 
@@ -477,6 +485,9 @@ func renderPipelineView(m Model, width int) string {
 	if width <= 0 {
 		width = 80
 	}
+	if m.pipelineView.confirmRetry {
+		return renderPipelineRetryConfirmView(m, width)
+	}
 	if width < 24 {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for pipeline view.")
 	}
@@ -512,6 +523,45 @@ func renderPipelineView(m Model, width int) string {
 	}
 	b.WriteString(explorerBorderStyle.Render("╚" + strings.Repeat("═", parentWidth-2) + "╩" + strings.Repeat("═", currentWidth-2) + "╩" + strings.Repeat("═", previewWidth-2) + "╝"))
 	return b.String()
+}
+
+func renderPipelineRetryConfirmView(m Model, width int) string {
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+	innerWidth := min(68, width-10)
+	if innerWidth < 24 {
+		innerWidth = max(12, width-6)
+	}
+	b := &strings.Builder{}
+	title := fmt.Sprintf("Retry Pipeline · %s", m.pipelineView.project.PathWithNamespace)
+	b.WriteString(detailHeaderStyle.Render(clampLine(title, innerWidth)))
+	b.WriteString("\n")
+	pipelineLabel := "Pipeline: (unknown)"
+	if m.pipelineView.confirmRetryID != 0 {
+		pipelineLabel = fmt.Sprintf("Pipeline: #%d", m.pipelineView.confirmRetryID)
+	}
+	b.WriteString(explorerPathStyle.Render(clampLine(pipelineLabel, innerWidth)))
+	b.WriteString("\n")
+	if ref := strings.TrimSpace(m.pipelineView.confirmRetryRef); ref != "" {
+		b.WriteString(explorerPathStyle.Render(clampLine("Ref: "+ref, innerWidth)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(explorerHintStyle.Render(clampLine("This will retry failed jobs or start a new pipeline run.", innerWidth)))
+	b.WriteString("\n\n")
+	b.WriteString(explorerHintStyle.Render(clampLine("Enter to retry · Esc to cancel", innerWidth)))
+	modal := lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(rosePineSubtle).
+		Padding(1, 2).
+		Width(innerWidth).
+		Render(strings.TrimSuffix(b.String(), "\n"))
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, modal)
 }
 
 func renderExplorerParents(m Model, width int) string {

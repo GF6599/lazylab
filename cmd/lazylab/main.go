@@ -1,4 +1,4 @@
-// Package main provides the lablense CLI entrypoint.
+// Package main provides the lazylab CLI entrypoint.
 package main
 
 import (
@@ -10,13 +10,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/pflag"
 
-	"lablense/internal/gitlab"
-	"lablense/internal/ui"
-	"lablense/pkg/config"
+	"lazylab/internal/gitlab"
+	"lazylab/internal/ui"
+	"lazylab/pkg/config"
 )
 
 func main() {
-	fs := pflag.NewFlagSet("lablense", pflag.ExitOnError)
+	fs := pflag.NewFlagSet("lazylab", pflag.ExitOnError)
 	config.RegisterFlags(fs)
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "parse flags:", err)

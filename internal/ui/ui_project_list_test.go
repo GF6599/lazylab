@@ -4,9 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"lablense/internal/gitlab"
+	"lazylab/internal/gitlab"
 )
 
 func TestParentDir(t *testing.T) {
@@ -101,6 +102,51 @@ func TestQueuePipelineLogPreviewPreservesOffset(t *testing.T) {
 	}
 	if m.pipelineView.logPreview.content != content {
 		t.Fatalf("expected log content to update from cache")
+	}
+}
+
+func TestPipelineView_RetryModalOpens(t *testing.T) {
+	m := Model{
+		mode: modePipelines,
+		pipelineView: pipelineViewState{
+			project:   gitlab.ProjectNode{ID: 1},
+			pipelines: []gitlab.PipelineSummary{{ID: 42, Ref: "main"}},
+			selected:  0,
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")}
+	updated, _ := m.handlePipelineViewKey(msg)
+	got := updated.(Model).pipelineView
+	if !got.confirmRetry {
+		t.Fatalf("expected retry modal to open")
+	}
+	if got.confirmRetryID != 42 || got.confirmRetryRef != "main" {
+		t.Fatalf("expected confirm data to match selection, got id=%d ref=%q", got.confirmRetryID, got.confirmRetryRef)
+	}
+}
+
+func TestPipelineView_RetryConfirmStartsRetry(t *testing.T) {
+	m := Model{
+		mode: modePipelines,
+		pipelineView: pipelineViewState{
+			project:        gitlab.ProjectNode{ID: 1},
+			confirmRetry:   true,
+			confirmRetryID: 55,
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, cmd := m.handlePipelineRetryConfirmKey(msg)
+	got := updated.(Model).pipelineView
+	if got.retrying != true {
+		t.Fatalf("expected retrying to be true")
+	}
+	if got.confirmRetry {
+		t.Fatalf("expected retry modal to close")
+	}
+	if cmd == nil {
+		t.Fatalf("expected retry command")
 	}
 }
 

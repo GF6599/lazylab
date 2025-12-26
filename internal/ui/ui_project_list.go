@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"lablense/internal/gitlab"
+	"lazylab/internal/gitlab"
 )
 
 const (
@@ -132,6 +132,12 @@ type pipelineViewState struct {
 	pendingLogJobID int
 	logAutoFollow   bool
 	focus           pipelineFocus
+	confirmRetry    bool
+	confirmRetryID  int
+	confirmRetryRef string
+	retrying        bool
+	retryErr        error
+	pendingSelectID int
 }
 
 type pipelineState struct {
@@ -237,6 +243,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePipelineJobsLoaded(msg)
 	case pipelineLogLoadedMsg:
 		return m.handlePipelineLogLoaded(msg)
+	case pipelineRetriedMsg:
+		return m.handlePipelineRetried(msg)
 	case pipelineTickMsg:
 		cmd := m.handlePipelineTick()
 		if cmd == nil {
@@ -539,7 +547,17 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 		return a.Ref > b.Ref
 	})
 	selectedSame := false
-	if prevSelectedID != 0 {
+	if m.pipelineView.pendingSelectID != 0 {
+		for i, p := range m.pipelineView.pipelines {
+			if p.ID == m.pipelineView.pendingSelectID {
+				m.pipelineView.selected = i
+				selectedSame = true
+				m.pipelineView.pendingSelectID = 0
+				break
+			}
+		}
+	}
+	if !selectedSame && prevSelectedID != 0 {
 		for i, p := range m.pipelineView.pipelines {
 			if p.ID == prevSelectedID {
 				m.pipelineView.selected = i
@@ -661,6 +679,37 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 	m.pipelineView.logJobID = msg.jobID
 	m.tailPipelineLog()
 	return m, nil
+}
+
+func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	m.pipelineView.retrying = false
+	m.pipelineView.confirmRetry = false
+	m.pipelineView.confirmRetryID = 0
+	m.pipelineView.confirmRetryRef = ""
+	if msg.err != nil {
+		m.pipelineView.retryErr = msg.err
+		m.status = fmt.Sprintf("Failed to retry pipeline #%d", msg.pipelineID)
+		return m, nil
+	}
+	m.pipelineView.retryErr = nil
+	if msg.pipeline.ID != 0 {
+		m.pipelineView.pendingSelectID = msg.pipeline.ID
+		if msg.pipeline.ID == msg.pipelineID {
+			m.status = fmt.Sprintf("Retried pipeline #%d", msg.pipeline.ID)
+		} else {
+			m.status = fmt.Sprintf("Triggered pipeline #%d", msg.pipeline.ID)
+		}
+	} else if msg.pipelineID != 0 {
+		m.pipelineView.pendingSelectID = msg.pipelineID
+		m.status = fmt.Sprintf("Retried pipeline #%d", msg.pipelineID)
+	} else {
+		m.status = "Pipeline retriggered"
+	}
+	m.pipelineView.page = 1
+	return m.reloadPipelineView()
 }
 
 func (m Model) handlePipelineTick() tea.Cmd {
@@ -883,6 +932,9 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.pipelineView.confirmRetry {
+		return m.handlePipelineRetryConfirmKey(msg)
+	}
 	key := msg.String()
 	switch key {
 	case "ctrl+c", "q":
@@ -1036,6 +1088,49 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r", "ctrl+r":
 		return m.reloadPipelineView()
+	case "R":
+		if m.pipelineView.retrying {
+			m.status = "Pipeline retry already in progress"
+			return m, nil
+		}
+		pipeline := m.selectedPipeline()
+		if pipeline == nil {
+			m.status = "No pipeline selected"
+			return m, nil
+		}
+		m.pipelineView.confirmRetry = true
+		m.pipelineView.confirmRetryID = pipeline.ID
+		m.pipelineView.confirmRetryRef = pipeline.Ref
+	}
+	return m, nil
+}
+
+func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc", "left", "h", "backspace":
+		m.pipelineView.confirmRetry = false
+		m.pipelineView.confirmRetryID = 0
+		m.pipelineView.confirmRetryRef = ""
+		return m, nil
+	case "enter":
+		pipelineID := m.pipelineView.confirmRetryID
+		ref := strings.TrimSpace(m.pipelineView.confirmRetryRef)
+		m.pipelineView.confirmRetry = false
+		m.pipelineView.confirmRetryID = 0
+		m.pipelineView.confirmRetryRef = ""
+		if pipelineID == 0 || m.pipelineView.project.ID == 0 || m.pipelineView.retrying {
+			return m, nil
+		}
+		if ref == "" {
+			ref = strings.TrimSpace(m.pipelineView.project.DefaultBranch)
+		}
+		m.pipelineView.retrying = true
+		m.pipelineView.retryErr = nil
+		m.status = fmt.Sprintf("Retrying pipeline #%d", pipelineID)
+		return m, retryPipelineCmd(m.client, m.pipelineView.project.ID, pipelineID, ref)
 	}
 	return m, nil
 }

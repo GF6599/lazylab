@@ -1,4 +1,4 @@
-module lablense
+module lazylab
 
 go 1.24.2
 

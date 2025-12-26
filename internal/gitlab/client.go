@@ -328,6 +328,41 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 	}, nil
 }
 
+// RetryPipeline retries failed jobs in a pipeline, falling back to a fresh run when needed.
+func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error) {
+	pipeline, _, err := c.api.Pipelines.RetryPipelineBuild(projectID, pipelineID, gl.WithContext(ctx))
+	if err != nil {
+		if ref == "" || !gl.HasStatusCode(err, 400) {
+			return PipelineSummary{}, fmt.Errorf("retry pipeline: %w", err)
+		}
+		created, _, createErr := c.api.Pipelines.CreatePipeline(projectID, &gl.CreatePipelineOptions{
+			Ref: gl.Ptr(ref),
+		}, gl.WithContext(ctx))
+		if createErr != nil {
+			return PipelineSummary{}, fmt.Errorf("retry pipeline: %v; run pipeline: %w", err, createErr)
+		}
+		return pipelineSummary(created), nil
+	}
+	return pipelineSummary(pipeline), nil
+}
+
+func pipelineSummary(pipeline *gl.Pipeline) PipelineSummary {
+	if pipeline == nil {
+		return PipelineSummary{}
+	}
+	summary := PipelineSummary{
+		ID:     pipeline.ID,
+		Status: pipeline.Status,
+		Ref:    pipeline.Ref,
+		SHA:    pipeline.SHA,
+		WebURL: pipeline.WebURL,
+	}
+	if pipeline.UpdatedAt != nil {
+		summary.UpdatedAt = *pipeline.UpdatedAt
+	}
+	return summary
+}
+
 // PipelineStages returns stage summaries for a pipeline.
 func (c *Client) PipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error) {
 	return c.collectPipelineStages(ctx, projectID, pipelineID)
