@@ -20,9 +20,16 @@ func (m Model) View() string {
 	case modeExplorer:
 		return renderExplorerView(m, width)
 	case modeProjectActions:
-		return renderProjectActionView(m, width)
+		base := renderProjectsView(m, width)
+		modal := renderProjectActionModal(m, width)
+		return overlayCentered(base, modal, width)
 	case modePipelines:
-		return renderPipelineView(m, width)
+		base := renderPipelineView(m, width)
+		if m.pipelineView.confirmRetry {
+			modal := renderPipelineRetryConfirmModal(m, width)
+			return overlayCentered(base, modal, width)
+		}
+		return base
 	}
 	return renderProjectsView(m, width)
 }
@@ -441,13 +448,9 @@ func renderExplorerView(m Model, width int) string {
 	return b.String()
 }
 
-func renderProjectActionView(m Model, width int) string {
+func renderProjectActionModal(m Model, width int) string {
 	if width <= 0 {
 		width = 80
-	}
-	height := m.height
-	if height <= 0 {
-		height = 24
 	}
 	innerWidth := min(60, width-10)
 	if innerWidth < 20 {
@@ -478,15 +481,12 @@ func renderProjectActionView(m Model, width int) string {
 		Padding(1, 2).
 		Width(innerWidth).
 		Render(strings.TrimSuffix(b.String(), "\n"))
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, modal)
+	return modal
 }
 
 func renderPipelineView(m Model, width int) string {
 	if width <= 0 {
 		width = 80
-	}
-	if m.pipelineView.confirmRetry {
-		return renderPipelineRetryConfirmView(m, width)
 	}
 	if width < 24 {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for pipeline view.")
@@ -525,13 +525,9 @@ func renderPipelineView(m Model, width int) string {
 	return b.String()
 }
 
-func renderPipelineRetryConfirmView(m Model, width int) string {
+func renderPipelineRetryConfirmModal(m Model, width int) string {
 	if width <= 0 {
 		width = 80
-	}
-	height := m.height
-	if height <= 0 {
-		height = 24
 	}
 	innerWidth := min(68, width-10)
 	if innerWidth < 24 {
@@ -561,7 +557,7 @@ func renderPipelineRetryConfirmView(m Model, width int) string {
 		Padding(1, 2).
 		Width(innerWidth).
 		Render(strings.TrimSuffix(b.String(), "\n"))
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, modal)
+	return modal
 }
 
 func renderExplorerParents(m Model, width int) string {

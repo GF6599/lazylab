@@ -460,6 +460,67 @@ func clampLines(text string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+func overlayCentered(base, overlay string, width int) string {
+	base = strings.TrimSuffix(base, "\n")
+	overlay = strings.TrimSuffix(overlay, "\n")
+	baseLines := strings.Split(base, "\n")
+	if len(baseLines) == 0 {
+		baseLines = []string{""}
+	}
+	if width <= 0 {
+		for _, line := range baseLines {
+			width = max(width, ansi.StringWidth(line))
+		}
+		if width == 0 {
+			width = 1
+		}
+	}
+	for i, line := range baseLines {
+		baseLines[i] = padLineANSI(line, width)
+	}
+	overlayLines := strings.Split(overlay, "\n")
+	if len(overlayLines) == 0 {
+		return strings.Join(baseLines, "\n")
+	}
+	overlayWidth := 0
+	for _, line := range overlayLines {
+		overlayWidth = max(overlayWidth, ansi.StringWidth(line))
+	}
+	if overlayWidth == 0 {
+		return strings.Join(baseLines, "\n")
+	}
+	overlayWidth = min(overlayWidth, width)
+	overlayHeight := min(len(overlayLines), len(baseLines))
+	x := max(0, (width-overlayWidth)/2)
+	y := max(0, (len(baseLines)-overlayHeight)/2)
+	for i := 0; i < overlayHeight && y+i < len(baseLines); i++ {
+		line := padLineANSI(overlayLines[i], overlayWidth)
+		end := min(width, x+overlayWidth)
+		if end <= x {
+			continue
+		}
+		baseLine := baseLines[y+i]
+		left := ansi.Cut(baseLine, 0, x)
+		right := ansi.Cut(baseLine, end, width)
+		baseLines[y+i] = left + padLineANSI(line, end-x) + right
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+func padLineANSI(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(line) > width {
+		line = ansi.Truncate(line, width, "")
+	}
+	pad := width - ansi.StringWidth(line)
+	if pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	return line
+}
+
 func previewContentWidth(width int) int {
 	if width <= 0 {
 		width = 80
