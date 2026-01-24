@@ -54,12 +54,29 @@ func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 		ref = "main"
 	}
 	m.mode = modeExplorer
+
+	// Initialize bubbles lists for explorer panes
+	delegate := treeEntryDelegate{}
+	parentList := list.New([]list.Item{}, delegate, 0, 0)
+	parentList.Title = ""
+	parentList.SetShowStatusBar(false)
+	parentList.SetShowPagination(false)
+	parentList.SetShowHelp(false)
+	parentList.SetFilteringEnabled(false)
+
+	currentList := list.New([]list.Item{}, delegate, 0, 0)
+	currentList.Title = ""
+	currentList.SetShowStatusBar(false)
+	currentList.SetShowPagination(false)
+	currentList.SetShowHelp(false)
+	currentList.SetFilteringEnabled(false)
+
 	m.explorer = explorerState{
-		project: project,
-		ref:     ref,
-		stack: []dirState{
-			{path: "", loading: true},
-		},
+		project:     project,
+		ref:         ref,
+		stack:       []dirState{{path: "", loading: true}},
+		parentList:  parentList,
+		currentList: currentList,
 	}
 	m.status = fmt.Sprintf("Browsing %s", project.PathWithNamespace)
 	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, ref, "")

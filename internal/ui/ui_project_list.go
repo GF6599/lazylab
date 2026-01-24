@@ -206,6 +206,52 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 	fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
 }
 
+// treeEntryItem wraps a GitLab tree entry for use with bubbles/list
+type treeEntryItem struct {
+	entry gitlab.TreeNode
+}
+
+func (i treeEntryItem) Title() string { return i.entry.Name }
+
+func (i treeEntryItem) Description() string {
+	if i.entry.IsDir() {
+		return "directory"
+	}
+	return i.entry.Type
+}
+
+func (i treeEntryItem) FilterValue() string { return i.entry.Name }
+
+// treeEntryDelegate renders tree entry items in the list
+type treeEntryDelegate struct{}
+
+func (d treeEntryDelegate) Height() int                               { return 1 }
+func (d treeEntryDelegate) Spacing() int                              { return 0 }
+func (d treeEntryDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
+
+func (d treeEntryDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	eItem, ok := item.(treeEntryItem)
+	if !ok {
+		return
+	}
+
+	cursor := " "
+	style := itemStyle
+	if index == m.Index() {
+		cursor = ">"
+		style = selectedItemStyle
+	}
+
+	icon := explorerEntryIcon(eItem.entry)
+	name := eItem.entry.Name
+	if eItem.entry.IsDir() {
+		name += "/"
+	}
+
+	line := fmt.Sprintf("%s%s %s", cursor, icon, name)
+	fmt.Fprint(w, style.Render(line))
+}
+
 // Model shows a list of projects and metadata for the selected entry.
 type Model struct {
 	ctx               context.Context // Parent context for cancellation
@@ -284,10 +330,12 @@ type previewState struct {
 }
 
 type explorerState struct {
-	project gitlab.ProjectNode
-	ref     string
-	stack   []dirState
-	preview previewState
+	project    gitlab.ProjectNode
+	ref        string
+	stack      []dirState
+	preview    previewState
+	parentList list.Model // Bubbles list for parent directory
+	currentList list.Model // Bubbles list for current directory
 }
 
 type actionMenuState struct {

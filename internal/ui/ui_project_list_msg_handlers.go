@@ -106,9 +106,30 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 	if dir.selected >= len(dir.entries) {
 		dir.selected = max(0, len(dir.entries)-1)
 	}
+
+	// Update bubbles lists with new entries
+	items := make([]list.Item, len(msg.entries))
+	for i, entry := range msg.entries {
+		items[i] = treeEntryItem{entry: entry}
+	}
+
+	// If this is the current directory, update currentList
 	if idx == len(m.explorer.stack)-1 {
+		m.explorer.currentList.SetItems(items)
+		if dir.selected >= 0 && dir.selected < len(items) {
+			m.explorer.currentList.Select(dir.selected)
+		}
 		return m, m.queueExplorerPreview()
 	}
+
+	// If this is the parent directory, update parentList
+	if idx == len(m.explorer.stack)-2 {
+		m.explorer.parentList.SetItems(items)
+		if dir.selected >= 0 && dir.selected < len(items) {
+			m.explorer.parentList.Select(dir.selected)
+		}
+	}
+
 	return m, nil
 }
 

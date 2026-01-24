@@ -633,19 +633,10 @@ func renderExplorerParents(m Model, width int) string {
 		b.WriteString("\n")
 		return b.String()
 	}
-	for i, entry := range parent.entries {
-		cursor := " "
-		if i == parent.selected {
-			cursor = ">"
-		}
-		name := entry.Name
-		if entry.IsDir() {
-			name += "/"
-		}
-		line := clampLine(fmt.Sprintf("%s%s %s", cursor, explorerEntryIcon(entry), name), width)
-		b.WriteString(renderExplorerEntryLine(line, entry.IsDir(), i == parent.selected))
-		b.WriteString("\n")
-	}
+
+	// Use bubbles list for rendering entries
+	m.explorer.parentList.SetSize(width, len(parent.entries))
+	b.WriteString(m.explorer.parentList.View())
 	return b.String()
 }
 
@@ -683,19 +674,11 @@ func renderExplorerCurrent(m Model, width, height int) string {
 	if len(cur.entries) == 0 && !cur.loading && cur.err == nil {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Directory is empty.", width)))
 		b.WriteString("\n")
-	}
-	for i, entry := range cur.entries {
-		cursor := " "
-		if i == cur.selected {
-			cursor = ">"
-		}
-		name := entry.Name
-		if entry.IsDir() {
-			name += "/"
-		}
-		line := clampLine(fmt.Sprintf("%s%s %s", cursor, explorerEntryIcon(entry), name), width)
-		b.WriteString(renderExplorerEntryLine(line, entry.IsDir(), i == cur.selected))
-		b.WriteString("\n")
+	} else if len(cur.entries) > 0 {
+		// Use bubbles list for rendering entries
+		listHeight := max(1, len(cur.entries))
+		m.explorer.currentList.SetSize(width, listHeight)
+		b.WriteString(m.explorer.currentList.View())
 	}
 	return finalize()
 }

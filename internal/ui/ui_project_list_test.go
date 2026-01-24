@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -242,13 +243,19 @@ func TestNormalizeColumnBounds(t *testing.T) {
 }
 
 func TestHandleTreeLoadedPreview(t *testing.T) {
+	delegate := treeEntryDelegate{}
+	parentList := list.New([]list.Item{}, delegate, 0, 0)
+	currentList := list.New([]list.Item{}, delegate, 0, 0)
+
 	m := Model{
 		mode: modeExplorer,
 		explorer: explorerState{
-			project: gitlab.ProjectNode{ID: 1},
-			ref:     "main",
-			stack:   []dirState{{path: ""}},
-			preview: previewState{path: "dir", loading: true},
+			project:     gitlab.ProjectNode{ID: 1},
+			ref:         "main",
+			stack:       []dirState{{path: ""}},
+			preview:     previewState{path: "dir", loading: true},
+			parentList:  parentList,
+			currentList: currentList,
 		},
 	}
 	msg := treeLoadedMsg{
@@ -267,12 +274,18 @@ func TestHandleTreeLoadedPreview(t *testing.T) {
 }
 
 func TestHandleTreeLoadedDirectory(t *testing.T) {
+	delegate := treeEntryDelegate{}
+	parentList := list.New([]list.Item{}, delegate, 0, 0)
+	currentList := list.New([]list.Item{}, delegate, 0, 0)
+
 	m := Model{
 		mode: modeExplorer,
 		explorer: explorerState{
-			project: gitlab.ProjectNode{ID: 1},
-			ref:     "main",
-			stack:   []dirState{{path: "", loading: true}},
+			project:     gitlab.ProjectNode{ID: 1},
+			ref:         "main",
+			stack:       []dirState{{path: "", loading: true}},
+			parentList:  parentList,
+			currentList: currentList,
 		},
 	}
 	msg := treeLoadedMsg{
@@ -290,13 +303,19 @@ func TestHandleTreeLoadedDirectory(t *testing.T) {
 }
 
 func TestHandleFileLoaded(t *testing.T) {
+	delegate := treeEntryDelegate{}
+	parentList := list.New([]list.Item{}, delegate, 0, 0)
+	currentList := list.New([]list.Item{}, delegate, 0, 0)
+
 	m := Model{
 		mode: modeExplorer,
 		explorer: explorerState{
-			project: gitlab.ProjectNode{ID: 1},
-			ref:     "main",
-			stack:   []dirState{{path: ""}},
-			preview: previewState{path: "README.md", loading: true},
+			project:     gitlab.ProjectNode{ID: 1},
+			ref:         "main",
+			stack:       []dirState{{path: ""}},
+			preview:     previewState{path: "README.md", loading: true},
+			parentList:  parentList,
+			currentList: currentList,
 		},
 	}
 	msg := fileLoadedMsg{projectID: 1, path: "README.md", content: "hello world"}
@@ -308,6 +327,10 @@ func TestHandleFileLoaded(t *testing.T) {
 }
 
 func TestQueueExplorerPreviewDir(t *testing.T) {
+	delegate := treeEntryDelegate{}
+	parentList := list.New([]list.Item{}, delegate, 0, 0)
+	currentList := list.New([]list.Item{}, delegate, 0, 0)
+
 	m := Model{
 		explorer: explorerState{
 			project: gitlab.ProjectNode{ID: 1},
@@ -318,6 +341,8 @@ func TestQueueExplorerPreviewDir(t *testing.T) {
 					{Path: "src", Name: "src", Type: "tree"},
 				},
 			}},
+			parentList:  parentList,
+			currentList: currentList,
 		},
 	}
 	cmd := m.queueExplorerPreview()
@@ -327,6 +352,10 @@ func TestQueueExplorerPreviewDir(t *testing.T) {
 }
 
 func TestQueueExplorerPreviewFile(t *testing.T) {
+	delegate := treeEntryDelegate{}
+	parentList := list.New([]list.Item{}, delegate, 0, 0)
+	currentList := list.New([]list.Item{}, delegate, 0, 0)
+
 	m := Model{
 		explorer: explorerState{
 			project: gitlab.ProjectNode{ID: 1},
@@ -337,6 +366,8 @@ func TestQueueExplorerPreviewFile(t *testing.T) {
 					{Path: "README.md", Name: "README.md", Type: "blob"},
 				},
 			}},
+			parentList:  parentList,
+			currentList: currentList,
 		},
 	}
 	cmd := m.queueExplorerPreview()
