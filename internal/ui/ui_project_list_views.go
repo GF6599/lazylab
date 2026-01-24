@@ -495,17 +495,11 @@ func renderProjectActionModal(m Model, width int) string {
 	b.WriteString("\n")
 	b.WriteString(explorerHintStyle.Render(clampLine("Choose what to open:", innerWidth)))
 	b.WriteString("\n\n")
-	for i, option := range projectActionOptions {
-		cursor := " "
-		style := itemStyle
-		if i == m.actionMenu.selected {
-			cursor = ">"
-			style = selectedItemStyle
-		}
-		line := clampLine(fmt.Sprintf("%s %s", cursor, option), innerWidth)
-		b.WriteString(style.Render(line))
-		b.WriteString("\n")
-	}
+
+	// Render action menu using bubbles list
+	m.actionMenu.menuList.SetSize(innerWidth, len(projectActionOptions))
+	b.WriteString(m.actionMenu.menuList.View())
+
 	b.WriteString("\n")
 	b.WriteString(explorerHintStyle.Render(clampLine("Enter to select · Esc to cancel", innerWidth)))
 	modal := lipgloss.NewStyle().

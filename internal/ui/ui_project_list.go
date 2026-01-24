@@ -119,6 +119,39 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	fmt.Fprint(w, style.Render(line))
 }
 
+// actionMenuItem wraps an action menu option for use with bubbles/list
+type actionMenuItem struct {
+	label string
+	index int
+}
+
+func (i actionMenuItem) Title() string       { return i.label }
+func (i actionMenuItem) Description() string { return "" }
+func (i actionMenuItem) FilterValue() string { return i.label }
+
+// actionMenuDelegate renders action menu items in the list
+type actionMenuDelegate struct{}
+
+func (d actionMenuDelegate) Height() int                               { return 1 }
+func (d actionMenuDelegate) Spacing() int                              { return 0 }
+func (d actionMenuDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
+func (d actionMenuDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	aItem, ok := item.(actionMenuItem)
+	if !ok {
+		return
+	}
+
+	cursor := " "
+	style := itemStyle
+	if index == m.Index() {
+		cursor = ">"
+		style = selectedItemStyle
+	}
+
+	line := fmt.Sprintf("%s %s", cursor, aItem.label)
+	fmt.Fprint(w, style.Render(line))
+}
+
 // pipelineItem wraps a GitLab pipeline for use with bubbles/list
 type pipelineItem struct {
 	summary gitlab.PipelineSummary
@@ -255,7 +288,8 @@ type explorerState struct {
 
 type actionMenuState struct {
 	project  gitlab.ProjectNode
-	selected int
+	menuList list.Model
+	selected int // Keep for backward compatibility
 }
 
 type pipelineViewState struct {
@@ -1210,13 +1244,20 @@ func (m Model) handleProjectActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		if m.actionMenu.selected < len(projectActionOptions)-1 {
 			m.actionMenu.selected++
+			m.actionMenu.menuList.Select(m.actionMenu.selected)
 		}
 	case "up", "k":
 		if m.actionMenu.selected > 0 {
 			m.actionMenu.selected--
+			m.actionMenu.menuList.Select(m.actionMenu.selected)
 		}
 	case "enter":
-		switch m.actionMenu.selected {
+		// Use list selection index
+		selectedIdx := m.actionMenu.menuList.Index()
+		if selectedIdx < 0 {
+			selectedIdx = m.actionMenu.selected
+		}
+		switch selectedIdx {
 		case 0:
 			return m.openPipelineView(m.actionMenu.project)
 		case 1:
@@ -1572,8 +1613,25 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 
 func (m Model) openProjectActions(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	m.mode = modeProjectActions
+
+	// Initialize action menu list
+	items := make([]list.Item, len(projectActionOptions))
+	for i, option := range projectActionOptions {
+		items[i] = actionMenuItem{label: option, index: i}
+	}
+
+	delegate := actionMenuDelegate{}
+	menuList := list.New(items, delegate, 0, 0)
+	menuList.Title = ""
+	menuList.SetShowStatusBar(false)
+	menuList.SetShowPagination(false)
+	menuList.SetShowHelp(false)
+	menuList.SetFilteringEnabled(false)
+	menuList.Styles.Title = titleStyle
+
 	m.actionMenu = actionMenuState{
 		project:  project,
+		menuList: menuList,
 		selected: 0,
 	}
 	m.status = fmt.Sprintf("Actions for %s", project.PathWithNamespace)
