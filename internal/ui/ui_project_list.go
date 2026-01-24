@@ -119,6 +119,64 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	fmt.Fprint(w, style.Render(line))
 }
 
+// pipelineItem wraps a GitLab pipeline for use with bubbles/list
+type pipelineItem struct {
+	summary gitlab.PipelineSummary
+}
+
+func (i pipelineItem) Title() string {
+	return fmt.Sprintf("#%d", i.summary.ID)
+}
+
+func (i pipelineItem) Description() string {
+	timestamp := "unknown"
+	if !i.summary.UpdatedAt.IsZero() {
+		timestamp = i.summary.UpdatedAt.Local().Format("01-02 15:04")
+	}
+	return fmt.Sprintf("%s - %s - %s", i.summary.Status, timestamp, i.summary.Ref)
+}
+
+func (i pipelineItem) FilterValue() string {
+	return fmt.Sprintf("%d %s %s", i.summary.ID, i.summary.Ref, i.summary.Status)
+}
+
+// pipelineDelegate renders pipeline items in the list
+type pipelineDelegate struct{}
+
+func (d pipelineDelegate) Height() int { return 1 }
+
+func (d pipelineDelegate) Spacing() int { return 0 }
+
+func (d pipelineDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
+
+func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	pItem, ok := item.(pipelineItem)
+	if !ok {
+		return
+	}
+
+	cursor := " "
+	style := itemStyle
+	if index == m.Index() {
+		cursor = ">"
+		style = selectedItemStyle
+	}
+
+	statusBadge := pipelineStatusBadgeWithWidth(pItem.summary.Status, 12)
+	timestamp := "unknown"
+	if !pItem.summary.UpdatedAt.IsZero() {
+		timestamp = pItem.summary.UpdatedAt.Local().Format("01-02 15:04")
+	}
+	ref := pItem.summary.Ref
+	if ref == "" {
+		ref = "unknown-ref"
+	}
+
+	line := fmt.Sprintf("%s %s #%d %s %s", cursor, statusBadge, pItem.summary.ID, timestamp, ref)
+	width := m.Width()
+	fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
+}
+
 // Model shows a list of projects and metadata for the selected entry.
 type Model struct {
 	ctx               context.Context // Parent context for cancellation
@@ -203,6 +261,7 @@ type actionMenuState struct {
 type pipelineViewState struct {
 	project              gitlab.ProjectNode
 	pipelines            []gitlab.PipelineSummary
+	pipelineList         list.Model // Bubbles list for pipeline display
 	selected             int
 	loading              bool
 	err                  error
@@ -753,6 +812,14 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 		}
 		return a.Ref > b.Ref
 	})
+
+	// Update pipeline list with sorted pipelines
+	items := make([]list.Item, len(m.pipelineView.pipelines))
+	for i, p := range m.pipelineView.pipelines {
+		items[i] = pipelineItem{summary: p}
+	}
+	m.pipelineView.pipelineList.SetItems(items)
+
 	selectedSame := false
 	if m.pipelineView.pendingSelectID != 0 {
 		for i, p := range m.pipelineView.pipelines {
@@ -782,6 +849,12 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 		m.pipelineView.stageSelected = 0
 		m.resetPipelineLogPreview()
 	}
+
+	// Sync list selection with internal selected index
+	if m.pipelineView.selected >= 0 && m.pipelineView.selected < len(items) {
+		m.pipelineView.pipelineList.Select(m.pipelineView.selected)
+	}
+
 	cmds := []tea.Cmd{
 		m.queuePipelineStagesForSelection(),
 		m.queuePipelineJobsForSelection(),
@@ -1558,8 +1631,19 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		Bold(false)
 	t.SetStyles(s)
 
+	// Initialize pipeline list
+	delegate := pipelineDelegate{}
+	pipelineList := list.New([]list.Item{}, delegate, 0, 0)
+	pipelineList.Title = ""
+	pipelineList.SetShowStatusBar(false)
+	pipelineList.SetShowPagination(false)
+	pipelineList.SetShowHelp(false)
+	pipelineList.SetFilteringEnabled(false)
+	pipelineList.Styles.Title = titleStyle
+
 	m.pipelineView = pipelineViewState{
 		project:       project,
+		pipelineList:  pipelineList,
 		loading:       true,
 		page:          1,
 		totalPages:    1,

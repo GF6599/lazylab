@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	"lazylab/internal/gitlab"
 )
@@ -254,29 +253,26 @@ func renderPipelineListPane(m Model, width, height int) string {
 		b.WriteString(explorerHintStyle.Render(clampLine(" No pipelines found.", width)))
 		b.WriteString("\n")
 	}
-	labelWidth := 0
-	for _, p := range m.pipelineView.pipelines {
-		labelWidth = max(labelWidth, ansi.StringWidth(pipelineStatusLabel(p.Status)))
-	}
-	if labelWidth == 0 {
-		labelWidth = ansi.StringWidth(pipelineStatusLabel(""))
-	}
-	for i, p := range m.pipelineView.pipelines {
-		cursor := " "
-		if i == m.pipelineView.selected {
-			cursor = ">"
+	// Render pipeline list using bubbles list component
+	if len(m.pipelineView.pipelines) > 0 {
+		// Calculate available height for list
+		headerLines := 1 // title
+		if m.pipelineView.loading && len(m.pipelineView.pipelines) > 0 {
+			headerLines++
 		}
-		statusBadge := pipelineStatusBadgeWithWidth(p.Status, labelWidth)
-		ref := p.Ref
-		if ref == "" {
-			ref = "unknown-ref"
+		if m.pipelineView.err != nil {
+			headerLines++
 		}
-		timestamp := "unknown-time"
-		if !p.UpdatedAt.IsZero() {
-			timestamp = p.UpdatedAt.Local().Format("01-02 15:04")
+		if m.pipelineView.retrying {
+			headerLines++
 		}
-		line := clampLineANSI(fmt.Sprintf("%s %s #%d %s %s", cursor, statusBadge, p.ID, timestamp, ref), width)
-		b.WriteString(renderPipelineEntryLine(line, i == m.pipelineView.selected, m.pipelineView.focus == pipelineFocusPipelines))
+		if m.pipelineView.retryErr != nil {
+			headerLines++
+		}
+
+		listHeight := max(1, height-headerLines-1) // -1 for hint at bottom
+		m.pipelineView.pipelineList.SetSize(width, listHeight)
+		b.WriteString(m.pipelineView.pipelineList.View())
 		b.WriteString("\n")
 	}
 	content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
