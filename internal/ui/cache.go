@@ -12,7 +12,10 @@ import (
 	"lazylab/internal/gitlab"
 )
 
-const cacheVersion = 1
+const (
+	cacheVersion = 1
+	cacheTTL     = 24 * time.Hour // Cache expires after 24 hours
+)
 
 var errCacheNotFound = errors.New("cache not found")
 
@@ -34,7 +37,8 @@ func newProjectCache(host string) (*projectCache, error) {
 		return nil, fmt.Errorf("user cache dir: %w", err)
 	}
 	dir := filepath.Join(base, "lazylab")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Use 0o700 for cache directory (user-only access) for security
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create cache dir: %w", err)
 	}
 	name := fmt.Sprintf("projects_%s.json", sanitizeHost(host))
@@ -58,6 +62,10 @@ func (c *projectCache) Load() ([]gitlab.ProjectNode, error) {
 	}
 	if file.Version != cacheVersion {
 		return nil, fmt.Errorf("cache version mismatch: %d", file.Version)
+	}
+	// Check cache TTL - expire after 24 hours
+	if !file.CachedAt.IsZero() && time.Since(file.CachedAt) > cacheTTL {
+		return nil, errCacheNotFound
 	}
 	if len(file.Projects) == 0 {
 		return nil, errCacheNotFound

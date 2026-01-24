@@ -48,8 +48,9 @@ const (
 	pipelineAllRefsLabel    = "all refs"
 
 	// Cache limits to prevent unbounded memory growth
-	maxLogCacheEntries = 10        // Keep last 10 job logs
-	maxLogSizeBytes    = 1_000_000 // 1MB max per log
+	maxLogCacheEntries          = 10        // Keep last 10 job logs
+	maxLogSizeBytes             = 1_000_000 // 1MB max per log
+	maxPipelineStatusCacheSize  = 100       // Keep last 100 pipeline statuses
 )
 
 var projectActionOptions = []string{
@@ -239,13 +240,14 @@ type pipelineViewState struct {
 }
 
 type pipelineState struct {
-	info        gitlab.PipelineSummary
-	hasInfo     bool
-	loading     bool
-	err         error
-	empty       bool
-	ref         string
-	lastFetched time.Time
+	info         gitlab.PipelineSummary
+	hasInfo      bool
+	loading      bool
+	err          error
+	empty        bool
+	ref          string
+	lastFetched  time.Time
+	lastAccessed time.Time
 }
 
 type pipelineFocus int
@@ -674,7 +676,9 @@ func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) 
 	state := m.pipelineStatus[msg.projectID]
 	state.loading = false
 	state.ref = msg.ref
-	state.lastFetched = time.Now()
+	now := time.Now()
+	state.lastFetched = now
+	state.lastAccessed = now
 	if msg.err != nil {
 		if errors.Is(msg.err, gitlab.ErrNoPipelines) {
 			state.empty = true
@@ -693,6 +697,7 @@ func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) 
 		state.empty = false
 	}
 	m.pipelineStatus[msg.projectID] = state
+	(&m).evictOldPipelineStatusCache()
 	m.updateProjectList()
 	return m, nil
 }
@@ -2159,6 +2164,28 @@ func (m *Model) invalidateVisibleCache() {
 	m.visibleCache = nil
 	m.visibleCacheQuery = ""
 	m.visibleCachePage = -1
+}
+
+// evictOldPipelineStatusCache removes the least recently accessed pipeline status
+// when the cache exceeds maxPipelineStatusCacheSize
+func (m *Model) evictOldPipelineStatusCache() {
+	if len(m.pipelineStatus) <= maxPipelineStatusCacheSize {
+		return
+	}
+
+	// Find oldest entry by last accessed time
+	var oldestID int
+	var oldestTime time.Time
+	first := true
+	for id, state := range m.pipelineStatus {
+		if first || state.lastAccessed.Before(oldestTime) {
+			oldestID = id
+			oldestTime = state.lastAccessed
+			first = false
+		}
+	}
+
+	delete(m.pipelineStatus, oldestID)
 }
 
 func (m Model) pageSlice(page int) []gitlab.ProjectNode {

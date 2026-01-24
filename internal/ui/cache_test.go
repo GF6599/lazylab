@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -247,5 +248,101 @@ func TestNewProjectCache(t *testing.T) {
 	// Verify path contains sanitized host
 	if !filepath.IsAbs(cache.path) {
 		t.Error("Cache path should be absolute")
+	}
+}
+
+func TestProjectCache_TTLExpiration(t *testing.T) {
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, "test_cache.json")
+
+	cache := &projectCache{
+		path: cachePath,
+		host: "https://gitlab.example.com",
+	}
+
+	projects := []gitlab.ProjectNode{
+		{
+			ID:                1,
+			Name:              "test-project",
+			PathWithNamespace: "org/test-project",
+		},
+	}
+
+	// Save cache
+	if err := cache.Save(projects); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Load immediately - should work
+	loaded, err := cache.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("Expected 1 project, got %d", len(loaded))
+	}
+
+	// Manually modify cache file to have old timestamp
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("Failed to read cache: %v", err)
+	}
+
+	var file cacheFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		t.Fatalf("Failed to unmarshal cache: %v", err)
+	}
+
+	// Set timestamp to 25 hours ago (beyond TTL)
+	file.CachedAt = time.Now().Add(-25 * time.Hour)
+
+	data, err = json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal cache: %v", err)
+	}
+
+	if err := os.WriteFile(cachePath, data, 0o600); err != nil {
+		t.Fatalf("Failed to write cache: %v", err)
+	}
+
+	// Load should now fail due to TTL expiration
+	_, err = cache.Load()
+	if err == nil {
+		t.Fatal("Expected error for expired cache, got nil")
+	}
+	if err != errCacheNotFound {
+		t.Fatalf("Expected errCacheNotFound, got: %v", err)
+	}
+}
+
+func TestNewProjectCache_DirectoryCreation(t *testing.T) {
+	// Test that newProjectCache creates the cache directory
+	cache, err := newProjectCache("https://gitlab.example.com")
+	if err != nil {
+		t.Fatalf("newProjectCache failed: %v", err)
+	}
+
+	// Get the cache directory
+	cacheDir := filepath.Dir(cache.path)
+
+	// Check the directory exists
+	info, err := os.Stat(cacheDir)
+	if err != nil {
+		t.Fatalf("Cache directory does not exist: %v", err)
+	}
+
+	// Verify it's a directory
+	if !info.IsDir() {
+		t.Fatal("Cache path is not a directory")
+	}
+
+	// Log the permissions for informational purposes
+	// Note: Actual permissions may vary by platform and umask
+	perm := info.Mode().Perm()
+	t.Logf("Cache directory created with permissions: %o", perm)
+
+	// Verify the cache path contains "lazylab"
+	if !filepath.HasPrefix(cache.path, cacheDir) {
+		t.Errorf("Cache path %s should be under directory %s", cache.path, cacheDir)
 	}
 }

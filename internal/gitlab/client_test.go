@@ -424,3 +424,90 @@ func TestPipelineStage_StatusPriority(t *testing.T) {
 // - LatestPipeline stage aggregation
 // - RetryPipeline fallback logic
 // - collectPipelineStages pagination
+
+// TestGetFileContent_PathTraversal tests that path traversal attempts are blocked
+func TestGetFileContent_PathTraversal(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		wantErr  string
+	}{
+		{
+			name:    "simple dot-dot",
+			path:    "../etc/passwd",
+			wantErr: "invalid file path",
+		},
+		{
+			name:    "encoded dot-dot",
+			path:    "%2e%2e/etc/passwd",
+			wantErr: "invalid file path",
+		},
+		{
+			name:    "double encoded (passthrough)",
+			path:    "%252e%252e/etc/passwd",
+			wantErr: "", // Double-encoded passes validation but fails at API
+		},
+		{
+			name:    "absolute path",
+			path:    "/etc/passwd",
+			wantErr: "invalid file path",
+		},
+		{
+			name:    "mixed encoding",
+			path:    "foo/%2e%2e/%2e%2e/etc/passwd",
+			wantErr: "invalid file path",
+		},
+		{
+			name:    "normalized to parent",
+			path:    "foo/../../bar",
+			wantErr: "invalid file path",
+		},
+	}
+
+	// Note: These tests verify validation logic only.
+	// They don't need a real GitLab API connection.
+	client, err := NewClient("test-token", "https://gitlab.com")
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.GetFileContent(ctx, 12345, tt.path, "main")
+			if err == nil {
+				t.Fatalf("Expected error for path %q, got nil", tt.path)
+			}
+			if tt.wantErr != "" && !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Expected error containing %q, got: %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+// TestGetFileContent_ValidPaths tests that legitimate paths are accepted
+func TestGetFileContent_ValidPaths(t *testing.T) {
+	tests := []string{
+		"README.md",
+		"src/main.go",
+		"docs/api/v1/spec.yaml",
+		"config.yml",
+		".gitignore",
+	}
+
+	client, err := NewClient("test-token", "https://gitlab.com")
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+	for _, path := range tests {
+		t.Run(path, func(t *testing.T) {
+			// This will fail with API error (no real API), but should pass validation
+			_, err := client.GetFileContent(ctx, 12345, path, "main")
+			if err != nil && strings.Contains(err.Error(), "invalid file path") {
+				t.Errorf("Valid path %q rejected as traversal attempt: %v", path, err)
+			}
+		})
+	}
+}
