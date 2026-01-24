@@ -100,6 +100,16 @@ type pipelineDebounceTickMsg struct {
 	timestamp time.Time
 }
 
+type batchPipelineStatusMsg struct {
+	results map[int]pipelineStatusResult // projectID -> result
+}
+
+type pipelineStatusResult struct {
+	pipeline gitlab.PipelineSummary
+	err      error
+	empty    bool
+}
+
 func fetchProjectsCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, perPage, page int, background bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
@@ -128,6 +138,52 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 			return cacheSavedMsg{err: err}
 		}
 		return cacheSavedMsg{}
+	}
+}
+
+func batchFetchPipelineStatusCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projects []gitlab.ProjectNode) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+
+		results := make(map[int]pipelineStatusResult)
+
+		// Use a channel to collect results from concurrent fetches
+		type fetchResult struct {
+			projectID int
+			pipeline  gitlab.PipelineSummary
+			err       error
+			empty     bool
+		}
+		resultCh := make(chan fetchResult, len(projects))
+
+		// Fetch pipeline status for each project concurrently
+		for _, project := range projects {
+			go func(projectID int) {
+				pipeline, err := client.LatestPipeline(ctx, projectID, pipelineAllRefsRef)
+				if err != nil {
+					if errors.Is(err, gitlab.ErrNoPipelines) {
+						resultCh <- fetchResult{projectID: projectID, empty: true}
+					} else {
+						resultCh <- fetchResult{projectID: projectID, err: err}
+					}
+					return
+				}
+				resultCh <- fetchResult{projectID: projectID, pipeline: pipeline}
+			}(project.ID)
+		}
+
+		// Collect all results
+		for i := 0; i < len(projects); i++ {
+			result := <-resultCh
+			results[result.projectID] = pipelineStatusResult{
+				pipeline: result.pipeline,
+				err:      result.err,
+				empty:    result.empty,
+			}
+		}
+
+		return batchPipelineStatusMsg{results: results}
 	}
 }
 

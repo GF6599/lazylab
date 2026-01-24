@@ -343,6 +343,36 @@ func (m *Model) ensureSelectionBounds() {
 	}
 }
 
+func (m *Model) queueBatchPrefetchPipelineStatus() tea.Cmd {
+	visible := m.visibleProjects()
+	if len(visible) == 0 {
+		return nil
+	}
+
+	// Filter to projects that need fetching (not already cached or stale)
+	var toFetch []gitlab.ProjectNode
+	for _, project := range visible {
+		state := m.pipelineStatus[project.ID]
+		// Fetch if: not loading, not recently fetched (or never fetched), and not cached
+		if !state.loading && (state.lastFetched.IsZero() || time.Since(state.lastFetched) > pipelineRefreshInterval) {
+			toFetch = append(toFetch, project)
+		}
+	}
+
+	if len(toFetch) == 0 {
+		return nil
+	}
+
+	// Mark as loading to prevent duplicate fetches
+	for _, project := range toFetch {
+		state := m.pipelineStatus[project.ID]
+		state.loading = true
+		m.pipelineStatus[project.ID] = state
+	}
+
+	return batchFetchPipelineStatusCmd(m.ctx, m.client, m.opts.PipelineTimeout, toFetch)
+}
+
 func (m *Model) queuePipelineFetchForSelection(force bool) tea.Cmd {
 	project, ok := m.selectedProject()
 	if !ok {

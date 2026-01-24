@@ -24,6 +24,8 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ensureSelectionBounds()
 			m.updateProjectList()
 			m.status = "Search cleared"
+			// Batch prefetch for new visible projects after search clear
+			return m, (&m).queueBatchPrefetchPipelineStatus()
 		case tea.KeyEnter:
 			m.search.active = false
 			m.search.query = m.search.input.Value()
@@ -31,6 +33,8 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Search: %s", m.search.query)
 			m.ensureSelectionBounds()
 			m.updateProjectList()
+			// Batch prefetch for search results
+			return m, (&m).queueBatchPrefetchPipelineStatus()
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		default:
@@ -38,17 +42,16 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.search.query = m.search.input.Value()
 			m.ensureSelectionBounds()
 			m.updateProjectList()
-		}
-		currID, currOK := m.currentSelectedProjectID()
-		if prevID != currID || prevOK != currOK {
-			if pipelineCmd := (&m).queuePipelineFetchForSelection(true); pipelineCmd != nil {
+			// Batch prefetch for updated search results
+			if batchCmd := (&m).queueBatchPrefetchPipelineStatus(); batchCmd != nil {
 				if cmd != nil {
-					return m, tea.Batch(cmd, pipelineCmd)
+					return m, tea.Batch(cmd, batchCmd)
 				}
-				return m, pipelineCmd
+				return m, batchCmd
 			}
+			return m, cmd
 		}
-		return m, cmd
+		return m, nil
 	}
 
 	switch key {
@@ -95,8 +98,12 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "l", "right":
 		m.movePage(1)
+		// Batch prefetch pipeline status for new page
+		return m, (&m).queueBatchPrefetchPipelineStatus()
 	case "h", "left":
 		m.movePage(-1)
+		// Batch prefetch pipeline status for new page
+		return m, (&m).queueBatchPrefetchPipelineStatus()
 	case "r", "ctrl+r":
 		m.loading = true
 		m.err = nil

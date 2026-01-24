@@ -57,7 +57,8 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.ensureSelectionBounds()
 	m.updateProjectList()
-	return m, (&m).queuePipelineFetchForSelection(true)
+	// Batch prefetch pipeline status for all visible projects
+	return m, (&m).queueBatchPrefetchPipelineStatus()
 }
 
 func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
@@ -263,8 +264,9 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	}
 	m.ensureSelectionBounds()
 	m.updateProjectList()
-	if pipelineCmd := (&m).queuePipelineFetchForSelection(true); pipelineCmd != nil {
-		cmds = append(cmds, pipelineCmd)
+	// Batch prefetch pipeline status for all visible projects
+	if batchCmd := (&m).queueBatchPrefetchPipelineStatus(); batchCmd != nil {
+		cmds = append(cmds, batchCmd)
 	}
 	if m.cache != nil && len(m.allProjects) > 0 {
 		cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
@@ -628,4 +630,38 @@ func (m Model) handlePipelineDebounceTickMsg(msg pipelineDebounceTickMsg) (tea.M
 	m.pipelinePendingFetch = nil
 
 	return m, (&m).queuePipelineFetch(project, true)
+}
+
+func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model, tea.Cmd) {
+	if m.pipelineStatus == nil {
+		m.pipelineStatus = make(map[int]pipelineState)
+	}
+
+	now := time.Now()
+	for projectID, result := range msg.results {
+		state := m.pipelineStatus[projectID]
+		state.loading = false
+		state.lastFetched = now
+		state.lastAccessed = now
+
+		if result.err != nil {
+			state.err = result.err
+			state.hasInfo = false
+		} else if result.empty {
+			state.empty = true
+			state.hasInfo = false
+		} else {
+			state.info = result.pipeline
+			state.hasInfo = true
+			state.err = nil
+			state.empty = false
+		}
+
+		m.pipelineStatus[projectID] = state
+	}
+
+	// Evict old cache entries if needed
+	(&m).evictOldPipelineStatusCache()
+
+	return m, nil
 }

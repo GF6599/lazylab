@@ -571,6 +571,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, pipelineTickCmd()
 		}
 		return m, tea.Batch(cmd, pipelineTickCmd())
+	case batchPipelineStatusMsg:
+		return m.handleBatchPipelineStatus(msg)
 	case pipelineDebounceTickMsg:
 		return m.handlePipelineDebounceTickMsg(msg)
 	}
