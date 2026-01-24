@@ -735,6 +735,59 @@ func (m *Model) evictOldPipelineStatusCache() {
 	delete(m.pipelineStatus, oldestID)
 }
 
+// cachedDetailPane returns the detail pane view, using cache when valid
+func (m *Model) cachedDetailPane(width, height int) string {
+	visible := m.visibleProjects()
+	if len(visible) == 0 {
+		// Clear cache for empty state
+		m.detailCacheProjectID = 0
+		m.detailCachePipelineID = 0
+		m.detailCachePipelineHas = false
+		m.detailCacheWidth = 0
+		m.detailCacheHeight = 0
+		m.detailCacheOutput = ""
+		// Render empty state
+		return renderDetailPane(Model(*m), width, height)
+	}
+
+	project := visible[m.selected]
+	pipelineState := m.pipelineStatus[project.ID]
+
+	// Check cache validity
+	cacheValid := m.detailCacheProjectID == project.ID &&
+		m.detailCachePipelineID == pipelineState.info.ID &&
+		m.detailCachePipelineHas == pipelineState.hasInfo &&
+		m.detailCacheWidth == width &&
+		m.detailCacheHeight == height
+
+	if cacheValid && m.detailCacheOutput != "" {
+		return m.detailCacheOutput
+	}
+
+	// Render fresh
+	output := renderDetailPane(Model(*m), width, height)
+
+	// Update cache
+	m.detailCacheProjectID = project.ID
+	m.detailCachePipelineID = pipelineState.info.ID
+	m.detailCachePipelineHas = pipelineState.hasInfo
+	m.detailCacheWidth = width
+	m.detailCacheHeight = height
+	m.detailCacheOutput = output
+
+	return output
+}
+
+// invalidateDetailCache clears the detail pane render cache
+func (m *Model) invalidateDetailCache() {
+	m.detailCacheProjectID = 0
+	m.detailCachePipelineID = 0
+	m.detailCachePipelineHas = false
+	m.detailCacheWidth = 0
+	m.detailCacheHeight = 0
+	m.detailCacheOutput = ""
+}
+
 func (m Model) pageSlice(page int) []gitlab.ProjectNode {
 	if page <= 0 {
 		page = 1

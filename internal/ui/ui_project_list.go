@@ -248,6 +248,14 @@ type Model struct {
 	// Pipeline fetch debouncing
 	pipelinePendingFetch  *gitlab.ProjectNode // Project awaiting fetch
 	pipelineDebounceTimer *time.Time          // When to trigger fetch
+
+	// Detail pane render cache
+	detailCacheProjectID   int
+	detailCachePipelineID  int
+	detailCachePipelineHas bool
+	detailCacheWidth       int
+	detailCacheHeight      int
+	detailCacheOutput      string
 }
 
 type searchState struct {

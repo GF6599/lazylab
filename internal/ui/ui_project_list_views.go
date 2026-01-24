@@ -122,7 +122,7 @@ func renderProjectsView(m Model, width int) string {
 		listInner = max(minInnerWidth, innerTotal-detailInner)
 	}
 	listPane := renderPane(renderListPane(m, listInner, contentHeight), listInner, contentHeight)
-	detailPane := renderPane(renderDetailPane(m, detailInner, contentHeight), detailInner, contentHeight)
+	detailPane := renderPane((&m).cachedDetailPane(detailInner, contentHeight), detailInner, contentHeight)
 	gap := renderPaneGap(paneGap, contentHeight+2)
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPane, gap, detailPane)
 }
