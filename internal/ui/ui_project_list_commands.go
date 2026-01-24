@@ -95,9 +95,14 @@ type pipelineJobRetriedMsg struct {
 
 type pipelineTickMsg struct{}
 
-func fetchProjectsCmd(client *gitlab.Client, perPage, page int, background bool) tea.Cmd {
+type pipelineDebounceTickMsg struct {
+	projectID int
+	timestamp time.Time
+}
+
+func fetchProjectsCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, perPage, page int, background bool) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		pageData, err := client.ListProjects(ctx, gitlab.ProjectListOptions{PerPage: perPage, Page: page})
 		return projectsLoadedMsg{page: pageData, err: err, background: background}
@@ -126,18 +131,18 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 	}
 }
 
-func fetchTreeCmd(client *gitlab.Client, projectID int, ref, path string) tea.Cmd {
+func fetchTreeCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID int, ref, path string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		nodes, err := client.ListTree(ctx, projectID, gitlab.TreeListOptions{Ref: ref, Path: path})
 		return treeLoadedMsg{projectID: projectID, path: path, entries: nodes, err: err}
 	}
 }
 
-func fetchFileCmd(client *gitlab.Client, projectID int, ref, filePath string) tea.Cmd {
+func fetchFileCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID int, ref, filePath string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		content, err := client.GetFileContent(ctx, projectID, filePath, ref)
 		if err != nil {
@@ -147,9 +152,9 @@ func fetchFileCmd(client *gitlab.Client, projectID int, ref, filePath string) te
 	}
 }
 
-func fetchPipelineCmd(client *gitlab.Client, projectID int, ref string) tea.Cmd {
+func fetchPipelineCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID int, ref string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		requestRef := ref
 		if ref == pipelineAllRefsRef {
@@ -160,9 +165,9 @@ func fetchPipelineCmd(client *gitlab.Client, projectID int, ref string) tea.Cmd 
 	}
 }
 
-func fetchPipelinesCmd(client *gitlab.Client, projectID, page, perPage int) tea.Cmd {
+func fetchPipelinesCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, page, perPage int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		pipelinePage, err := client.ListPipelines(ctx, projectID, gitlab.PipelineListOptions{Page: page, PerPage: perPage})
 		if err != nil {
@@ -179,27 +184,27 @@ func fetchPipelinesCmd(client *gitlab.Client, projectID, page, perPage int) tea.
 	}
 }
 
-func fetchPipelineStagesCmd(client *gitlab.Client, projectID, pipelineID int) tea.Cmd {
+func fetchPipelineStagesCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		stages, err := client.PipelineStages(ctx, projectID, pipelineID)
 		return pipelineStagesLoadedMsg{projectID: projectID, pipelineID: pipelineID, stages: stages, err: err}
 	}
 }
 
-func fetchPipelineJobsCmd(client *gitlab.Client, projectID, pipelineID int) tea.Cmd {
+func fetchPipelineJobsCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		jobs, err := client.ListPipelineJobs(ctx, projectID, pipelineID)
 		return pipelineJobsLoadedMsg{projectID: projectID, pipelineID: pipelineID, jobs: jobs, err: err}
 	}
 }
 
-func fetchPipelineLogCmd(client *gitlab.Client, projectID, jobID int) tea.Cmd {
+func fetchPipelineLogCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, jobID int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		content, err := client.GetJobTrace(ctx, projectID, jobID)
 		if err != nil {
@@ -209,18 +214,18 @@ func fetchPipelineLogCmd(client *gitlab.Client, projectID, jobID int) tea.Cmd {
 	}
 }
 
-func retryPipelineCmd(client *gitlab.Client, projectID, pipelineID int, ref string) tea.Cmd {
+func retryPipelineCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, pipelineID int, ref string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		pipeline, err := client.RetryPipeline(ctx, projectID, pipelineID, ref)
 		return pipelineRetriedMsg{projectID: projectID, pipelineID: pipelineID, pipeline: pipeline, err: err}
 	}
 }
 
-func retryJobCmd(client *gitlab.Client, projectID, pipelineID, jobID int) tea.Cmd {
+func retryJobCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, pipelineID, jobID int) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 		job, err := client.RetryJob(ctx, projectID, jobID)
 		return pipelineJobRetriedMsg{projectID: projectID, pipelineID: pipelineID, jobID: jobID, job: job, err: err}
@@ -231,4 +236,11 @@ func pipelineTickCmd() tea.Cmd {
 	return tea.Tick(pipelineRefreshInterval, func(time.Time) tea.Msg {
 		return pipelineTickMsg{}
 	})
+}
+
+func pipelineDebounceTickCmd(projectID int, timestamp time.Time, delay time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(delay)
+		return pipelineDebounceTickMsg{projectID: projectID, timestamp: timestamp}
+	}
 }

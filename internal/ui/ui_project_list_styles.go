@@ -3,6 +3,7 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 var (
+	rosePineBase   = lipgloss.Color("#232136")
 	rosePineText   = lipgloss.Color("#e0def4")
 	rosePineMuted  = lipgloss.Color("#6e6a86")
 	rosePineSubtle = lipgloss.Color("#908caa")
@@ -32,7 +33,7 @@ var (
 )
 
 var (
-	explorerBorderStyle      = lipgloss.NewStyle().Foreground(rosePineSubtle)
+	paneBorderStyle          = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(rosePineSubtle)
 	explorerHeaderStyle      = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)
 	explorerFocusHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(rosePineRose)
 	detailHeaderStyle        = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)

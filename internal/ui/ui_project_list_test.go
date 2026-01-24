@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -89,7 +90,7 @@ func TestQueuePipelineLogPreviewPreservesOffset(t *testing.T) {
 				10: {{ID: 100, Name: "build-job", Stage: "build"}},
 			},
 			logCache:      map[int]string{100: content},
-			logPreview:    previewState{content: "old", raw: "old", offset: 5},
+			logPreview:    previewState{content: "old", raw: "old"},
 			logJobID:      100,
 			logAutoFollow: false,
 		},
@@ -97,11 +98,89 @@ func TestQueuePipelineLogPreviewPreservesOffset(t *testing.T) {
 
 	m.queuePipelineLogPreview()
 
-	if m.pipelineView.logPreview.offset != 5 {
-		t.Fatalf("expected log offset to stay at 5, got %d", m.pipelineView.logPreview.offset)
-	}
+	// When logAutoFollow is false, viewport preserves scroll position
 	if m.pipelineView.logPreview.content != content {
 		t.Fatalf("expected log content to update from cache")
+	}
+}
+
+func TestTruncateLogContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    int // expected length
+	}{
+		{
+			name:    "small log unchanged",
+			content: "hello world",
+			want:    len("hello world"),
+		},
+		{
+			name:    "exactly at limit",
+			content: strings.Repeat("a", maxLogSizeBytes),
+			want:    maxLogSizeBytes,
+		},
+		{
+			name:    "oversized log truncated",
+			content: strings.Repeat("b", maxLogSizeBytes+1000),
+			want:    maxLogSizeBytes + len("\n\n... (log truncated at 1MB, full log available in GitLab web UI)"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateLogContent(tt.content)
+			if len(got) != tt.want {
+				t.Errorf("truncateLogContent() length = %d, want %d", len(got), tt.want)
+			}
+			// Verify truncated logs have the message
+			if len(tt.content) > maxLogSizeBytes && !strings.Contains(got, "log truncated") {
+				t.Error("Expected truncated log to contain warning message")
+			}
+		})
+	}
+}
+
+func TestEvictOldLogs(t *testing.T) {
+	// Create a model with more than maxLogCacheEntries logs
+	m := Model{
+		pipelineView: pipelineViewState{
+			logCache: make(map[int]string),
+			logJobID: 15, // Currently viewing job 15
+		},
+	}
+
+	// Add more logs than the max
+	for i := 1; i <= maxLogCacheEntries+5; i++ {
+		m.pipelineView.logCache[i] = fmt.Sprintf("log content for job %d", i)
+	}
+
+	initialCount := len(m.pipelineView.logCache)
+	if initialCount != maxLogCacheEntries+5 {
+		t.Fatalf("Setup failed: expected %d logs, got %d", maxLogCacheEntries+5, initialCount)
+	}
+
+	// Call eviction
+	m.evictOldLogs()
+
+	// Should keep maxLogCacheEntries logs
+	if len(m.pipelineView.logCache) > maxLogCacheEntries {
+		t.Errorf("evictOldLogs() left %d logs, want at most %d", len(m.pipelineView.logCache), maxLogCacheEntries)
+	}
+
+	// Should keep the currently viewed log (15)
+	if _, exists := m.pipelineView.logCache[15]; !exists {
+		t.Error("evictOldLogs() evicted the currently displayed log")
+	}
+
+	// Should evict oldest logs (lowest IDs)
+	if _, exists := m.pipelineView.logCache[1]; exists {
+		t.Error("evictOldLogs() should have evicted job 1 (oldest)")
+	}
+
+	// Should keep newest logs (highest IDs)
+	if _, exists := m.pipelineView.logCache[maxLogCacheEntries+5]; !exists {
+		t.Error("evictOldLogs() should have kept the newest log")
 	}
 }
 

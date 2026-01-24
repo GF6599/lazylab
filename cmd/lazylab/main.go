@@ -35,7 +35,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	baseHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	logger := slog.New(ui.NewRedactingHandler(baseHandler))
 
 	client, err := gitlab.NewClient(cfg.Token, cfg.Host)
 	if err != nil {

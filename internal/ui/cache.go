@@ -79,11 +79,29 @@ func (c *projectCache) Save(projects []gitlab.ProjectNode) error {
 	if err != nil {
 		return fmt.Errorf("encode cache: %w", err)
 	}
-	tmp := c.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+
+	// Use atomic temp file creation to avoid race conditions
+	dir := filepath.Dir(c.path)
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(c.path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create cache tmp: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+
+	// Write data and close
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return fmt.Errorf("write cache tmp: %w", err)
 	}
-	if err := os.Rename(tmp, c.path); err != nil {
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close cache tmp: %w", err)
+	}
+
+	// Atomic rename
+	if err := os.Rename(tmpPath, c.path); err != nil {
+		os.Remove(tmpPath)
 		return fmt.Errorf("commit cache: %w", err)
 	}
 	return nil

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -17,9 +18,16 @@ func (m Model) View() string {
 	if width <= 0 {
 		width = 80
 	}
+
+	// Render help overlay if requested
+	if m.showHelp {
+		return m.renderHelpView(width)
+	}
+
+	var mainView string
 	switch m.mode {
 	case modeExplorer:
-		return renderExplorerView(m, width)
+		mainView = renderExplorerView(m, width)
 	case modeProjectActions:
 		base := renderProjectsView(m, width)
 		modal := renderProjectActionModal(m, width)
@@ -30,46 +38,94 @@ func (m Model) View() string {
 			modal := renderPipelineRetryConfirmModal(m, width)
 			return overlayCentered(base, modal, width)
 		}
-		return base
+		mainView = base
+	default:
+		mainView = renderProjectsView(m, width)
 	}
-	return renderProjectsView(m, width)
+
+	// Add help bar at bottom
+	return mainView + "\n" + m.renderHelpBar()
+}
+
+// renderHelpView shows the full help overlay
+func (m Model) renderHelpView(width int) string {
+	var keys []key.Binding
+	switch m.mode {
+	case modeProjects:
+		keys = projectsKeyMap()
+	case modeExplorer:
+		keys = explorerKeyMap()
+	case modePipelines:
+		keys = pipelinesKeyMap()
+	default:
+		keys = projectsKeyMap()
+	}
+
+	// Convert to 2D array for multi-column layout (3 columns)
+	cols := 3
+	var keyGroups [][]key.Binding
+	for i := 0; i < len(keys); i += cols {
+		end := min(i+cols, len(keys))
+		keyGroups = append(keyGroups, keys[i:end])
+	}
+
+	helpView := m.help.FullHelpView(keyGroups)
+	title := titleStyle.Render("Help - Press ? or Esc to close")
+
+	content := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(rosePineSubtle).
+		Padding(1, 2).
+		Width(width - 4).
+		Render(title + "\n\n" + helpView)
+
+	return content
+}
+
+// renderHelpBar shows the condensed help at the bottom
+func (m Model) renderHelpBar() string {
+	return m.help.ShortHelpView(m.keys.ShortHelp())
+}
+
+const paneGap = 1
+
+func renderPane(content string, width, height int) string {
+	lines := normalizeColumn(content, width, height)
+	return paneBorderStyle.Render(strings.Join(lines, "\n"))
+}
+
+func renderPaneGap(width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	return lipgloss.NewStyle().Width(width).Height(height).Render("")
 }
 
 func renderProjectsView(m Model, width int) string {
 	if width <= 0 {
 		width = 80
 	}
-	if width < 50 {
+	minInnerWidth := 22
+	minTotalWidth := minInnerWidth*2 + 4 + paneGap
+	if width < minTotalWidth {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for project view.")
 	}
 	height := m.height
 	if height <= 5 {
 		height = 5
 	}
-	listWidth := max(24, width*45/100)
-	detailWidth := width - listWidth
-	if detailWidth < 24 {
-		detailWidth = 24
-		listWidth = max(24, width-detailWidth)
-	}
 	contentHeight := height - 2
-	listLines := normalizeColumn(renderListPane(m, listWidth-2, contentHeight), listWidth-2, contentHeight)
-	detailLines := normalizeColumn(renderDetailPane(m, detailWidth-2, contentHeight), detailWidth-2, contentHeight)
-
-	var b strings.Builder
-	b.WriteString(explorerBorderStyle.Render("╔" + strings.Repeat("═", listWidth-2) + "╦" + strings.Repeat("═", detailWidth-2) + "╗"))
-	b.WriteString("\n")
-	for i := 0; i < contentHeight; i++ {
-		fmt.Fprintf(&b, "%s%s%s%s%s\n",
-			explorerBorderStyle.Render("║"),
-			listLines[i],
-			explorerBorderStyle.Render("║"),
-			detailLines[i],
-			explorerBorderStyle.Render("║"),
-		)
+	innerTotal := width - paneGap - 4
+	listInner := max(minInnerWidth, innerTotal*45/100)
+	detailInner := innerTotal - listInner
+	if detailInner < minInnerWidth {
+		detailInner = minInnerWidth
+		listInner = max(minInnerWidth, innerTotal-detailInner)
 	}
-	b.WriteString(explorerBorderStyle.Render("╚" + strings.Repeat("═", listWidth-2) + "╩" + strings.Repeat("═", detailWidth-2) + "╝"))
-	return b.String()
+	listPane := renderPane(renderListPane(m, listInner, contentHeight), listInner, contentHeight)
+	detailPane := renderPane(renderDetailPane(m, detailInner, contentHeight), detailInner, contentHeight)
+	gap := renderPaneGap(paneGap, contentHeight+2)
+	return lipgloss.JoinHorizontal(lipgloss.Top, listPane, gap, detailPane)
 }
 
 func renderListPane(m Model, width, height int) string {
@@ -77,19 +133,14 @@ func renderListPane(m Model, width, height int) string {
 	title := titleStyle.Render(clampLine(renderListTitle(m), width))
 	b.WriteString(title)
 	b.WriteString("\n")
-	visible := m.visibleProjects()
-	for i, p := range visible {
-		cursor := " "
-		style := itemStyle
-		if i == m.selected {
-			cursor = ">"
-			style = selectedItemStyle
-		}
-		line := clampLine(fmt.Sprintf("%s %s", cursor, p.PathWithNamespace), width)
-		b.WriteString(style.Render(line))
-		b.WriteString("\n")
-	}
-	content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
+
+	// Set list size and render
+	list := m.projectList
+	list.SetSize(width, height-2) // Reserve space for title
+	list.SetWidth(width)
+	listView := list.View()
+
+	content := lipgloss.NewStyle().Width(width).Render(listView)
 	bottomLines := make([]string, 0, 5)
 	switch {
 	case m.err != nil:
@@ -97,9 +148,11 @@ func renderListPane(m Model, width, height int) string {
 	case len(m.allProjects) == 0 && !m.loading:
 		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(" No projects found.", width)))
 	case m.loading && len(m.allProjects) == 0:
-		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(" Loading projects...", width)))
+		loadMsg := fmt.Sprintf(" %s Loading projects...", m.spinner.View())
+		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(loadMsg, width)))
 	case m.search.query == "" && !m.pagesReady[m.page] && !m.loading:
-		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(fmt.Sprintf(" Page %d is still loading...", m.page), width)))
+		loadMsg := fmt.Sprintf(" %s Page %d is still loading...", m.spinner.View(), m.page)
+		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(loadMsg, width)))
 	}
 	if progress := renderProgressBar(m, width); progress != "" {
 		bottomLines = append(bottomLines, progress)
@@ -107,8 +160,12 @@ func renderListPane(m Model, width, height int) string {
 	if m.status != "" {
 		bottomLines = append(bottomLines, statusStyle.Render(clampLine(" "+m.status, width)))
 	}
+	// Add paginator if multiple pages
+	if m.totalPages > 1 && m.search.query == "" {
+		paginatorView := lipgloss.NewStyle().Foreground(rosePineMuted).Render(" " + m.paginator.View())
+		bottomLines = append(bottomLines, paginatorView)
+	}
 	bottomLines = append(bottomLines, renderSearchBar(m, width))
-	bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine("Enter actions · / search · Ctrl+D/U page · </> jump", width)))
 	return renderWithBottomLines(content, bottomLines, height)
 }
 
@@ -126,10 +183,13 @@ func renderDetailPane(m Model, width, height int) string {
 	writeDetailSection(b, "Project", width)
 	writeDetailKV(b, "Name", project.Name, width)
 	writeDetailKV(b, "Path", project.PathWithNamespace, width)
-	writeDetailKV(b, "Visibility", project.Visibility, width)
-	writeDetailKV(b, "Stars", fmt.Sprintf("%d", project.StarCount), width)
+	visIcon := visibilityIcon(project.Visibility)
+	writeDetailKV(b, "Visibility", fmt.Sprintf("%s %s", visIcon, project.Visibility), width)
+	if project.StarCount > 0 {
+		writeDetailKV(b, "Stars", fmt.Sprintf("%s %d", iconStar, project.StarCount), width)
+	}
 	if !project.LastActivityAt.IsZero() {
-		writeDetailKV(b, "Last Activity", project.LastActivityAt.Format(time.RFC1123), width)
+		writeDetailKV(b, "Last Activity", fmt.Sprintf("%s %s", iconClock, formatTimeAgo(project.LastActivityAt)), width)
 	}
 	if project.DefaultBranch != "" {
 		writeDetailKV(b, "Default Branch", project.DefaultBranch, width)
@@ -283,27 +343,11 @@ func renderPipelineStagesPane(m Model, width, height int) string {
 		b.WriteString("\n")
 		return finalize()
 	}
-	stageLabelWidth := 0
-	for _, stage := range stages {
-		stageLabelWidth = max(stageLabelWidth, ansi.StringWidth(pipelineStatusLabel(stage.Status)))
-	}
-	if stageLabelWidth == 0 {
-		stageLabelWidth = ansi.StringWidth(pipelineStatusLabel(""))
-	}
-	for i, stage := range stages {
-		cursor := " "
-		if i == m.pipelineView.stageSelected {
-			cursor = ">"
-		}
-		status := stage.Status
-		if status == "" {
-			status = "unknown"
-		}
-		summary := stageJobSummary(jobs, stage.Name)
-		stageLine := fmt.Sprintf("%s %s %s%s", cursor, pipelineStatusBadgeWithWidth(status, stageLabelWidth), stage.Name, summary)
-		b.WriteString(renderPipelineEntryLine(clampLineANSI(stageLine, width), i == m.pipelineView.stageSelected, m.pipelineView.focus == pipelineFocusStages))
-		b.WriteString("\n")
-	}
+
+	// Render the table
+	b.WriteString(m.pipelineView.stageTable.View())
+	b.WriteString("\n")
+
 	return finalize()
 }
 
@@ -346,24 +390,10 @@ func renderPipelineLogPane(m Model, width, height int) string {
 		b.WriteString("\n")
 		return b.String()
 	}
-	contentLines := pipelineLogContentLines(preview, width)
-	visibleHeight := max(0, height-1)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	offset := preview.offset
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > maxOffset {
-		offset = maxOffset
-	}
-	if visibleHeight > 0 && len(contentLines) > visibleHeight {
-		contentLines = contentLines[offset:min(offset+visibleHeight, len(contentLines))]
-	}
-	for _, line := range contentLines {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return strings.TrimSuffix(b.String(), "\n")
+
+	// Use viewport for scrolling
+	b.WriteString(m.pipelineView.logViewport.View())
+	return b.String()
 }
 
 func renderPipelineSection(m Model, project gitlab.ProjectNode, width int) string {
@@ -430,41 +460,29 @@ func renderExplorerView(m Model, width int) string {
 	if width <= 0 {
 		width = 80
 	}
-	if width < 18 {
+	minInnerWidth := 4
+	minTotalWidth := minInnerWidth*3 + 6 + paneGap*2
+	if width < minTotalWidth {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for explorer view.")
-	}
-	parentWidth := max(6, width*20/100)
-	currentWidth := max(6, width*40/100)
-	previewWidth := width - parentWidth - currentWidth
-	if previewWidth < 6 {
-		previewWidth = 6
-		currentWidth = max(6, width-parentWidth-previewWidth)
 	}
 	height := m.height
 	if height <= 5 {
 		height = 5
 	}
 	contentHeight := height - 2
-	parentLines := normalizeColumn(renderExplorerParents(m, parentWidth-2), parentWidth-2, contentHeight)
-	currentLines := normalizeColumn(renderExplorerCurrent(m, currentWidth-2, contentHeight), currentWidth-2, contentHeight)
-	previewLines := normalizeColumn(renderExplorerPreview(m, previewWidth-2, contentHeight), previewWidth-2, contentHeight)
-
-	var b strings.Builder
-	b.WriteString(explorerBorderStyle.Render("╔" + strings.Repeat("═", parentWidth-2) + "╦" + strings.Repeat("═", currentWidth-2) + "╦" + strings.Repeat("═", previewWidth-2) + "╗"))
-	b.WriteString("\n")
-	for i := 0; i < contentHeight; i++ {
-		fmt.Fprintf(&b, "%s%s%s%s%s%s%s\n",
-			explorerBorderStyle.Render("║"),
-			parentLines[i],
-			explorerBorderStyle.Render("║"),
-			currentLines[i],
-			explorerBorderStyle.Render("║"),
-			previewLines[i],
-			explorerBorderStyle.Render("║"),
-		)
+	innerTotal := width - paneGap*2 - 6
+	parentInner := max(minInnerWidth, innerTotal*20/100)
+	currentInner := max(minInnerWidth, innerTotal*40/100)
+	previewInner := innerTotal - parentInner - currentInner
+	if previewInner < minInnerWidth {
+		previewInner = minInnerWidth
+		currentInner = max(minInnerWidth, innerTotal-parentInner-previewInner)
 	}
-	b.WriteString(explorerBorderStyle.Render("╚" + strings.Repeat("═", parentWidth-2) + "╩" + strings.Repeat("═", currentWidth-2) + "╩" + strings.Repeat("═", previewWidth-2) + "╝"))
-	return b.String()
+	parentPane := renderPane(renderExplorerParents(m, parentInner), parentInner, contentHeight)
+	currentPane := renderPane(renderExplorerCurrent(m, currentInner, contentHeight), currentInner, contentHeight)
+	previewPane := renderPane(renderExplorerPreview(m, previewInner, contentHeight), previewInner, contentHeight)
+	gap := renderPaneGap(paneGap, contentHeight+2)
+	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
 
 func renderProjectActionModal(m Model, width int) string {
@@ -507,41 +525,29 @@ func renderPipelineView(m Model, width int) string {
 	if width <= 0 {
 		width = 80
 	}
-	if width < 24 {
+	minInnerWidth := 10
+	minTotalWidth := minInnerWidth*3 + 6 + paneGap*2
+	if width < minTotalWidth {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for pipeline view.")
-	}
-	parentWidth := max(12, width*30/100)
-	currentWidth := max(12, width*25/100)
-	previewWidth := width - parentWidth - currentWidth
-	if previewWidth < 12 {
-		previewWidth = 12
-		currentWidth = max(12, width-parentWidth-previewWidth)
 	}
 	height := m.height
 	if height <= 5 {
 		height = 5
 	}
 	contentHeight := height - 2
-	parentLines := normalizeColumn(renderPipelineListPane(m, parentWidth-2, contentHeight), parentWidth-2, contentHeight)
-	currentLines := normalizeColumn(renderPipelineStagesPane(m, currentWidth-2, contentHeight), currentWidth-2, contentHeight)
-	previewLines := normalizeColumn(renderPipelineLogPane(m, previewWidth-2, contentHeight), previewWidth-2, contentHeight)
-
-	var b strings.Builder
-	b.WriteString(explorerBorderStyle.Render("╔" + strings.Repeat("═", parentWidth-2) + "╦" + strings.Repeat("═", currentWidth-2) + "╦" + strings.Repeat("═", previewWidth-2) + "╗"))
-	b.WriteString("\n")
-	for i := 0; i < contentHeight; i++ {
-		fmt.Fprintf(&b, "%s%s%s%s%s%s%s\n",
-			explorerBorderStyle.Render("║"),
-			parentLines[i],
-			explorerBorderStyle.Render("║"),
-			currentLines[i],
-			explorerBorderStyle.Render("║"),
-			previewLines[i],
-			explorerBorderStyle.Render("║"),
-		)
+	innerTotal := width - paneGap*2 - 6
+	parentInner := max(minInnerWidth, innerTotal*30/100)
+	currentInner := max(minInnerWidth, innerTotal*25/100)
+	previewInner := innerTotal - parentInner - currentInner
+	if previewInner < minInnerWidth {
+		previewInner = minInnerWidth
+		currentInner = max(minInnerWidth, innerTotal-parentInner-previewInner)
 	}
-	b.WriteString(explorerBorderStyle.Render("╚" + strings.Repeat("═", parentWidth-2) + "╩" + strings.Repeat("═", currentWidth-2) + "╩" + strings.Repeat("═", previewWidth-2) + "╝"))
-	return b.String()
+	parentPane := renderPane(renderPipelineListPane(m, parentInner, contentHeight), parentInner, contentHeight)
+	currentPane := renderPane(renderPipelineStagesPane(m, currentInner, contentHeight), currentInner, contentHeight)
+	previewPane := renderPane(renderPipelineLogPane(m, previewInner, contentHeight), previewInner, contentHeight)
+	gap := renderPaneGap(paneGap, contentHeight+2)
+	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
 
 func renderPipelineRetryConfirmModal(m Model, width int) string {
@@ -724,24 +730,10 @@ func renderExplorerPreview(m Model, width, height int) string {
 		b.WriteString("\n")
 		return b.String()
 	}
-	contentLines := previewContentLines(preview, width)
-	visibleHeight := max(0, height-1)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	offset := preview.offset
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > maxOffset {
-		offset = maxOffset
-	}
-	if visibleHeight > 0 && len(contentLines) > visibleHeight {
-		contentLines = contentLines[offset:min(offset+visibleHeight, len(contentLines))]
-	}
-	for _, line := range contentLines {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return strings.TrimSuffix(b.String(), "\n")
+
+	// Use viewport for scrolling
+	b.WriteString(m.explorer.preview.viewport.View())
+	return b.String()
 }
 
 func renderExplorerEntryLine(line string, isDir, selected bool) string {

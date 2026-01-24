@@ -15,6 +15,44 @@ import (
 	"lazylab/internal/gitlab"
 )
 
+// Layout constants for UI calculations
+const (
+	// headerFooterLines is the number of lines reserved for header and footer
+	headerFooterLines = 6
+
+	// halfPageScrollFactor is the divisor for half-page scrolling
+	halfPageScrollFactor = 2
+
+	// statusBarLines is the number of lines reserved for status/help bar
+	statusBarLines = 2
+
+	// Project list view width percentages
+	projectListWidthPct   = 45 // Percentage of width for project list in projects view
+	projectDetailWidthPct = 55 // Percentage of width for project detail in projects view (100 - projectListWidthPct)
+
+	// Explorer view width percentages
+	explorerParentWidthPct  = 25 // Parent directory listing width
+	explorerCurrentWidthPct = 45 // Current directory listing width
+	explorerPreviewWidthPct = 30 // File preview width
+
+	// Pipeline view width percentages
+	pipelineListWidthPct   = 20 // Pipeline list width
+	pipelineStagesWidthPct = 40 // Pipeline stages/jobs width
+	pipelineLogWidthPct    = 40 // Pipeline log preview width
+
+	// Tree view widths for navigation (when in nested directory)
+	treeParentWidthPct  = 30 // Parent directory listing
+	treeCurrentWidthPct = 25 // Current directory listing
+	treePreviewWidthPct = 45 // Remaining for preview
+
+	// Minimum widths to prevent layout collapse
+	minParentWidth  = 6
+	minCurrentWidth = 6
+	minTreeParent   = 12
+	minTreeCurrent  = 12
+	minInnerWidth   = 20
+)
+
 func truncate(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
@@ -327,11 +365,11 @@ func fuzzyMatch(target, pattern string) bool {
 }
 
 func listPageStep(height int) int {
-	visible := height - 6
+	visible := height - headerFooterLines
 	if visible < 1 {
 		visible = 1
 	}
-	step := visible / 2
+	step := visible / halfPageScrollFactor
 	if step < 1 {
 		step = 1
 	}
@@ -642,70 +680,7 @@ func previewContentLines(preview previewState, width int) []string {
 	return wrapped
 }
 
-func (m *Model) scrollPreview(delta int) bool {
-	preview := &m.explorer.preview
-	if preview.raw == "" || preview.loading || preview.err != nil || preview.content == "" {
-		return false
-	}
-	height := previewContentHeight(m.height)
-	visibleHeight := max(0, height-1)
-	if visibleHeight <= 0 {
-		return false
-	}
-	width := previewContentWidth(m.width)
-	contentLines := previewContentLines(*preview, width)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	if maxOffset == 0 {
-		preview.offset = 0
-		return false
-	}
-	step := max(1, visibleHeight/2)
-	next := preview.offset + (delta * step)
-	if next < 0 {
-		next = 0
-	}
-	if next > maxOffset {
-		next = maxOffset
-	}
-	if next == preview.offset {
-		return false
-	}
-	preview.offset = next
-	return true
-}
-
-func (m *Model) scrollPreviewToStart() bool {
-	preview := &m.explorer.preview
-	if preview.raw == "" || preview.loading || preview.err != nil || preview.content == "" {
-		return false
-	}
-	if preview.offset == 0 {
-		return false
-	}
-	preview.offset = 0
-	return true
-}
-
-func (m *Model) scrollPreviewToEnd() bool {
-	preview := &m.explorer.preview
-	if preview.raw == "" || preview.loading || preview.err != nil || preview.content == "" {
-		return false
-	}
-	height := previewContentHeight(m.height)
-	visibleHeight := max(0, height-1)
-	if visibleHeight <= 0 {
-		return false
-	}
-	width := previewContentWidth(m.width)
-	contentLines := previewContentLines(*preview, width)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	if preview.offset == maxOffset {
-		return false
-	}
-	preview.offset = maxOffset
-	return true
-}
-
+// refreshPreviewHighlight re-renders syntax highlighting when terminal width changes
 func (m *Model) refreshPreviewHighlight() {
 	if m.mode != modeExplorer {
 		return
@@ -727,175 +702,8 @@ func (m *Model) refreshPreviewHighlight() {
 		preview.content = highlighted
 		preview.highlighted = true
 		preview.highlightWidth = width
-	}
-	m.clampPreviewOffset()
-}
-
-func (m *Model) clampPreviewOffset() {
-	preview := &m.explorer.preview
-	if preview.raw == "" || preview.loading || preview.content == "" {
-		preview.offset = 0
-		return
-	}
-	height := previewContentHeight(m.height)
-	visibleHeight := max(0, height-1)
-	if visibleHeight <= 0 {
-		preview.offset = 0
-		return
-	}
-	width := previewContentWidth(m.width)
-	contentLines := previewContentLines(*preview, width)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	if preview.offset < 0 {
-		preview.offset = 0
-		return
-	}
-	if preview.offset > maxOffset {
-		preview.offset = maxOffset
+		preview.viewport.SetContent(highlighted)
 	}
 }
 
-func (m *Model) scrollPipelineLog(delta int) bool {
-	if m.mode != modePipelines {
-		return false
-	}
-	preview := &m.pipelineView.logPreview
-	if preview.raw == "" && preview.content == "" {
-		return false
-	}
-	if preview.loading || preview.err != nil {
-		return false
-	}
-	height := pipelineLogContentHeight(m.height)
-	visibleHeight := max(0, height-1)
-	if visibleHeight <= 0 {
-		return false
-	}
-	width := pipelineLogContentWidth(m.width)
-	contentLines := pipelineLogContentLines(*preview, width)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	if maxOffset == 0 {
-		preview.offset = 0
-		m.pipelineView.logAutoFollow = true
-		m.refreshPipelineLogPreviewFromCache()
-		return false
-	}
-	step := max(1, visibleHeight/2)
-	next := preview.offset + (delta * step)
-	if next < 0 {
-		next = 0
-	}
-	if next > maxOffset {
-		next = maxOffset
-	}
-	if next == preview.offset {
-		return false
-	}
-	preview.offset = next
-	if preview.offset == maxOffset {
-		m.pipelineView.logAutoFollow = true
-		m.refreshPipelineLogPreviewFromCache()
-		m.tailPipelineLog()
-	} else if delta < 0 {
-		m.pipelineView.logAutoFollow = false
-	}
-	return true
-}
-
-func (m *Model) scrollPipelineLogToStart() bool {
-	if m.mode != modePipelines {
-		return false
-	}
-	preview := &m.pipelineView.logPreview
-	if preview.raw == "" && preview.content == "" {
-		return false
-	}
-	if preview.loading || preview.err != nil {
-		return false
-	}
-	if preview.offset == 0 {
-		return false
-	}
-	preview.offset = 0
-	m.pipelineView.logAutoFollow = false
-	return true
-}
-
-func (m *Model) scrollPipelineLogToEnd() bool {
-	if m.mode != modePipelines {
-		return false
-	}
-	preview := &m.pipelineView.logPreview
-	if preview.raw == "" && preview.content == "" {
-		return false
-	}
-	if preview.loading || preview.err != nil {
-		return false
-	}
-	height := pipelineLogContentHeight(m.height)
-	visibleHeight := max(0, height-1)
-	if visibleHeight <= 0 {
-		return false
-	}
-	width := pipelineLogContentWidth(m.width)
-	contentLines := pipelineLogContentLines(*preview, width)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	if preview.offset == maxOffset && m.pipelineView.logAutoFollow && !m.refreshPipelineLogPreviewFromCache() {
-		return false
-	}
-	m.pipelineView.logAutoFollow = true
-	m.refreshPipelineLogPreviewFromCache()
-	m.tailPipelineLog()
-	return true
-}
-
-func (m *Model) clampPipelineLogOffset() {
-	if m.mode != modePipelines {
-		return
-	}
-	preview := &m.pipelineView.logPreview
-	if preview.content == "" || preview.loading {
-		preview.offset = 0
-		return
-	}
-	height := pipelineLogContentHeight(m.height)
-	visibleHeight := max(0, height-1)
-	if visibleHeight <= 0 {
-		preview.offset = 0
-		return
-	}
-	width := pipelineLogContentWidth(m.width)
-	contentLines := pipelineLogContentLines(*preview, width)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	if preview.offset < 0 {
-		preview.offset = 0
-		return
-	}
-	if preview.offset > maxOffset {
-		preview.offset = maxOffset
-	}
-	m.pipelineView.logAutoFollow = preview.offset == maxOffset
-}
-
-func (m *Model) tailPipelineLog() {
-	if m.mode != modePipelines {
-		return
-	}
-	preview := &m.pipelineView.logPreview
-	if preview.content == "" || preview.loading {
-		preview.offset = 0
-		return
-	}
-	height := pipelineLogContentHeight(m.height)
-	visibleHeight := max(0, height-1)
-	if visibleHeight <= 0 {
-		preview.offset = 0
-		m.pipelineView.logAutoFollow = true
-		return
-	}
-	width := pipelineLogContentWidth(m.width)
-	contentLines := pipelineLogContentLines(*preview, width)
-	maxOffset := max(0, len(contentLines)-visibleHeight)
-	preview.offset = maxOffset
-	m.pipelineView.logAutoFollow = true
-}
+// Pipeline log scrolling now handled by viewport directly in key handlers

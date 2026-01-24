@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +24,8 @@ type Client struct {
 }
 
 // NewClient wires the GitLab client with the provided token and host.
+// The token must have 'api' scope. If host is empty, defaults to https://gitlab.com.
+// Returns an error if the token is empty or the host URL is invalid.
 func NewClient(token, host string) (*Client, error) {
 	if token == "" {
 		return nil, fmt.Errorf("gitlab token must not be empty")
@@ -30,6 +34,19 @@ func NewClient(token, host string) (*Client, error) {
 	if trimmedHost == "" {
 		trimmedHost = "https://gitlab.com"
 	}
+
+	// Validate URL format
+	parsedURL, err := url.Parse(trimmedHost)
+	if err != nil {
+		return nil, fmt.Errorf("invalid host URL: %w", err)
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, fmt.Errorf("host URL must use http or https scheme, got: %s", parsedURL.Scheme)
+	}
+	if parsedURL.Host == "" {
+		return nil, fmt.Errorf("host URL must include a hostname")
+	}
+
 	baseURL := ensureAPIBaseURL(trimmedHost)
 	api, err := gl.NewClient(token, gl.WithBaseURL(baseURL))
 	if err != nil {
@@ -124,6 +141,9 @@ type PipelineJob struct {
 // ErrNoPipelines indicates no pipeline runs were returned by GitLab.
 var ErrNoPipelines = errors.New("no pipelines found")
 
+// ErrNoJobs indicates no jobs were returned for a pipeline.
+var ErrNoJobs = errors.New("no jobs found")
+
 // TreeListOptions configures repository tree listing.
 type TreeListOptions struct {
 	Path string
@@ -148,7 +168,7 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 	}
 	projects, resp, err := c.api.Projects.ListProjects(listOpts, gl.WithContext(ctx))
 	if err != nil {
-		return ProjectPage{}, err
+		return ProjectPage{}, fmt.Errorf("list projects: %w", err)
 	}
 	nodes := make([]ProjectNode, len(projects))
 	for i, p := range projects {
@@ -221,12 +241,37 @@ func (c *Client) GetFileContent(ctx context.Context, projectID int, path, ref st
 	if path == "" {
 		return "", fmt.Errorf("file path required")
 	}
+
+	// Validate path for traversal attempts
+	if strings.Contains(path, "..") || strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("invalid file path: path traversal not allowed")
+	}
+
+	// Additional security: decode URL encoding and check for unicode tricks
+	decodedPath, err := url.PathUnescape(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid file path encoding: %w", err)
+	}
+
+	// Normalize and verify path stays within bounds
+	cleanPath := filepath.Clean(decodedPath)
+	if strings.Contains(cleanPath, "..") || filepath.IsAbs(cleanPath) {
+		return "", fmt.Errorf("invalid file path: normalization detected traversal attempt")
+	}
+
 	file, _, err := c.api.RepositoryFiles.GetFile(projectID, path, &gl.GetFileOptions{
 		Ref: gl.Ptr(ref),
 	}, gl.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("get file: %w", err)
 	}
+
+	// Check file size before decoding (size is in bytes)
+	const maxFileSize = 10 * 1024 * 1024 // 10 MB
+	if file.Size > maxFileSize {
+		return "", fmt.Errorf("file too large: %d bytes (max %d bytes)", file.Size, maxFileSize)
+	}
+
 	data, err := base64.StdEncoding.DecodeString(file.Content)
 	if err != nil {
 		return "", fmt.Errorf("decode file: %w", err)
@@ -257,7 +302,7 @@ func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) 
 	p := pipelines[0]
 	stages, err := c.collectPipelineStages(ctx, projectID, p.ID)
 	if err != nil {
-		return PipelineSummary{}, err
+		return PipelineSummary{}, fmt.Errorf("collect pipeline stages: %w", err)
 	}
 	summary := PipelineSummary{
 		ID:     p.ID,
@@ -315,12 +360,30 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 		if opts.Page <= 1 {
 			return PipelinePage{}, ErrNoPipelines
 		}
+		if resp == nil {
+			return PipelinePage{
+				Pipelines:  []PipelineSummary{},
+				Page:       opts.Page,
+				PrevPage:   0,
+				NextPage:   0,
+				TotalPages: 0,
+			}, nil
+		}
 		return PipelinePage{
 			Pipelines:  summaries,
 			Page:       opts.Page,
 			PrevPage:   resp.PreviousPage,
 			NextPage:   resp.NextPage,
 			TotalPages: resp.TotalPages,
+		}, nil
+	}
+	if resp == nil {
+		return PipelinePage{
+			Pipelines:  summaries,
+			Page:       opts.Page,
+			PrevPage:   0,
+			NextPage:   0,
+			TotalPages: 0,
 		}, nil
 	}
 	return PipelinePage{
@@ -426,7 +489,7 @@ func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int
 		page = resp.NextPage
 	}
 	if len(jobs) == 0 {
-		return nil, ErrNoPipelines
+		return nil, ErrNoJobs
 	}
 	return jobs, nil
 }
@@ -436,6 +499,9 @@ func (c *Client) GetJobTrace(ctx context.Context, projectID, jobID int) (string,
 	trace, _, err := c.api.Jobs.GetTraceFile(projectID, jobID, gl.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("get job trace: %w", err)
+	}
+	if trace == nil {
+		return "", fmt.Errorf("no trace data available")
 	}
 	data, err := io.ReadAll(trace)
 	if err != nil {
