@@ -19,18 +19,25 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			m.search.active = false
 			m.search.query = ""
+			m.search.pendingQuery = ""
+			m.search.debounceTimer = nil
 			m.search.input.Reset()
 			m.search.input.Blur()
+			m.invalidateVisibleCache()
 			m.ensureSelectionBounds()
 			m.updateProjectList()
 			m.status = "Search cleared"
 			// Batch prefetch for new visible projects after search clear
 			return m, (&m).queueBatchPrefetchPipelineStatus()
 		case tea.KeyEnter:
+			// Apply search immediately on Enter
 			m.search.active = false
 			m.search.query = m.search.input.Value()
+			m.search.pendingQuery = ""
+			m.search.debounceTimer = nil
 			m.search.input.Blur()
 			m.status = fmt.Sprintf("Search: %s", m.search.query)
+			m.invalidateVisibleCache()
 			m.ensureSelectionBounds()
 			m.updateProjectList()
 			// Batch prefetch for search results
@@ -38,18 +45,21 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		default:
+			// Update input and queue debounced filter
 			m.search.input, cmd = m.search.input.Update(msg)
-			m.search.query = m.search.input.Value()
-			m.ensureSelectionBounds()
-			m.updateProjectList()
-			// Batch prefetch for updated search results
-			if batchCmd := (&m).queueBatchPrefetchPipelineStatus(); batchCmd != nil {
-				if cmd != nil {
-					return m, tea.Batch(cmd, batchCmd)
-				}
-				return m, batchCmd
+			inputValue := m.search.input.Value()
+
+			// Queue debounced search
+			now := time.Now()
+			m.search.pendingQuery = inputValue
+			m.search.debounceTimer = &now
+
+			// Return input cmd + debounce tick cmd
+			debounceCmd := searchDebounceTickCmd(inputValue, now)
+			if cmd != nil {
+				return m, tea.Batch(cmd, debounceCmd)
 			}
-			return m, cmd
+			return m, debounceCmd
 		}
 		return m, nil
 	}
@@ -67,33 +77,41 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if project, ok := m.selectedProject(); ok {
 			return m.openProjectActions(project)
 		}
-	case "down", "j":
-		if m.selected < len(m.visibleProjects())-1 {
-			m.selected++
-		}
-	case "up", "k":
-		if m.selected > 0 {
-			m.selected--
-		}
+	case "down", "j", "up", "k":
+		// Let Bubbles list handle navigation
+		var cmd tea.Cmd
+		m.projectList, cmd = m.projectList.Update(msg)
+		m.selected = m.projectList.Index()
+		return m, cmd
 	case "ctrl+d":
+		// Page down - move by half screen
 		visible := m.visibleProjects()
 		if len(visible) > 0 {
 			step := listPageStep(m.height)
-			m.selected = min(m.selected+step, len(visible)-1)
+			newIdx := min(m.projectList.Index()+step, len(visible)-1)
+			m.projectList.Select(newIdx)
+			m.selected = newIdx
 		}
 	case "ctrl+u":
+		// Page up - move by half screen
 		visible := m.visibleProjects()
 		if len(visible) > 0 {
 			step := listPageStep(m.height)
-			m.selected = max(m.selected-step, 0)
+			newIdx := max(m.projectList.Index()-step, 0)
+			m.projectList.Select(newIdx)
+			m.selected = newIdx
 		}
-	case "<":
+	case "<", "g":
+		// Go to start
 		if len(m.visibleProjects()) > 0 {
+			m.projectList.Select(0)
 			m.selected = 0
 		}
-	case ">":
+	case ">", "G":
+		// Go to end
 		visible := m.visibleProjects()
 		if len(visible) > 0 {
+			m.projectList.Select(len(visible) - 1)
 			m.selected = len(visible) - 1
 		}
 	case "l", "right":
@@ -138,23 +156,15 @@ func (m Model) handleProjectActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "left", "h", "backspace":
 		m.closeActionMenu()
 		return m, nil
-	case "down", "j":
-		if m.actionMenu.selected < len(projectActionOptions)-1 {
-			m.actionMenu.selected++
-			m.actionMenu.menuList.Select(m.actionMenu.selected)
-		}
-	case "up", "k":
-		if m.actionMenu.selected > 0 {
-			m.actionMenu.selected--
-			m.actionMenu.menuList.Select(m.actionMenu.selected)
-		}
+	case "down", "j", "up", "k":
+		// Let Bubbles list handle navigation
+		var cmd tea.Cmd
+		m.actionMenu.menuList, cmd = m.actionMenu.menuList.Update(msg)
+		m.actionMenu.selected = m.actionMenu.menuList.Index()
+		return m, cmd
 	case "enter":
-		// Use list selection index
-		selectedIdx := m.actionMenu.menuList.Index()
-		if selectedIdx < 0 {
-			selectedIdx = m.actionMenu.selected
-		}
-		switch selectedIdx {
+		// Use Bubbles list selection index
+		switch m.actionMenu.menuList.Index() {
 		case 0:
 			return m.openPipelineView(m.actionMenu.project)
 		case 1:
@@ -213,16 +223,17 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.queueExplorerPreview()
 		}
 		return m, nil
-	case "down", "j":
-		if cur.selected < len(cur.entries)-1 {
-			cur.selected++
-			return m, m.queueExplorerPreview()
+	case "down", "j", "up", "k":
+		// Let Bubbles list handle navigation
+		prevIdx := m.explorer.currentList.Index()
+		var cmd tea.Cmd
+		m.explorer.currentList, cmd = m.explorer.currentList.Update(msg)
+		newIdx := m.explorer.currentList.Index()
+		cur.selected = newIdx
+		if newIdx != prevIdx {
+			return m, tea.Batch(cmd, m.queueExplorerPreview())
 		}
-	case "up", "k":
-		if cur.selected > 0 {
-			cur.selected--
-			return m, m.queueExplorerPreview()
-		}
+		return m, cmd
 	case "enter", "right", "l":
 		entry := m.selectedEntry()
 		if entry != nil && entry.IsDir() {
@@ -360,42 +371,35 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	case "down", "j":
+	case "down", "j", "up", "k":
 		if m.pipelineView.focus == pipelineFocusPipelines {
-			if m.pipelineView.selected < len(m.pipelineView.pipelines)-1 {
-				m.pipelineView.selected++
+			// Let Bubbles list handle navigation
+			prevIdx := m.pipelineView.pipelineList.Index()
+			var cmd tea.Cmd
+			m.pipelineView.pipelineList, cmd = m.pipelineView.pipelineList.Update(msg)
+			newIdx := m.pipelineView.pipelineList.Index()
+			m.pipelineView.selected = newIdx
+			if newIdx != prevIdx {
 				m.pipelineView.stageSelected = 0
 				m.pipelineView.stageTable.SetCursor(0)
 				m.resetPipelineLogPreview()
-				cmd := m.queuePipelineStagesForSelection()
-				return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+				stagesCmd := m.queuePipelineStagesForSelection()
+				jobsCmd := m.queuePipelineJobsForSelection()
+				return m, tea.Batch(cmd, stagesCmd, jobsCmd)
 			}
+			return m, cmd
 		} else {
-			stages := m.selectedPipelineStages()
-			if m.pipelineView.stageSelected < len(stages)-1 {
-				m.pipelineView.stageSelected++
-				m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
+			// Let Bubbles table handle navigation
+			prevIdx := m.pipelineView.stageTable.Cursor()
+			var cmd tea.Cmd
+			m.pipelineView.stageTable, cmd = m.pipelineView.stageTable.Update(msg)
+			newIdx := m.pipelineView.stageTable.Cursor()
+			m.pipelineView.stageSelected = newIdx
+			if newIdx != prevIdx {
 				m.resetPipelineLogPreview()
-				return m, m.queuePipelineLogPreview()
+				return m, tea.Batch(cmd, m.queuePipelineLogPreview())
 			}
-		}
-	case "up", "k":
-		if m.pipelineView.focus == pipelineFocusPipelines {
-			if m.pipelineView.selected > 0 {
-				m.pipelineView.selected--
-				m.pipelineView.stageSelected = 0
-				m.pipelineView.stageTable.SetCursor(0)
-				m.resetPipelineLogPreview()
-				cmd := m.queuePipelineStagesForSelection()
-				return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
-			}
-		} else {
-			if m.pipelineView.stageSelected > 0 {
-				m.pipelineView.stageSelected--
-				m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
-				m.resetPipelineLogPreview()
-				return m, m.queuePipelineLogPreview()
-			}
+			return m, cmd
 		}
 	case "r", "ctrl+r":
 		return m.reloadPipelineView()

@@ -97,11 +97,11 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		table.WithHeight(10),
 	)
 
-	// Style the table with Rose Pine colors
+	// Style the table with Rose Pine colors (matching pane borders)
 	s := table.DefaultStyles()
 	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(rosePineMuted).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(rosePineSubtle).
 		BorderBottom(true).
 		Bold(false).
 		Foreground(rosePineSubtle)
@@ -109,6 +109,8 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		Foreground(rosePineBase).
 		Background(rosePineRose).
 		Bold(false)
+	s.Cell = s.Cell.
+		Foreground(rosePineText)
 	t.SetStyles(s)
 
 	// Initialize pipeline list

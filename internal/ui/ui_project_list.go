@@ -39,6 +39,7 @@ func (m Mode) String() string {
 const (
 	pipelineRefreshInterval = 5 * time.Second
 	pipelineDebounceDelay   = 300 * time.Millisecond
+	searchDebounceDelay     = 150 * time.Millisecond
 	pipelinePerPage         = 25
 	pipelineAllRefsRef      = "__all__"
 	pipelineAllRefsLabel    = "all refs"
@@ -305,9 +306,11 @@ type Model struct {
 }
 
 type searchState struct {
-	active bool
-	query  string
-	input  textinput.Model
+	active         bool
+	query          string
+	pendingQuery   string     // Query waiting for debounce
+	debounceTimer  *time.Time // When to apply pending query
+	input          textinput.Model
 }
 
 type dirState struct {
@@ -493,9 +496,11 @@ func (m Model) Init() tea.Cmd {
 
 // Update reacts to Bubble Tea messages and returns the new model state.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Update spinner for loading animations
+	// Only update spinner when actually loading something
 	var spinnerCmd tea.Cmd
-	m.spinner, spinnerCmd = m.spinner.Update(msg)
+	if m.isLoading() {
+		m.spinner, spinnerCmd = m.spinner.Update(msg)
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -566,7 +571,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pipelineJobRetriedMsg:
 		return m.handlePipelineJobRetried(msg)
 	case pipelineTickMsg:
-		cmd := m.handlePipelineTick()
+		newModel, cmd := m.handlePipelineTick()
+		m = newModel.(Model)
 		if cmd == nil {
 			return m, pipelineTickCmd()
 		}
@@ -575,6 +581,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleBatchPipelineStatus(msg)
 	case pipelineDebounceTickMsg:
 		return m.handlePipelineDebounceTickMsg(msg)
+	case searchDebounceTickMsg:
+		return m.handleSearchDebounceTickMsg(msg)
 	}
 	return m, nil
 }

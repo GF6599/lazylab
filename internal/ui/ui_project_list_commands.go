@@ -100,6 +100,11 @@ type pipelineDebounceTickMsg struct {
 	timestamp time.Time
 }
 
+type searchDebounceTickMsg struct {
+	query     string
+	timestamp time.Time
+}
+
 type batchPipelineStatusMsg struct {
 	results map[int]pipelineStatusResult // projectID -> result
 }
@@ -298,5 +303,12 @@ func pipelineDebounceTickCmd(projectID int, timestamp time.Time, delay time.Dura
 	return func() tea.Msg {
 		time.Sleep(delay)
 		return pipelineDebounceTickMsg{projectID: projectID, timestamp: timestamp}
+	}
+}
+
+func searchDebounceTickCmd(query string, timestamp time.Time) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(searchDebounceDelay)
+		return searchDebounceTickMsg{query: query, timestamp: timestamp}
 	}
 }

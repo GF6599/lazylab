@@ -53,6 +53,45 @@ const (
 	minInnerWidth   = 20
 )
 
+// isLoading returns true if anything is currently loading that should animate the spinner.
+func (m *Model) isLoading() bool {
+	// Project list loading
+	if m.loading || m.backgroundLoading {
+		return true
+	}
+
+	// Mode-specific loading states
+	switch m.mode {
+	case modeExplorer:
+		// Explorer tree or file loading
+		if cur := m.currentDirState(); cur != nil && cur.loading {
+			return true
+		}
+		if m.explorer.preview.loading {
+			return true
+		}
+	case modePipelines:
+		// Pipeline view loading states
+		if m.pipelineView.loading {
+			return true
+		}
+		if m.pipelineView.logPreview.loading {
+			return true
+		}
+		// Check if any stages or jobs are loading for selected pipeline
+		if pipeline := m.selectedPipeline(); pipeline != nil {
+			if m.pipelineView.stageLoading[pipeline.ID] {
+				return true
+			}
+			if m.pipelineView.jobsLoading[pipeline.ID] {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func truncate(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s

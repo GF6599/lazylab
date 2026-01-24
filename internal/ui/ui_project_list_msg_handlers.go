@@ -602,14 +602,16 @@ func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, t
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) handlePipelineTick() tea.Cmd {
+func (m Model) handlePipelineTick() (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeProjects:
-		return (&m).queuePipelineFetchForSelection(false)
+		cmd := (&m).queuePipelineFetchForSelection(false)
+		return m, cmd
 	case modePipelines:
-		return (&m).queuePipelineViewRefresh()
+		cmd := (&m).queuePipelineViewRefresh()
+		return m, cmd
 	default:
-		return nil
+		return m, nil
 	}
 }
 
@@ -663,5 +665,33 @@ func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model,
 	// Evict old cache entries if needed
 	(&m).evictOldPipelineStatusCache()
 
+	// Update project list to reflect new pipeline status icons
+	m.updateProjectList()
+
 	return m, nil
+}
+
+func (m Model) handleSearchDebounceTickMsg(msg searchDebounceTickMsg) (tea.Model, tea.Cmd) {
+	// Ignore stale ticks - only process if timer matches
+	if m.search.debounceTimer == nil || !msg.timestamp.Equal(*m.search.debounceTimer) {
+		return m, nil
+	}
+
+	// Verify query still matches
+	if msg.query != m.search.pendingQuery {
+		return m, nil
+	}
+
+	// Apply the pending query
+	m.search.debounceTimer = nil
+	m.search.query = m.search.pendingQuery
+	m.search.pendingQuery = ""
+
+	// Now run the expensive filter
+	m.invalidateVisibleCache()
+	m.ensureSelectionBounds()
+	m.updateProjectList()
+
+	// Batch prefetch pipeline status for filtered results
+	return m, (&m).queueBatchPrefetchPipelineStatus()
 }
