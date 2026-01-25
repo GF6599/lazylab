@@ -1,12 +1,11 @@
 package ui
 
 import (
-	"bytes"
 	"fmt"
-	"os/exec"
+	"hash/fnv"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -258,50 +257,62 @@ func wrapText(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func highlightPreviewContent(path, content string, width int) (string, bool, error) {
+type previewHighlightEntry struct {
+	content     string
+	highlighted bool
+}
+
+var glamourRendererCache = struct {
+	mu      sync.Mutex
+	byWidth map[int]*glamour.TermRenderer
+}{
+	byWidth: make(map[int]*glamour.TermRenderer),
+}
+
+func (m *Model) highlightPreview(path, content string, width int) (string, bool, error) {
 	if content == "" {
 		return "", false, nil
 	}
 	if width <= 0 {
 		width = 80
 	}
-	if highlighted, err := highlightWithBat(path, content, width); err == nil {
-		return highlighted, true, nil
+	key := previewHighlightKey(path, width, content)
+	if entry, ok := m.previewHighlightCache[key]; ok {
+		return entry.content, entry.highlighted, nil
 	}
-	if highlighted, err := highlightWithGlamour(path, content, width); err == nil {
-		return highlighted, true, nil
+	highlighted, err := highlightWithGlamour(path, content, width)
+	if err != nil {
+		return "", false, err
 	}
-	return content, false, nil
+	entry := previewHighlightEntry{content: highlighted, highlighted: true}
+	if len(entry.content) <= maxPreviewHighlightBytes {
+		m.storePreviewHighlight(key, entry)
+	}
+	return highlighted, true, nil
 }
 
-func highlightWithBat(path, content string, width int) (string, error) {
-	batPath, err := exec.LookPath("bat")
-	if err != nil {
-		batPath, err = exec.LookPath("batcat")
-		if err != nil {
-			return "", err
-		}
+func previewHighlightKey(path string, width int, content string) string {
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(content))
+	return fmt.Sprintf("%s:%d:%x", path, width, hasher.Sum64())
+}
+
+func (m *Model) storePreviewHighlight(key string, entry previewHighlightEntry) {
+	if m.previewHighlightCache == nil {
+		m.previewHighlightCache = make(map[string]previewHighlightEntry)
+		m.previewHighlightOrder = make([]string, 0, maxPreviewHighlightEntries)
 	}
-	args := []string{
-		"--color=always",
-		"--style=plain",
-		"--paging=never",
-		"--wrap=character",
-		"--terminal-width",
-		strconv.Itoa(width),
+	if _, exists := m.previewHighlightCache[key]; exists {
+		m.previewHighlightCache[key] = entry
+		return
 	}
-	if path != "" {
-		args = append(args, "--file-name", path)
+	m.previewHighlightCache[key] = entry
+	m.previewHighlightOrder = append(m.previewHighlightOrder, key)
+	for len(m.previewHighlightOrder) > maxPreviewHighlightEntries {
+		oldest := m.previewHighlightOrder[0]
+		m.previewHighlightOrder = m.previewHighlightOrder[1:]
+		delete(m.previewHighlightCache, oldest)
 	}
-	cmd := exec.Command(batPath, args...)
-	cmd.Stdin = strings.NewReader(content)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(out.String(), "\n"), nil
 }
 
 func highlightWithGlamour(path, content string, width int) (string, error) {
@@ -315,10 +326,7 @@ func highlightWithGlamour(path, content string, width int) (string, error) {
 		header += lang
 	}
 	markdown := header + "\n" + content + "\n" + fence + "\n"
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(width),
-	)
+	renderer, err := cachedGlamourRenderer(width)
 	if err != nil {
 		return "", err
 	}
@@ -327,6 +335,33 @@ func highlightWithGlamour(path, content string, width int) (string, error) {
 		return "", err
 	}
 	return strings.TrimSuffix(out, "\n"), nil
+}
+
+func cachedGlamourRenderer(width int) (*glamour.TermRenderer, error) {
+	if width <= 0 {
+		width = 80
+	}
+	glamourRendererCache.mu.Lock()
+	renderer := glamourRendererCache.byWidth[width]
+	glamourRendererCache.mu.Unlock()
+	if renderer != nil {
+		return renderer, nil
+	}
+	newRenderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return nil, err
+	}
+	glamourRendererCache.mu.Lock()
+	if existing := glamourRendererCache.byWidth[width]; existing != nil {
+		glamourRendererCache.mu.Unlock()
+		return existing, nil
+	}
+	glamourRendererCache.byWidth[width] = newRenderer
+	glamourRendererCache.mu.Unlock()
+	return newRenderer, nil
 }
 
 func languageFromPath(path string) string {
@@ -732,7 +767,7 @@ func (m *Model) refreshPreviewHighlight() {
 	if preview.highlightWidth == width {
 		return
 	}
-	highlighted, isHighlighted, err := highlightPreviewContent(preview.path, preview.raw, width)
+	highlighted, isHighlighted, err := m.highlightPreview(preview.path, preview.raw, width)
 	if err != nil && m.opts.Logger != nil {
 		m.opts.Logger.Debug("rehighlight preview", "err", err)
 		return

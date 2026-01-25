@@ -152,7 +152,7 @@ func (m Model) handleFileLoaded(msg fileLoadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	width := previewContentWidth(m.width)
-	highlighted, isHighlighted, err := highlightPreviewContent(msg.path, msg.content, width)
+	highlighted, isHighlighted, err := (&m).highlightPreview(msg.path, msg.content, width)
 	if err != nil {
 		// Surface syntax highlighting errors to the user
 		if m.opts.Logger != nil {

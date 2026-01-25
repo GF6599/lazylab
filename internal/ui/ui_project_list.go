@@ -48,6 +48,8 @@ const (
 	maxLogCacheEntries         = 10        // Keep last 10 job logs
 	maxLogSizeBytes            = 1_000_000 // 1MB max per log
 	maxPipelineStatusCacheSize = 100       // Keep last 100 pipeline statuses
+	maxPreviewHighlightEntries = 25        // Keep last 25 syntax highlights
+	maxPreviewHighlightBytes   = 200_000   // 200KB max per highlight
 )
 
 var projectActionOptions = []string{
@@ -303,14 +305,17 @@ type Model struct {
 	detailCacheWidth       int
 	detailCacheHeight      int
 	detailCacheOutput      string
+
+	previewHighlightCache map[string]previewHighlightEntry
+	previewHighlightOrder []string
 }
 
 type searchState struct {
-	active         bool
-	query          string
-	pendingQuery   string     // Query waiting for debounce
-	debounceTimer  *time.Time // When to apply pending query
-	input          textinput.Model
+	active        bool
+	query         string
+	pendingQuery  string     // Query waiting for debounce
+	debounceTimer *time.Time // When to apply pending query
+	input         textinput.Model
 }
 
 type dirState struct {
@@ -333,11 +338,11 @@ type previewState struct {
 }
 
 type explorerState struct {
-	project    gitlab.ProjectNode
-	ref        string
-	stack      []dirState
-	preview    previewState
-	parentList list.Model // Bubbles list for parent directory
+	project     gitlab.ProjectNode
+	ref         string
+	stack       []dirState
+	preview     previewState
+	parentList  list.Model // Bubbles list for parent directory
 	currentList list.Model // Bubbles list for current directory
 }
 
@@ -465,14 +470,16 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 			active: false,
 			input:  input,
 		},
-		loading:        true,
-		pagesReady:     make(map[int]bool),
-		keys:           newKeyMap(),
-		help:           h,
-		spinner:        s,
-		paginator:      p,
-		projectList:    projectList,
-		recentProjects: make([]int, 0, 10),
+		loading:               true,
+		pagesReady:            make(map[int]bool),
+		keys:                  newKeyMap(),
+		help:                  h,
+		spinner:               s,
+		paginator:             p,
+		projectList:           projectList,
+		recentProjects:        make([]int, 0, 10),
+		previewHighlightCache: make(map[string]previewHighlightEntry),
+		previewHighlightOrder: make([]string, 0, maxPreviewHighlightEntries),
 	}
 	if cache, err := newProjectCache(opts.Host); err == nil {
 		m.cache = cache
