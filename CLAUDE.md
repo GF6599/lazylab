@@ -96,7 +96,7 @@ All async work (API calls, file operations) happens via `tea.Cmd` functions that
 3. Command runs async and produces a message (e.g., `projectsLoadedMsg`)
 4. `Update` receives the message and updates state
 
-Key message types in `internal/ui/ui_project_list_commands.go`:
+Key message types in `internal/ui/project_list_cmds.go`:
 - `projectsLoadedMsg`, `cacheLoadedMsg`, `cacheSavedMsg`
 - `treeLoadedMsg`, `fileLoadedMsg`
 - `pipelinesLoadedMsg`, `pipelineStagesLoadedMsg`, `pipelineJobsLoadedMsg`, `pipelineLogLoadedMsg`
@@ -106,11 +106,11 @@ Key message types in `internal/ui/ui_project_list_commands.go`:
 ### File Organization by Concern
 
 **UI Layer** (`internal/ui/`):
-- `ui_project_list.go`: Core model, state machine, and key routing by mode
-- `ui_project_list_commands.go`: Async commands and message type definitions
-- `ui_project_list_views.go`: All rendering functions (project list, explorer, pipelines, modals)
-- `ui_project_list_styles.go`: Lipgloss styles and color definitions
-- `ui_project_list_helpers.go`: Pure helper functions (formatting, scrolling, selection)
+- `project_list_model.go`: Core model, state machine, and key routing by mode
+- `project_list_cmds.go`: Async commands and message type definitions
+- `project_list_view.go`: All rendering functions (project list, explorer, pipelines, modals)
+- `project_list_style.go`: Lipgloss styles and color definitions
+- `project_list_helpers.go`: Pure helper functions (formatting, scrolling, selection)
 - `cache.go`: Project list caching under `~/.cache/lazylab/projects_<host>.json`
 
 **GitLab Client** (`internal/gitlab/client.go`):
@@ -230,7 +230,7 @@ Note: `GITLAB_TOKEN` is required; the app will exit with an error if not provide
 
 When adding features or fixing bugs:
 
-- **File Naming**: Prefix UI model files with `ui_` domain (e.g., `ui_project_list_*.go`)
+- **File Naming**: Prefix UI model files with the domain (e.g., `project_list_*.go`)
 - **Bubble Tea Patterns**: Keep `Update` functions under ~40 lines; extract mode-specific handlers
 - **Function Size**: Keep functions under ~40 lines; extract helpers for clarity
 - **Comments**: Only add comments for non-obvious logic (e.g., tricky Bubble Tea layout math)
