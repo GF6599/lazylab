@@ -93,7 +93,7 @@ func projectPaneLayout(width, height int) (int, int, int, bool) {
 		width = 80
 	}
 	minInnerWidth := 22
-	minTotalWidth := minInnerWidth*2 + 4 + paneGap
+	minTotalWidth := minInnerWidth*2 + paneGap
 	if width < minTotalWidth {
 		return 0, 0, 0, false
 	}
@@ -101,7 +101,7 @@ func projectPaneLayout(width, height int) (int, int, int, bool) {
 		height = 5
 	}
 	contentHeight := height - 2
-	innerTotal := width - paneGap - 4
+	innerTotal := width - paneGap
 	listInner := max(minInnerWidth, innerTotal*45/100)
 	detailInner := innerTotal - listInner
 	if detailInner < minInnerWidth {
@@ -113,7 +113,7 @@ func projectPaneLayout(width, height int) (int, int, int, bool) {
 
 func renderPane(content string, width, height int) string {
 	lines := normalizeColumn(content, width, height)
-	return paneBorderStyle.Render(strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }
 
 func renderPaneGap(width, height int) string {
@@ -130,7 +130,7 @@ func renderProjectsView(m Model, width int) string {
 	}
 	listPane := renderPane(renderListPane(m, listInner, contentHeight), listInner, contentHeight)
 	detailPane := renderPane((&m).cachedDetailPane(detailInner, contentHeight), detailInner, contentHeight)
-	gap := renderPaneGap(paneGap, contentHeight+2)
+	gap := renderPaneGap(paneGap, contentHeight)
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPane, gap, detailPane)
 }
 
@@ -462,7 +462,7 @@ func renderExplorerView(m Model, width int) string {
 		width = 80
 	}
 	minInnerWidth := 4
-	minTotalWidth := minInnerWidth*3 + 6 + paneGap*2
+	minTotalWidth := minInnerWidth*3 + paneGap*2
 	if width < minTotalWidth {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for explorer view.")
 	}
@@ -471,7 +471,7 @@ func renderExplorerView(m Model, width int) string {
 		height = 5
 	}
 	contentHeight := height - 2
-	innerTotal := width - paneGap*2 - 6
+	innerTotal := width - paneGap*2
 	parentInner := max(minInnerWidth, innerTotal*20/100)
 	currentInner := max(minInnerWidth, innerTotal*40/100)
 	previewInner := innerTotal - parentInner - currentInner
@@ -482,7 +482,7 @@ func renderExplorerView(m Model, width int) string {
 	parentPane := renderPane(renderExplorerParents(m, parentInner), parentInner, contentHeight)
 	currentPane := renderPane(renderExplorerCurrent(m, currentInner, contentHeight), currentInner, contentHeight)
 	previewPane := renderPane(renderExplorerPreview(m, previewInner, contentHeight), previewInner, contentHeight)
-	gap := renderPaneGap(paneGap, contentHeight+2)
+	gap := renderPaneGap(paneGap, contentHeight)
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
 
@@ -521,7 +521,7 @@ func renderPipelineView(m Model, width int) string {
 		width = 80
 	}
 	minInnerWidth := 10
-	minTotalWidth := minInnerWidth*3 + 6 + paneGap*2
+	minTotalWidth := minInnerWidth*3 + paneGap*2
 	if width < minTotalWidth {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for pipeline view.")
 	}
@@ -530,7 +530,7 @@ func renderPipelineView(m Model, width int) string {
 		height = 5
 	}
 	contentHeight := height - 2
-	innerTotal := width - paneGap*2 - 6
+	innerTotal := width - paneGap*2
 	parentInner := max(minInnerWidth, innerTotal*30/100)
 	currentInner := max(minInnerWidth, innerTotal*25/100)
 	previewInner := innerTotal - parentInner - currentInner
@@ -541,7 +541,7 @@ func renderPipelineView(m Model, width int) string {
 	parentPane := renderPane(renderPipelineListPane(m, parentInner, contentHeight), parentInner, contentHeight)
 	currentPane := renderPane(renderPipelineStagesPane(m, currentInner, contentHeight), currentInner, contentHeight)
 	previewPane := renderPane(renderPipelineLogPane(m, previewInner, contentHeight), previewInner, contentHeight)
-	gap := renderPaneGap(paneGap, contentHeight+2)
+	gap := renderPaneGap(paneGap, contentHeight)
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
 

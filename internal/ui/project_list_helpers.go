@@ -284,6 +284,9 @@ func (m *Model) highlightPreview(path, content string, width int) (string, bool,
 	if err != nil {
 		return "", false, err
 	}
+	if highlighted == "" {
+		return content, false, nil
+	}
 	entry := previewHighlightEntry{content: highlighted, highlighted: true}
 	if len(entry.content) <= maxPreviewHighlightBytes {
 		m.storePreviewHighlight(key, entry)
@@ -545,17 +548,10 @@ func fitLine(line string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	if lipgloss.Width(line) > width {
-		var b strings.Builder
-		for _, r := range line {
-			if lipgloss.Width(b.String()+string(r)) > width {
-				break
-			}
-			b.WriteRune(r)
-		}
-		line = b.String()
+	if ansi.StringWidth(line) > width {
+		line = ansi.Truncate(line, width, "")
 	}
-	pad := width - lipgloss.Width(line)
+	pad := width - ansi.StringWidth(line)
 	if pad > 0 {
 		line += strings.Repeat(" ", pad)
 	}
@@ -678,11 +674,10 @@ func previewContentWidth(width int) int {
 		previewWidth = 6
 		currentWidth = max(6, width-parentWidth-previewWidth)
 	}
-	contentWidth := previewWidth - 2
-	if contentWidth < 1 {
-		contentWidth = 1
+	if previewWidth < 1 {
+		return 1
 	}
-	return contentWidth
+	return previewWidth
 }
 
 func previewContentHeight(height int) int {
@@ -703,11 +698,10 @@ func pipelineLogContentWidth(width int) int {
 		previewWidth = 12
 		currentWidth = max(12, width-parentWidth-previewWidth)
 	}
-	contentWidth := previewWidth - 2
-	if contentWidth < 1 {
-		contentWidth = 1
+	if previewWidth < 1 {
+		return 1
 	}
-	return contentWidth
+	return previewWidth
 }
 
 func pipelineLogContentHeight(height int) int {
@@ -777,7 +771,12 @@ func (m *Model) refreshPreviewHighlight() {
 		preview.highlighted = true
 		preview.highlightWidth = width
 		preview.viewport.SetContent(highlighted)
+		return
 	}
+	preview.content = preview.raw
+	preview.highlighted = false
+	preview.highlightWidth = 0
+	preview.viewport.SetContent(preview.raw)
 }
 
 // Pipeline log scrolling now handled by viewport directly in key handlers
