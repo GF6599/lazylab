@@ -33,6 +33,8 @@ var (
 )
 
 var (
+	paneBorderStyle          = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(rosePineSubtle)
+	paneBorderFocusStyle     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(rosePineRose)
 	explorerHeaderStyle      = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)
 	explorerFocusHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(rosePineRose)
 	detailHeaderStyle        = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)

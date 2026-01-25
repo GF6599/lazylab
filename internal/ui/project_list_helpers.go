@@ -674,10 +674,11 @@ func previewContentWidth(width int) int {
 		previewWidth = 6
 		currentWidth = max(6, width-parentWidth-previewWidth)
 	}
-	if previewWidth < 1 {
-		return 1
+	contentWidth := previewWidth - 2
+	if contentWidth < 1 {
+		contentWidth = 1
 	}
-	return previewWidth
+	return contentWidth
 }
 
 func previewContentHeight(height int) int {
@@ -698,10 +699,11 @@ func pipelineLogContentWidth(width int) int {
 		previewWidth = 12
 		currentWidth = max(12, width-parentWidth-previewWidth)
 	}
-	if previewWidth < 1 {
-		return 1
+	contentWidth := previewWidth - 2
+	if contentWidth < 1 {
+		contentWidth = 1
 	}
-	return previewWidth
+	return contentWidth
 }
 
 func pipelineLogContentHeight(height int) int {

@@ -93,7 +93,7 @@ func projectPaneLayout(width, height int) (int, int, int, bool) {
 		width = 80
 	}
 	minInnerWidth := 22
-	minTotalWidth := minInnerWidth*2 + paneGap
+	minTotalWidth := minInnerWidth*2 + 4 + paneGap
 	if width < minTotalWidth {
 		return 0, 0, 0, false
 	}
@@ -101,7 +101,7 @@ func projectPaneLayout(width, height int) (int, int, int, bool) {
 		height = 5
 	}
 	contentHeight := height - 2
-	innerTotal := width - paneGap
+	innerTotal := width - paneGap - 4
 	listInner := max(minInnerWidth, innerTotal*45/100)
 	detailInner := innerTotal - listInner
 	if detailInner < minInnerWidth {
@@ -111,9 +111,20 @@ func projectPaneLayout(width, height int) (int, int, int, bool) {
 	return listInner, detailInner, contentHeight, true
 }
 
-func renderPane(content string, width, height int) string {
+func paneHeaderStyle(focused bool) lipgloss.Style {
+	if focused {
+		return explorerFocusHeaderStyle
+	}
+	return explorerHeaderStyle
+}
+
+func renderPane(content string, width, height int, focused bool) string {
 	lines := normalizeColumn(content, width, height)
-	return strings.Join(lines, "\n")
+	style := paneBorderStyle
+	if focused {
+		style = paneBorderFocusStyle
+	}
+	return style.Render(strings.Join(lines, "\n"))
 }
 
 func renderPaneGap(width, height int) string {
@@ -128,15 +139,15 @@ func renderProjectsView(m Model, width int) string {
 	if !ok {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for project view.")
 	}
-	listPane := renderPane(renderListPane(m, listInner, contentHeight), listInner, contentHeight)
-	detailPane := renderPane((&m).cachedDetailPane(detailInner, contentHeight), detailInner, contentHeight)
-	gap := renderPaneGap(paneGap, contentHeight)
+	listPane := renderPane(renderListPane(m, listInner, contentHeight, true), listInner, contentHeight, true)
+	detailPane := renderPane((&m).cachedDetailPane(detailInner, contentHeight), detailInner, contentHeight, false)
+	gap := renderPaneGap(paneGap, contentHeight+2)
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPane, gap, detailPane)
 }
 
-func renderListPane(m Model, width, height int) string {
+func renderListPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
-	title := titleStyle.Render(clampLine(renderListTitle(m), width))
+	title := paneHeaderStyle(focused).Render(clampLine(renderListTitle(m), width))
 	b.WriteString(title)
 	b.WriteString("\n")
 
@@ -224,7 +235,7 @@ func renderDetailPane(m Model, width, height int) string {
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
-func renderPipelineListPane(m Model, width, height int) string {
+func renderPipelineListPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	page := max(1, m.pipelineView.page)
 	total := max(1, m.pipelineView.totalPages)
@@ -232,11 +243,7 @@ func renderPipelineListPane(m Model, width, height int) string {
 	if m.pipelineView.loading && len(m.pipelineView.pipelines) > 0 {
 		title += " (refreshing)"
 	}
-	header := explorerHeaderStyle
-	if m.pipelineView.focus == pipelineFocusPipelines {
-		header = explorerFocusHeaderStyle
-	}
-	b.WriteString(header.Render(clampLine(title, width)))
+	b.WriteString(paneHeaderStyle(focused).Render(clampLine(title, width)))
 	b.WriteString("\n")
 	if m.pipelineView.loading && len(m.pipelineView.pipelines) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading pipelines...", width)))
@@ -285,21 +292,17 @@ func renderPipelineListPane(m Model, width, height int) string {
 	return renderWithBottomHint(content, hint, height)
 }
 
-func renderPipelineStagesPane(m Model, width, height int) string {
+func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	pipeline := m.selectedPipeline()
 	title := "Stages"
-	header := explorerHeaderStyle
-	if m.pipelineView.focus == pipelineFocusStages {
-		header = explorerFocusHeaderStyle
-	}
 	if pipeline != nil {
 		stages := m.pipelineView.stageCache[pipeline.ID]
 		if m.pipelineView.stageLoading[pipeline.ID] && len(stages) > 0 {
 			title += " (refreshing)"
 		}
 	}
-	b.WriteString(header.Render(clampLine(title, width)))
+	b.WriteString(paneHeaderStyle(focused).Render(clampLine(title, width)))
 	b.WriteString("\n")
 	hint := explorerHintStyle.Render(clampLine(" ↑/↓ stages · ← pipelines · J/K scroll logs · Ctrl+D/U page · </> jump", width))
 	finalize := func() string {
@@ -352,7 +355,7 @@ func renderPipelineStagesPane(m Model, width, height int) string {
 	return finalize()
 }
 
-func renderPipelineLogPane(m Model, width, height int) string {
+func renderPipelineLogPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	title := "Log Preview"
 	job := m.pipelineLogJob()
@@ -369,11 +372,7 @@ func renderPipelineLogPane(m Model, width, height int) string {
 	if m.pipelineView.logPreview.loading && m.pipelineView.logPreview.content != "" {
 		title += " (refreshing)"
 	}
-	header := explorerHeaderStyle
-	if m.pipelineView.focus == pipelineFocusStages {
-		header = explorerFocusHeaderStyle
-	}
-	b.WriteString(header.Render(clampLine(title, width)))
+	b.WriteString(paneHeaderStyle(focused).Render(clampLine(title, width)))
 	b.WriteString("\n")
 	preview := m.pipelineView.logPreview
 	if preview.loading && preview.content == "" {
@@ -462,7 +461,7 @@ func renderExplorerView(m Model, width int) string {
 		width = 80
 	}
 	minInnerWidth := 4
-	minTotalWidth := minInnerWidth*3 + paneGap*2
+	minTotalWidth := minInnerWidth*3 + 6 + paneGap*2
 	if width < minTotalWidth {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for explorer view.")
 	}
@@ -471,7 +470,7 @@ func renderExplorerView(m Model, width int) string {
 		height = 5
 	}
 	contentHeight := height - 2
-	innerTotal := width - paneGap*2
+	innerTotal := width - paneGap*2 - 6
 	parentInner := max(minInnerWidth, innerTotal*20/100)
 	currentInner := max(minInnerWidth, innerTotal*40/100)
 	previewInner := innerTotal - parentInner - currentInner
@@ -479,10 +478,10 @@ func renderExplorerView(m Model, width int) string {
 		previewInner = minInnerWidth
 		currentInner = max(minInnerWidth, innerTotal-parentInner-previewInner)
 	}
-	parentPane := renderPane(renderExplorerParents(m, parentInner), parentInner, contentHeight)
-	currentPane := renderPane(renderExplorerCurrent(m, currentInner, contentHeight), currentInner, contentHeight)
-	previewPane := renderPane(renderExplorerPreview(m, previewInner, contentHeight), previewInner, contentHeight)
-	gap := renderPaneGap(paneGap, contentHeight)
+	parentPane := renderPane(renderExplorerParents(m, parentInner, false), parentInner, contentHeight, false)
+	currentPane := renderPane(renderExplorerCurrent(m, currentInner, contentHeight, true), currentInner, contentHeight, true)
+	previewPane := renderPane(renderExplorerPreview(m, previewInner, contentHeight, false), previewInner, contentHeight, false)
+	gap := renderPaneGap(paneGap, contentHeight+2)
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
 
@@ -521,7 +520,7 @@ func renderPipelineView(m Model, width int) string {
 		width = 80
 	}
 	minInnerWidth := 10
-	minTotalWidth := minInnerWidth*3 + paneGap*2
+	minTotalWidth := minInnerWidth*3 + 6 + paneGap*2
 	if width < minTotalWidth {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for pipeline view.")
 	}
@@ -530,7 +529,7 @@ func renderPipelineView(m Model, width int) string {
 		height = 5
 	}
 	contentHeight := height - 2
-	innerTotal := width - paneGap*2
+	innerTotal := width - paneGap*2 - 6
 	parentInner := max(minInnerWidth, innerTotal*30/100)
 	currentInner := max(minInnerWidth, innerTotal*25/100)
 	previewInner := innerTotal - parentInner - currentInner
@@ -538,10 +537,12 @@ func renderPipelineView(m Model, width int) string {
 		previewInner = minInnerWidth
 		currentInner = max(minInnerWidth, innerTotal-parentInner-previewInner)
 	}
-	parentPane := renderPane(renderPipelineListPane(m, parentInner, contentHeight), parentInner, contentHeight)
-	currentPane := renderPane(renderPipelineStagesPane(m, currentInner, contentHeight), currentInner, contentHeight)
-	previewPane := renderPane(renderPipelineLogPane(m, previewInner, contentHeight), previewInner, contentHeight)
-	gap := renderPaneGap(paneGap, contentHeight)
+	pipelinesFocused := m.pipelineView.focus == pipelineFocusPipelines
+	stagesFocused := m.pipelineView.focus == pipelineFocusStages
+	parentPane := renderPane(renderPipelineListPane(m, parentInner, contentHeight, pipelinesFocused), parentInner, contentHeight, pipelinesFocused)
+	currentPane := renderPane(renderPipelineStagesPane(m, currentInner, contentHeight, stagesFocused), currentInner, contentHeight, stagesFocused)
+	previewPane := renderPane(renderPipelineLogPane(m, previewInner, contentHeight, false), previewInner, contentHeight, false)
+	gap := renderPaneGap(paneGap, contentHeight+2)
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
 
@@ -608,9 +609,9 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 	return modal
 }
 
-func renderExplorerParents(m Model, width int) string {
+func renderExplorerParents(m Model, width int, focused bool) string {
 	b := &strings.Builder{}
-	b.WriteString(explorerHeaderStyle.Render(clampLine("Parents", width)))
+	b.WriteString(paneHeaderStyle(focused).Render(clampLine("Parents", width)))
 	b.WriteString("\n")
 	parent := m.parentDirState()
 	if parent == nil {
@@ -645,10 +646,10 @@ func renderExplorerParents(m Model, width int) string {
 	return b.String()
 }
 
-func renderExplorerCurrent(m Model, width, height int) string {
+func renderExplorerCurrent(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	title := fmt.Sprintf("Explorer · %s @ %s", m.explorer.project.PathWithNamespace, displayRef(m.explorer))
-	b.WriteString(explorerFocusHeaderStyle.Render(clampLine(title, width)))
+	b.WriteString(paneHeaderStyle(focused).Render(clampLine(title, width)))
 	b.WriteString("\n")
 	hint := explorerHintStyle.Render(clampLine("Enter/→ descend · ←/Esc up · J/K preview · Ctrl+D/U page · </> jump", width))
 	finalize := func() string {
@@ -688,9 +689,9 @@ func renderExplorerCurrent(m Model, width, height int) string {
 	return finalize()
 }
 
-func renderExplorerPreview(m Model, width, height int) string {
+func renderExplorerPreview(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
-	b.WriteString(explorerHeaderStyle.Render(clampLine("Preview", width)))
+	b.WriteString(paneHeaderStyle(focused).Render(clampLine("Preview", width)))
 	b.WriteString("\n")
 	preview := m.explorer.preview
 	if preview.loading {
