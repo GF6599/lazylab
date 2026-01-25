@@ -88,6 +88,29 @@ func (m Model) renderHelpBar() string {
 
 const paneGap = 1
 
+func projectPaneLayout(width, height int) (int, int, int, bool) {
+	if width <= 0 {
+		width = 80
+	}
+	minInnerWidth := 22
+	minTotalWidth := minInnerWidth*2 + 4 + paneGap
+	if width < minTotalWidth {
+		return 0, 0, 0, false
+	}
+	if height <= 5 {
+		height = 5
+	}
+	contentHeight := height - 2
+	innerTotal := width - paneGap - 4
+	listInner := max(minInnerWidth, innerTotal*45/100)
+	detailInner := innerTotal - listInner
+	if detailInner < minInnerWidth {
+		detailInner = minInnerWidth
+		listInner = max(minInnerWidth, innerTotal-detailInner)
+	}
+	return listInner, detailInner, contentHeight, true
+}
+
 func renderPane(content string, width, height int) string {
 	lines := normalizeColumn(content, width, height)
 	return paneBorderStyle.Render(strings.Join(lines, "\n"))
@@ -101,25 +124,9 @@ func renderPaneGap(width, height int) string {
 }
 
 func renderProjectsView(m Model, width int) string {
-	if width <= 0 {
-		width = 80
-	}
-	minInnerWidth := 22
-	minTotalWidth := minInnerWidth*2 + 4 + paneGap
-	if width < minTotalWidth {
+	listInner, detailInner, contentHeight, ok := projectPaneLayout(width, m.height)
+	if !ok {
 		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for project view.")
-	}
-	height := m.height
-	if height <= 5 {
-		height = 5
-	}
-	contentHeight := height - 2
-	innerTotal := width - paneGap - 4
-	listInner := max(minInnerWidth, innerTotal*45/100)
-	detailInner := innerTotal - listInner
-	if detailInner < minInnerWidth {
-		detailInner = minInnerWidth
-		listInner = max(minInnerWidth, innerTotal-detailInner)
 	}
 	listPane := renderPane(renderListPane(m, listInner, contentHeight), listInner, contentHeight)
 	detailPane := renderPane((&m).cachedDetailPane(detailInner, contentHeight), detailInner, contentHeight)
@@ -135,8 +142,6 @@ func renderListPane(m Model, width, height int) string {
 
 	// Set list size and render
 	list := m.projectList
-	list.SetSize(width, height-2) // Reserve space for title
-	list.SetWidth(width)
 	listView := list.View()
 
 	content := lipgloss.NewStyle().Width(width).Render(listView)

@@ -516,6 +516,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.Width = msg.Width
 		m.refreshPreviewHighlight()
 		m.updateViewportSizes()
+		m.updateProjectListSize()
 		return m, spinnerCmd
 	case tea.KeyMsg:
 		// Handle help toggle globally

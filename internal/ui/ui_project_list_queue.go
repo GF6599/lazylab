@@ -10,6 +10,7 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -46,6 +47,7 @@ func (m Model) openProjectActions(project gitlab.ProjectNode) (tea.Model, tea.Cm
 func (m *Model) closeActionMenu() {
 	m.mode = modeProjects
 	m.actionMenu = actionMenuState{}
+	m.updateProjectListSize()
 }
 
 func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
@@ -71,12 +73,16 @@ func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	currentList.SetShowHelp(false)
 	currentList.SetFilteringEnabled(false)
 
+	// Initialize preview viewport with proper dimensions
+	previewVp := viewport.New(previewContentWidth(m.width), previewContentHeight(m.height))
+
 	m.explorer = explorerState{
 		project:     project,
 		ref:         ref,
 		stack:       []dirState{{path: "", loading: true}},
 		parentList:  parentList,
 		currentList: currentList,
+		preview:     previewState{viewport: previewVp},
 	}
 	m.status = fmt.Sprintf("Browsing %s", project.PathWithNamespace)
 	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, ref, "")
@@ -123,6 +129,9 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 	pipelineList.SetFilteringEnabled(false)
 	pipelineList.Styles.Title = titleStyle
 
+	// Initialize log viewport with proper dimensions
+	logVp := viewport.New(pipelineLogContentWidth(m.width), pipelineLogContentHeight(m.height))
+
 	m.pipelineView = pipelineViewState{
 		project:       project,
 		pipelineList:  pipelineList,
@@ -140,6 +149,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		logCache:      make(map[int]string),
 		logLoading:    make(map[int]bool),
 		logErr:        make(map[int]error),
+		logViewport:   logVp,
 		logAutoFollow: true,
 		focus:         pipelineFocusPipelines,
 	}
@@ -151,6 +161,7 @@ func (m *Model) closePipelineView() {
 	m.mode = modeProjects
 	m.pipelineView = pipelineViewState{}
 	m.actionMenu = actionMenuState{}
+	m.updateProjectListSize()
 }
 
 func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
@@ -1035,4 +1046,17 @@ func (m *Model) updateViewportSizes() {
 			m.pipelineView.logViewport.Height = height
 		}
 	}
+}
+
+func (m *Model) updateProjectListSize() {
+	if m.mode != modeProjects {
+		return
+	}
+	listWidth, _, contentHeight, ok := projectPaneLayout(m.width, m.height)
+	if !ok {
+		return
+	}
+	listHeight := max(1, contentHeight-2)
+	m.projectList.SetSize(listWidth, listHeight)
+	m.projectList.SetWidth(listWidth)
 }
