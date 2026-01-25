@@ -278,6 +278,14 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) {
+	selectedID := 0
+	if m.mode == modeProjects {
+		visible := m.visibleProjects()
+		if m.selected >= 0 && m.selected < len(visible) {
+			selectedID = visible[m.selected].ID
+		}
+	}
+
 	state := m.pipelineStatus[msg.projectID]
 	state.loading = false
 	state.ref = msg.ref
@@ -303,7 +311,9 @@ func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) 
 	}
 	m.pipelineStatus[msg.projectID] = state
 	(&m).evictOldPipelineStatusCache()
-	m.updateProjectList()
+	if msg.projectID == selectedID {
+		(&m).invalidateDetailCache()
+	}
 	return m, nil
 }
 
@@ -639,6 +649,14 @@ func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model,
 		m.pipelineStatus = make(map[int]pipelineState)
 	}
 
+	selectedID := 0
+	if m.mode == modeProjects {
+		visible := m.visibleProjects()
+		if m.selected >= 0 && m.selected < len(visible) {
+			selectedID = visible[m.selected].ID
+		}
+	}
+
 	now := time.Now()
 	for projectID, result := range msg.results {
 		state := m.pipelineStatus[projectID]
@@ -660,13 +678,13 @@ func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model,
 		}
 
 		m.pipelineStatus[projectID] = state
+		if projectID == selectedID {
+			(&m).invalidateDetailCache()
+		}
 	}
 
 	// Evict old cache entries if needed
 	(&m).evictOldPipelineStatusCache()
-
-	// Update project list to reflect new pipeline status icons
-	m.updateProjectList()
 
 	return m, nil
 }
