@@ -681,23 +681,29 @@ func previewContentWidth(width int) int {
 	return contentWidth
 }
 
+// previewContentHeight returns the viewport height for the explorer preview pane.
+// Reserves 6 lines: 4 (layout: 2 borders + helpbar + newline) + 2 (pane header + newline).
 func previewContentHeight(height int) int {
-	if height <= 5 {
-		height = 5
+	h := height - 6
+	if h < 1 {
+		h = 1
 	}
-	return height - 2
+	return h
 }
 
+// pipelineLogContentWidth estimates the inner width of the pipeline log pane
+// for viewport sizing. Mirrors pipelinePaneLayout's width calculation minus
+// 2 border chars.
 func pipelineLogContentWidth(width int) int {
 	if width <= 0 {
 		width = 80
 	}
-	parentWidth := max(12, width*30/100)
-	currentWidth := max(12, width*25/100)
+	parentWidth := max(minTreeParent, width*treeParentWidthPct/100)
+	currentWidth := max(minTreeCurrent, width*treeCurrentWidthPct/100)
 	previewWidth := width - parentWidth - currentWidth
-	if previewWidth < 12 {
-		previewWidth = 12
-		currentWidth = max(12, width-parentWidth-previewWidth)
+	if previewWidth < minTreeParent {
+		previewWidth = minTreeParent
+		currentWidth = max(minTreeCurrent, width-parentWidth-previewWidth)
 	}
 	contentWidth := previewWidth - 2
 	if contentWidth < 1 {
@@ -706,11 +712,14 @@ func pipelineLogContentWidth(width int) int {
 	return contentWidth
 }
 
+// pipelineLogContentHeight returns the viewport height for the pipeline log pane.
+// Reserves 6 lines: 4 (layout: 2 borders + helpbar + newline) + 2 (pane header + newline).
 func pipelineLogContentHeight(height int) int {
-	if height <= 5 {
-		height = 5
+	h := height - 6
+	if h < 1 {
+		h = 1
 	}
-	return height - 2
+	return h
 }
 
 func normalizePipelineLogContent(content string) string {

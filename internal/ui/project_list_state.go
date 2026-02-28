@@ -270,7 +270,7 @@ func (m Model) navigateExplorerUp() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.explorer.stack = m.explorer.stack[:len(m.explorer.stack)-1]
-	m.explorer.preview = previewState{}
+	m.explorer.preview = previewState{viewport: m.explorer.preview.viewport}
 	return m, m.queueExplorerPreview()
 }
 
@@ -282,7 +282,7 @@ func (m Model) reloadExplorerPath() (tea.Model, tea.Cmd) {
 	cur.loading = true
 	cur.err = nil
 	cur.entries = nil
-	m.explorer.preview = previewState{}
+	m.explorer.preview = previewState{viewport: m.explorer.preview.viewport}
 	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, m.explorer.project.ID, displayRef(m.explorer), cur.path)
 }
 
@@ -949,16 +949,25 @@ func truncateLogContent(content string) string {
 	return truncated + "\n\n... (log truncated at 1MB, full log available in GitLab web UI)"
 }
 
+// queueExplorerPreview starts an async fetch for the currently selected entry's
+// preview (directory listing or file content). It skips redundant fetches if
+// the preview is already loading or cached for the same path.
+//
+// IMPORTANT: Every previewState reset must preserve the viewport field.
+// The viewport is initialized once in openExplorer with proper dimensions;
+// replacing it with a zero-valued viewport causes View() to return empty
+// content since Width/Height would be 0.
 func (m *Model) queueExplorerPreview() tea.Cmd {
 	entry := m.selectedEntry()
 	if entry == nil {
-		m.explorer.preview = previewState{}
+		m.explorer.preview = previewState{viewport: m.explorer.preview.viewport}
 		return nil
 	}
 	if entry.IsDir() {
 		m.explorer.preview = previewState{
-			path:    entry.Path,
-			loading: true,
+			path:     entry.Path,
+			loading:  true,
+			viewport: m.explorer.preview.viewport,
 		}
 		return fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
 	}
@@ -968,7 +977,7 @@ func (m *Model) queueExplorerPreview() tea.Cmd {
 	if !m.explorer.preview.loading && m.explorer.preview.path == entry.Path && m.explorer.preview.content != "" && m.explorer.preview.err == nil {
 		return nil
 	}
-	m.explorer.preview = previewState{path: entry.Path, loading: true}
+	m.explorer.preview = previewState{path: entry.Path, loading: true, viewport: m.explorer.preview.viewport}
 	return fetchFileCmd(m.ctx, m.client, m.opts.APITimeout, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
 }
 

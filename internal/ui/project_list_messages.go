@@ -68,7 +68,8 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 	// If this was triggered for directory preview (path matches preview.path), format preview.
 	if m.explorer.preview.path != "" && m.explorer.preview.path == msg.path {
 		if msg.err != nil {
-			m.explorer.preview = previewState{path: msg.path, err: msg.err}
+			vp := m.explorer.preview.viewport
+			m.explorer.preview = previewState{path: msg.path, err: msg.err, viewport: vp}
 			m.status = "Failed to load directory preview"
 			return m, nil
 		}
@@ -82,11 +83,16 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 			builder.WriteString(fmt.Sprintf("%s %s", explorerEntryIcon(entry), name))
 			builder.WriteString("\n")
 		}
+		content := builder.String()
+		vp := m.explorer.preview.viewport
 		m.explorer.preview = previewState{
-			path:    msg.path,
-			content: builder.String(),
-			loading: false,
+			path:     msg.path,
+			content:  content,
+			loading:  false,
+			viewport: vp,
 		}
+		m.explorer.preview.viewport.SetContent(content)
+		m.explorer.preview.viewport.GotoTop()
 		return m, nil
 	}
 	idx := m.findDirIndex(msg.path)
