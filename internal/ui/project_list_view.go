@@ -86,8 +86,15 @@ func (m Model) renderHelpBar() string {
 	return m.help.ShortHelpView(m.keys.ShortHelp())
 }
 
+// paneGap is the horizontal spacing between adjacent panes (in characters).
 const paneGap = 1
 
+// projectPaneLayout calculates inner widths and content height for the
+// two-pane project view (list + detail). Returns (listInner, detailInner,
+// contentHeight, ok). ok is false if the terminal is too narrow.
+//
+// Height budget: terminal height - 4 = content height.
+// The 4 reserved lines are: 2 pane borders (top+bottom) + 1 help bar + 1 newline separator.
 func projectPaneLayout(width, height int) (int, int, int, bool) {
 	if width <= 0 {
 		width = 80
@@ -184,7 +191,7 @@ func renderListPane(m Model, width, height int, focused bool) string {
 	return renderWithBottomLines(content, bottomLines, height)
 }
 
-func renderDetailPane(m Model, width, height int) string {
+func renderDetailPane(m *Model, width, height int) string {
 	b := &strings.Builder{}
 	b.WriteString(detailHeaderStyle.Render(clampLine("Details", width)))
 	b.WriteString("\n\n")
@@ -396,7 +403,7 @@ func renderPipelineLogPane(m Model, width, height int, focused bool) string {
 	return b.String()
 }
 
-func renderPipelineSection(m Model, project gitlab.ProjectNode, width int) string {
+func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) string {
 	state, ok := m.pipelineStatus[project.ID]
 	refLabel := pipelineRefLabel(project, state)
 	if refLabel == "" {

@@ -61,7 +61,6 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, debounceCmd
 		}
-		return m, nil
 	}
 
 	switch key {
@@ -135,7 +134,7 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	currID, currOK := m.currentSelectedProjectID()
 	if prevID != currID || prevOK != currOK {
-		// Queue debounced pipeline fetch instead of immediate fetch
+		(&m).invalidateDetailCache()
 		currProject, ok := m.selectedProject()
 		if !ok {
 			return m, nil
@@ -450,19 +449,17 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handlePipelineRetryConfirmKey processes input on the retry confirmation modal.
+// Uses clearRetryConfirm (not clearAllRetryState) because the retrying/retryErr
+// flags must only be set after the user confirms — dismissing the modal should
+// not clear an in-progress retry or its error.
 func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "esc", "left", "h", "backspace":
-		m.pipelineView.confirmRetry = false
-		m.pipelineView.confirmRetryID = 0
-		m.pipelineView.confirmRetryRef = ""
-		m.pipelineView.confirmRetryIsJob = false
-		m.pipelineView.confirmRetryJobID = 0
-		m.pipelineView.confirmRetryJobName = ""
-		m.pipelineView.confirmRetryJobStage = ""
+		(&m).clearRetryConfirm()
 		return m, nil
 	case "enter":
 		isJob := m.pipelineView.confirmRetryIsJob
@@ -470,13 +467,7 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		ref := strings.TrimSpace(m.pipelineView.confirmRetryRef)
 		jobID := m.pipelineView.confirmRetryJobID
 		jobName := m.pipelineView.confirmRetryJobName
-		m.pipelineView.confirmRetry = false
-		m.pipelineView.confirmRetryID = 0
-		m.pipelineView.confirmRetryRef = ""
-		m.pipelineView.confirmRetryIsJob = false
-		m.pipelineView.confirmRetryJobID = 0
-		m.pipelineView.confirmRetryJobName = ""
-		m.pipelineView.confirmRetryJobStage = ""
+		(&m).clearRetryConfirm()
 		if m.pipelineView.project.ID == 0 || m.pipelineView.retrying {
 			return m, nil
 		}

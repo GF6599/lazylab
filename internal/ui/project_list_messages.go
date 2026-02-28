@@ -57,10 +57,19 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.ensureSelectionBounds()
 	m.updateProjectList()
-	// Batch prefetch pipeline status for all visible projects
-	return m, (&m).queueBatchPrefetchPipelineStatus()
+	// Batch prefetch pipeline status for all visible projects and start ticker
+	prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
+	if prefetchCmd != nil {
+		return m, tea.Batch(prefetchCmd, pipelineTickCmd())
+	}
+	return m, pipelineTickCmd()
 }
 
+// handleTreeLoaded processes a fetched directory listing. It serves two purposes:
+//   - Directory preview: if msg.path matches the preview path, format entries
+//     as a listing and display in the preview viewport.
+//   - Directory navigation: if msg.path matches a stack entry, populate its
+//     entries and update the corresponding bubbles list.
 func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 	if m.mode != modeExplorer || m.explorer.project.ID != msg.projectID {
 		return m, nil
@@ -270,9 +279,12 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	}
 	m.ensureSelectionBounds()
 	m.updateProjectList()
-	// Batch prefetch pipeline status for all visible projects
+	// Batch prefetch pipeline status for all visible projects and start ticker on first page
 	if batchCmd := (&m).queueBatchPrefetchPipelineStatus(); batchCmd != nil {
 		cmds = append(cmds, batchCmd)
+	}
+	if msg.page.Page == 1 {
+		cmds = append(cmds, pipelineTickCmd())
 	}
 	if m.cache != nil && len(m.allProjects) > 0 {
 		cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
@@ -542,20 +554,12 @@ func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd
 	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
 	}
-	m.pipelineView.retrying = false
-	m.pipelineView.confirmRetry = false
-	m.pipelineView.confirmRetryID = 0
-	m.pipelineView.confirmRetryRef = ""
-	m.pipelineView.confirmRetryIsJob = false
-	m.pipelineView.confirmRetryJobID = 0
-	m.pipelineView.confirmRetryJobName = ""
-	m.pipelineView.confirmRetryJobStage = ""
+	m.clearAllRetryState()
 	if msg.err != nil {
 		m.pipelineView.retryErr = msg.err
 		m.status = fmt.Sprintf("Failed to retry pipeline #%d", msg.pipelineID)
 		return m, nil
 	}
-	m.pipelineView.retryErr = nil
 	if msg.pipeline.ID != 0 {
 		m.pipelineView.pendingSelectID = msg.pipeline.ID
 		if msg.pipeline.ID == msg.pipelineID {
@@ -577,20 +581,12 @@ func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, t
 	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
 	}
-	m.pipelineView.retrying = false
-	m.pipelineView.confirmRetry = false
-	m.pipelineView.confirmRetryID = 0
-	m.pipelineView.confirmRetryRef = ""
-	m.pipelineView.confirmRetryIsJob = false
-	m.pipelineView.confirmRetryJobID = 0
-	m.pipelineView.confirmRetryJobName = ""
-	m.pipelineView.confirmRetryJobStage = ""
+	m.clearAllRetryState()
 	if msg.err != nil {
 		m.pipelineView.retryErr = msg.err
 		m.status = fmt.Sprintf("Failed to retry job #%d", msg.jobID)
 		return m, nil
 	}
-	m.pipelineView.retryErr = nil
 	if msg.job.ID != 0 {
 		if msg.job.Name != "" {
 			m.status = fmt.Sprintf("Retried job %s (#%d)", msg.job.Name, msg.job.ID)

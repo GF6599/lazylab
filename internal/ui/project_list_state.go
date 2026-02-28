@@ -157,6 +157,26 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 	return m, fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, m.pipelineView.page, m.pipelineView.perPage)
 }
 
+// clearRetryConfirm resets the retry confirmation modal fields only,
+// without affecting the retrying flag or retry error.
+func (m *Model) clearRetryConfirm() {
+	m.pipelineView.confirmRetry = false
+	m.pipelineView.confirmRetryID = 0
+	m.pipelineView.confirmRetryRef = ""
+	m.pipelineView.confirmRetryIsJob = false
+	m.pipelineView.confirmRetryJobID = 0
+	m.pipelineView.confirmRetryJobName = ""
+	m.pipelineView.confirmRetryJobStage = ""
+}
+
+// clearAllRetryState resets all retry-related fields including the confirmation
+// modal state, retrying flag, and retry error.
+func (m *Model) clearAllRetryState() {
+	m.clearRetryConfirm()
+	m.pipelineView.retrying = false
+	m.pipelineView.retryErr = nil
+}
+
 func (m *Model) closePipelineView() {
 	m.mode = modeProjects
 	m.pipelineView = pipelineViewState{}
@@ -467,98 +487,89 @@ func (m *Model) selectedPipeline() *gitlab.PipelineSummary {
 	return &m.pipelineView.pipelines[m.pipelineView.selected]
 }
 
+// shouldFetchPipelineData checks common guards for pipeline data fetching:
+// project must be set, pipeline must be selected, and the given loading map
+// must not already indicate a fetch in progress. Returns the pipeline ID and
+// whether fetching should proceed.
+func (m *Model) shouldFetchPipelineData(loading map[int]bool) (int, bool) {
+	if m.pipelineView.project.ID == 0 {
+		return 0, false
+	}
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return 0, false
+	}
+	if loading != nil && loading[pipeline.ID] {
+		return pipeline.ID, false
+	}
+	return pipeline.ID, true
+}
+
+// queuePipelineStagesForSelection fetches stages for the selected pipeline,
+// skipping if already cached. Used on initial selection — contrast with
+// queuePipelineStagesRefresh which always re-fetches.
 func (m *Model) queuePipelineStagesForSelection() tea.Cmd {
-	if m.pipelineView.project.ID == 0 {
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.stageLoading)
+	if !ok {
 		return nil
 	}
-	pipeline := m.selectedPipeline()
-	if pipeline == nil {
+	if _, cached := m.pipelineView.stageCache[pipelineID]; cached {
 		return nil
-	}
-	if m.pipelineView.stageCache != nil {
-		if _, ok := m.pipelineView.stageCache[pipeline.ID]; ok {
-			return nil
-		}
 	}
 	if m.pipelineView.stageLoading == nil {
 		m.pipelineView.stageLoading = make(map[int]bool)
 	}
-	if m.pipelineView.stageLoading[pipeline.ID] {
-		return nil
-	}
-	m.pipelineView.stageLoading[pipeline.ID] = true
-	if m.pipelineView.stageErr != nil {
-		delete(m.pipelineView.stageErr, pipeline.ID)
-	}
-	return fetchPipelineStagesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipeline.ID)
+	m.pipelineView.stageLoading[pipelineID] = true
+	delete(m.pipelineView.stageErr, pipelineID)
+	return fetchPipelineStagesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
+// queuePipelineJobsForSelection fetches jobs for the selected pipeline,
+// skipping if already cached. See queuePipelineJobsRefresh for forced re-fetch.
 func (m *Model) queuePipelineJobsForSelection() tea.Cmd {
-	if m.pipelineView.project.ID == 0 {
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.jobsLoading)
+	if !ok {
 		return nil
 	}
-	pipeline := m.selectedPipeline()
-	if pipeline == nil {
+	if _, cached := m.pipelineView.jobsCache[pipelineID]; cached {
 		return nil
-	}
-	if m.pipelineView.jobsCache != nil {
-		if _, ok := m.pipelineView.jobsCache[pipeline.ID]; ok {
-			return nil
-		}
 	}
 	if m.pipelineView.jobsLoading == nil {
 		m.pipelineView.jobsLoading = make(map[int]bool)
 	}
-	if m.pipelineView.jobsLoading[pipeline.ID] {
-		return nil
-	}
-	m.pipelineView.jobsLoading[pipeline.ID] = true
-	if m.pipelineView.jobsErr != nil {
-		delete(m.pipelineView.jobsErr, pipeline.ID)
-	}
-	return fetchPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipeline.ID)
+	m.pipelineView.jobsLoading[pipelineID] = true
+	delete(m.pipelineView.jobsErr, pipelineID)
+	return fetchPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
+// queuePipelineStagesRefresh re-fetches stages unconditionally (ignores cache).
+// Called during auto-refresh ticks to pick up status changes.
 func (m *Model) queuePipelineStagesRefresh() tea.Cmd {
-	if m.pipelineView.project.ID == 0 {
-		return nil
-	}
-	pipeline := m.selectedPipeline()
-	if pipeline == nil {
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.stageLoading)
+	if !ok {
 		return nil
 	}
 	if m.pipelineView.stageLoading == nil {
 		m.pipelineView.stageLoading = make(map[int]bool)
 	}
-	if m.pipelineView.stageLoading[pipeline.ID] {
-		return nil
-	}
-	m.pipelineView.stageLoading[pipeline.ID] = true
-	if m.pipelineView.stageErr != nil {
-		delete(m.pipelineView.stageErr, pipeline.ID)
-	}
-	return fetchPipelineStagesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipeline.ID)
+	m.pipelineView.stageLoading[pipelineID] = true
+	delete(m.pipelineView.stageErr, pipelineID)
+	return fetchPipelineStagesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
+// queuePipelineJobsRefresh re-fetches jobs unconditionally (ignores cache).
+// Called during auto-refresh ticks to pick up status changes.
 func (m *Model) queuePipelineJobsRefresh() tea.Cmd {
-	if m.pipelineView.project.ID == 0 {
-		return nil
-	}
-	pipeline := m.selectedPipeline()
-	if pipeline == nil {
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.jobsLoading)
+	if !ok {
 		return nil
 	}
 	if m.pipelineView.jobsLoading == nil {
 		m.pipelineView.jobsLoading = make(map[int]bool)
 	}
-	if m.pipelineView.jobsLoading[pipeline.ID] {
-		return nil
-	}
-	m.pipelineView.jobsLoading[pipeline.ID] = true
-	if m.pipelineView.jobsErr != nil {
-		delete(m.pipelineView.jobsErr, pipeline.ID)
-	}
-	return fetchPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipeline.ID)
+	m.pipelineView.jobsLoading[pipelineID] = true
+	delete(m.pipelineView.jobsErr, pipelineID)
+	return fetchPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
 func (m *Model) selectedPipelineStages() []gitlab.PipelineStage {
@@ -818,7 +829,7 @@ func (m *Model) cachedDetailPane(width, height int) string {
 		m.detailCacheHeight = 0
 		m.detailCacheOutput = ""
 		// Render empty state
-		return renderDetailPane(Model(*m), width, height)
+		return renderDetailPane(m, width, height)
 	}
 
 	project := visible[m.selected]
@@ -836,7 +847,7 @@ func (m *Model) cachedDetailPane(width, height int) string {
 	}
 
 	// Render fresh
-	output := renderDetailPane(Model(*m), width, height)
+	output := renderDetailPane(m, width, height)
 
 	// Update cache
 	m.detailCacheProjectID = project.ID
@@ -1048,7 +1059,8 @@ func (m *Model) updateStageTable() {
 	}
 }
 
-// updateViewportSizes updates viewport dimensions when terminal resizes
+// updateViewportSizes updates viewport dimensions when terminal resizes.
+// viewport.Model exposes Width/Height as public fields (no SetSize method).
 func (m *Model) updateViewportSizes() {
 	if m.mode == modeExplorer {
 		width := previewContentWidth(m.width)

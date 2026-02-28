@@ -31,11 +31,6 @@ const (
 	modePipelines
 )
 
-// String returns the string representation of the mode for debugging and logging.
-func (m Mode) String() string {
-	return [...]string{"projects", "explorer", "project_actions", "pipelines"}[m]
-}
-
 const (
 	pipelineRefreshInterval = 5 * time.Second
 	pipelineDebounceDelay   = 300 * time.Millisecond
@@ -497,7 +492,7 @@ func (m Model) Init() tea.Cmd {
 	} else {
 		cmds = append(cmds, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, 1, false))
 	}
-	cmds = append(cmds, pipelineTickCmd(), m.spinner.Tick)
+	cmds = append(cmds, m.spinner.Tick)
 	return tea.Batch(cmds...)
 }
 

@@ -663,16 +663,19 @@ func padLineANSI(line string, width int) string {
 	return line
 }
 
+// previewContentWidth estimates the inner width of the explorer preview pane
+// for viewport and syntax highlighting sizing. Mirrors explorerPaneLayout's
+// width calculation minus 2 border chars.
 func previewContentWidth(width int) int {
 	if width <= 0 {
 		width = 80
 	}
-	parentWidth := max(6, width*25/100)
-	currentWidth := max(6, width*45/100)
+	parentWidth := max(minParentWidth, width*explorerParentWidthPct/100)
+	currentWidth := max(minCurrentWidth, width*explorerCurrentWidthPct/100)
 	previewWidth := width - parentWidth - currentWidth
-	if previewWidth < 6 {
-		previewWidth = 6
-		currentWidth = max(6, width-parentWidth-previewWidth)
+	if previewWidth < minParentWidth {
+		previewWidth = minParentWidth
+		currentWidth = max(minCurrentWidth, width-parentWidth-previewWidth)
 	}
 	contentWidth := previewWidth - 2
 	if contentWidth < 1 {
