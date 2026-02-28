@@ -100,7 +100,7 @@ func projectPaneLayout(width, height int) (int, int, int, bool) {
 	if height <= 5 {
 		height = 5
 	}
-	contentHeight := height - 2
+	contentHeight := height - 4
 	innerTotal := width - paneGap - 4
 	listInner := max(minInnerWidth, innerTotal*45/100)
 	detailInner := innerTotal - listInner
@@ -456,29 +456,42 @@ func renderPipelineSection(m Model, project gitlab.ProjectNode, width int) strin
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func renderExplorerView(m Model, width int) string {
+// explorerPaneLayout calculates inner widths and content height for the
+// three-pane explorer view (parent, current, preview). Returns ok=false
+// if the terminal is too narrow.
+//
+// Height budget matches projectPaneLayout: terminal height - 4.
+// Width budget: total - 2 gaps - 6 border chars (3 panes x 2 borders each).
+func explorerPaneLayout(width, height int) (parentInner, currentInner, previewInner, contentHeight int, ok bool) {
 	if width <= 0 {
 		width = 80
 	}
-	minInnerWidth := 4
-	minTotalWidth := minInnerWidth*3 + 6 + paneGap*2
+	minInner := 4
+	minTotalWidth := minInner*3 + 6 + paneGap*2
 	if width < minTotalWidth {
-		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for explorer view.")
+		return 0, 0, 0, 0, false
 	}
-	height := m.height
 	if height <= 5 {
 		height = 5
 	}
-	contentHeight := height - 2
+	contentHeight = height - 4
 	innerTotal := width - paneGap*2 - 6
-	parentInner := max(minInnerWidth, innerTotal*20/100)
-	currentInner := max(minInnerWidth, innerTotal*40/100)
-	previewInner := innerTotal - parentInner - currentInner
-	if previewInner < minInnerWidth {
-		previewInner = minInnerWidth
-		currentInner = max(minInnerWidth, innerTotal-parentInner-previewInner)
+	parentInner = max(minInner, innerTotal*explorerParentWidthPct/100)
+	currentInner = max(minInner, innerTotal*explorerCurrentWidthPct/100)
+	previewInner = innerTotal - parentInner - currentInner
+	if previewInner < minInner {
+		previewInner = minInner
+		currentInner = max(minInner, innerTotal-parentInner-previewInner)
 	}
-	parentPane := renderPane(renderExplorerParents(m, parentInner, false), parentInner, contentHeight, false)
+	return parentInner, currentInner, previewInner, contentHeight, true
+}
+
+func renderExplorerView(m Model, width int) string {
+	parentInner, currentInner, previewInner, contentHeight, ok := explorerPaneLayout(width, m.height)
+	if !ok {
+		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for explorer view.")
+	}
+	parentPane := renderPane(renderExplorerParents(m, parentInner, contentHeight, false), parentInner, contentHeight, false)
 	currentPane := renderPane(renderExplorerCurrent(m, currentInner, contentHeight, true), currentInner, contentHeight, true)
 	previewPane := renderPane(renderExplorerPreview(m, previewInner, contentHeight, false), previewInner, contentHeight, false)
 	gap := renderPaneGap(paneGap, contentHeight+2)
@@ -515,33 +528,44 @@ func renderProjectActionModal(m Model, width int) string {
 	return modal
 }
 
-func renderPipelineView(m Model, width int) string {
+// pipelinePaneLayout calculates inner widths and content height for the
+// three-pane pipeline view (pipelines, stages, log). Same height budget
+// as explorerPaneLayout. Uses treeParent/treeCurrentWidthPct constants
+// since the pipeline view shares the tree-style navigation layout.
+func pipelinePaneLayout(width, height int) (pipelineInner, stagesInner, logInner, contentHeight int, ok bool) {
 	if width <= 0 {
 		width = 80
 	}
-	minInnerWidth := 10
-	minTotalWidth := minInnerWidth*3 + 6 + paneGap*2
+	minInner := 10
+	minTotalWidth := minInner*3 + 6 + paneGap*2
 	if width < minTotalWidth {
-		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for pipeline view.")
+		return 0, 0, 0, 0, false
 	}
-	height := m.height
 	if height <= 5 {
 		height = 5
 	}
-	contentHeight := height - 2
+	contentHeight = height - 4
 	innerTotal := width - paneGap*2 - 6
-	parentInner := max(minInnerWidth, innerTotal*30/100)
-	currentInner := max(minInnerWidth, innerTotal*25/100)
-	previewInner := innerTotal - parentInner - currentInner
-	if previewInner < minInnerWidth {
-		previewInner = minInnerWidth
-		currentInner = max(minInnerWidth, innerTotal-parentInner-previewInner)
+	pipelineInner = max(minInner, innerTotal*treeParentWidthPct/100)
+	stagesInner = max(minInner, innerTotal*treeCurrentWidthPct/100)
+	logInner = innerTotal - pipelineInner - stagesInner
+	if logInner < minInner {
+		logInner = minInner
+		stagesInner = max(minInner, innerTotal-pipelineInner-logInner)
+	}
+	return pipelineInner, stagesInner, logInner, contentHeight, true
+}
+
+func renderPipelineView(m Model, width int) string {
+	pipelineInner, stagesInner, logInner, contentHeight, ok := pipelinePaneLayout(width, m.height)
+	if !ok {
+		return lipgloss.NewStyle().Width(width).Render(" Terminal too narrow for pipeline view.")
 	}
 	pipelinesFocused := m.pipelineView.focus == pipelineFocusPipelines
 	stagesFocused := m.pipelineView.focus == pipelineFocusStages
-	parentPane := renderPane(renderPipelineListPane(m, parentInner, contentHeight, pipelinesFocused), parentInner, contentHeight, pipelinesFocused)
-	currentPane := renderPane(renderPipelineStagesPane(m, currentInner, contentHeight, stagesFocused), currentInner, contentHeight, stagesFocused)
-	previewPane := renderPane(renderPipelineLogPane(m, previewInner, contentHeight, false), previewInner, contentHeight, false)
+	parentPane := renderPane(renderPipelineListPane(m, pipelineInner, contentHeight, pipelinesFocused), pipelineInner, contentHeight, pipelinesFocused)
+	currentPane := renderPane(renderPipelineStagesPane(m, stagesInner, contentHeight, stagesFocused), stagesInner, contentHeight, stagesFocused)
+	previewPane := renderPane(renderPipelineLogPane(m, logInner, contentHeight, false), logInner, contentHeight, false)
 	gap := renderPaneGap(paneGap, contentHeight+2)
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
@@ -609,7 +633,11 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 	return modal
 }
 
-func renderExplorerParents(m Model, width int, focused bool) string {
+// renderExplorerParents renders the left pane showing the parent directory
+// entries. The height parameter is the pane's contentHeight from layout;
+// the list is constrained to height-1 to leave room for the header line,
+// enabling scrolling when entries exceed available space.
+func renderExplorerParents(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	b.WriteString(paneHeaderStyle(focused).Render(clampLine("Parents", width)))
 	b.WriteString("\n")
@@ -641,7 +669,7 @@ func renderExplorerParents(m Model, width int, focused bool) string {
 	}
 
 	// Use bubbles list for rendering entries
-	m.explorer.parentList.SetSize(width, len(parent.entries))
+	m.explorer.parentList.SetSize(width, max(1, height-1))
 	b.WriteString(m.explorer.parentList.View())
 	return b.String()
 }
@@ -681,8 +709,14 @@ func renderExplorerCurrent(m Model, width, height int, focused bool) string {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Directory is empty.", width)))
 		b.WriteString("\n")
 	} else if len(cur.entries) > 0 {
-		// Use bubbles list for rendering entries
-		listHeight := max(1, len(cur.entries))
+		// Constrain list height to available pane space so bubbles handles
+		// scrolling internally. Without this, SetSize(width, len(entries))
+		// allocates enough height for all items, preventing scroll.
+		headerLines := 2 // title + path
+		if cur.loading {
+			headerLines++
+		}
+		listHeight := max(1, height-headerLines-1)
 		m.explorer.currentList.SetSize(width, listHeight)
 		b.WriteString(m.explorer.currentList.View())
 	}

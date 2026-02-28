@@ -243,13 +243,24 @@ func (m *Model) changePipelinePage(delta int) tea.Cmd {
 	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, target, perPage)
 }
 
+// descendDirectory pushes a new dirState onto the explorer stack and fetches
+// its tree listing. Before descending, it copies the current list items into
+// the parent list so the left pane shows the correct context.
+//
+// The preview viewport is preserved across the state reset — see
+// queueExplorerPreview for the rationale.
 func (m Model) descendDirectory(entry gitlab.TreeNode) (tea.Model, tea.Cmd) {
+	// Copy current list items to parent list before descending
+	m.explorer.parentList.SetItems(m.explorer.currentList.Items())
+	if cur := m.currentDirState(); cur != nil {
+		m.explorer.parentList.Select(cur.selected)
+	}
 	newState := dirState{
 		path:    entry.Path,
 		loading: true,
 	}
 	m.explorer.stack = append(m.explorer.stack, newState)
-	m.explorer.preview = previewState{}
+	m.explorer.preview = previewState{viewport: m.explorer.preview.viewport}
 	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
 }
 
