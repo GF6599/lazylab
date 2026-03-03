@@ -2,9 +2,26 @@ package gitlab
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	gl "gitlab.com/gitlab-org/api/client-go"
 )
+
+// newTestClient creates a *Client backed by the given HTTP handler via httptest.
+func newTestClient(t *testing.T, handler http.Handler) *Client {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	api, err := gl.NewClient("test-token", gl.WithBaseURL(server.URL+"/api/v4"))
+	if err != nil {
+		t.Fatalf("gl.NewClient: %v", err)
+	}
+	return &Client{api: api, host: server.URL}
+}
 
 func TestNewClient_EmptyToken(t *testing.T) {
 	_, err := NewClient("", "https://gitlab.com")

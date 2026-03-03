@@ -9,7 +9,9 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// LatestPipeline returns the most recent pipeline for the given project/ref.
+// LatestPipeline returns the single most recent pipeline for a project/ref,
+// including its stage summaries. Pass an empty ref to get the latest pipeline
+// across all branches. Returns ErrNoPipelines if the project has no CI runs.
 func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) (PipelineSummary, error) {
 	opts := &gl.ListProjectPipelinesOptions{
 		ListOptions: gl.ListOptions{
@@ -51,7 +53,11 @@ func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) 
 	return summary, nil
 }
 
-// ListPipelines returns a page of pipelines for a project ordered by most recently updated.
+// ListPipelines returns a single page of pipelines ordered by most recently
+// updated. Unlike LatestPipeline, stages are NOT pre-loaded here — the TUI
+// fetches them lazily via PipelineStages when the user selects a pipeline.
+// Returns ErrNoPipelines only on the first page; later pages return an empty
+// PipelinePage so the UI can display "no more results" without an error state.
 func (c *Client) ListPipelines(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error) {
 	if opts.PerPage <= 0 {
 		opts.PerPage = 25
@@ -127,7 +133,13 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 	}, nil
 }
 
-// RetryPipeline retries failed jobs in a pipeline, falling back to a fresh run when needed.
+// RetryPipeline retries all failed jobs in a pipeline. When GitLab returns a
+// 400 (which happens when the pipeline has no retryable jobs — e.g., it was
+// cancelled before any job ran, or all jobs succeeded), it falls back to
+// creating a brand-new pipeline on the same ref. The ref parameter is required
+// for this fallback; if ref is empty and the retry fails, the error propagates
+// directly. The error message from both the retry and create attempts is
+// preserved in the wrapped error for debuggability.
 func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error) {
 	pipeline, _, err := c.api.Pipelines.RetryPipelineBuild(projectID, pipelineID, gl.WithContext(ctx))
 	if err != nil {
@@ -171,7 +183,10 @@ func (c *Client) GetPipelineVariables(ctx context.Context, projectID, pipelineID
 	return out, nil
 }
 
-// ListPipelineBridges returns bridge (child pipeline trigger) jobs for a pipeline.
+// ListPipelineBridges returns bridge jobs (child pipeline triggers) for a
+// pipeline. Bridges are not included in ListPipelineJobs — they must be
+// fetched separately through this endpoint. DownstreamPipeline is nil when
+// the bridge has not triggered yet or the downstream project is inaccessible.
 func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error) {
 	opts := &gl.ListJobsOptions{
 		ListOptions: gl.ListOptions{
@@ -196,9 +211,10 @@ func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID 
 		}
 		if b.DownstreamPipeline != nil {
 			pb.DownstreamPipeline = &PipelineBridgeDownstream{
-				ID:     b.DownstreamPipeline.ID,
-				Status: string(b.DownstreamPipeline.Status),
-				WebURL: b.DownstreamPipeline.WebURL,
+				ID:        b.DownstreamPipeline.ID,
+				ProjectID: b.DownstreamPipeline.ProjectID,
+				Status:    string(b.DownstreamPipeline.Status),
+				WebURL:    b.DownstreamPipeline.WebURL,
 			}
 		}
 		out = append(out, pb)
@@ -206,7 +222,9 @@ func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID 
 	return out, nil
 }
 
-// GetPipelineTestReport returns the test report for a pipeline.
+// GetPipelineTestReport returns the JUnit test report for a pipeline, or nil
+// if the pipeline has no test reports configured. Returns an error only on
+// API failures — a nil *TestReport with nil error means "no reports".
 func (c *Client) GetPipelineTestReport(ctx context.Context, projectID, pipelineID int) (*TestReport, error) {
 	report, _, err := c.api.Pipelines.GetPipelineTestReport(projectID, pipelineID, gl.WithContext(ctx))
 	if err != nil {
@@ -256,11 +274,14 @@ func (c *Client) GetPipelineTestReport(ctx context.Context, projectID, pipelineI
 	return tr, nil
 }
 
-// PipelineStages returns stage summaries for a pipeline.
+// PipelineStages returns stage summaries for a pipeline, with each stage's
+// status aggregated from its constituent jobs. Stage ordering is preserved
+// from the API response (which reflects .gitlab-ci.yml declaration order).
 func (c *Client) PipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error) {
 	return c.collectPipelineStages(ctx, projectID, pipelineID)
 }
 
+// collectPipelineStages fetches all jobs and folds them into per-stage summaries.
 func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error) {
 	opts := &gl.ListJobsOptions{
 		ListOptions: gl.ListOptions{PerPage: 100},
@@ -301,6 +322,7 @@ func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineI
 	return stages, nil
 }
 
+// pipelineSummary converts a client-go Pipeline to our domain type, nil-safe.
 func pipelineSummary(pipeline *gl.Pipeline) PipelineSummary {
 	if pipeline == nil {
 		return PipelineSummary{}
@@ -330,6 +352,10 @@ func pipelineSummary(pipeline *gl.Pipeline) PipelineSummary {
 
 const defaultStageStatus = "unknown"
 
+// stageStatusPriority defines which job status "wins" when multiple jobs exist
+// in the same stage. Lower numbers take precedence. The ranking reflects what a
+// human cares about most: failures first, then manual-action-needed, then
+// in-progress, and finally success/skipped as the least urgent.
 var stageStatusPriority = map[string]int{
 	"failed":               0,
 	"canceled":             1,
@@ -346,6 +372,8 @@ var stageStatusPriority = map[string]int{
 	"unknown":              9,
 }
 
+// mergeStageStatus picks the higher-priority status between current and candidate.
+// Priority order: failed > canceled > manual/blocked > running > pending > created > success > skipped.
 func mergeStageStatus(current, candidate string) string {
 	candidate = normalizeStageStatus(candidate)
 	if current == "" {

@@ -8,7 +8,9 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// ListPipelineJobs returns all jobs for a pipeline.
+// ListPipelineJobs returns every job across all pages for the given pipeline.
+// Returns ErrNoJobs when the pipeline exists but has no jobs yet (e.g., right
+// after creation before GitLab schedules them).
 func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error) {
 	opts := &gl.ListJobsOptions{
 		ListOptions: gl.ListOptions{PerPage: 100},
@@ -30,7 +32,9 @@ func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int
 	return jobs, nil
 }
 
-// GetJobTrace returns the log output for a job.
+// GetJobTrace returns the full log output for a job as a single string.
+// For running jobs this returns whatever output has been captured so far;
+// the TUI polls this periodically to simulate live log tailing.
 func (c *Client) GetJobTrace(ctx context.Context, projectID, jobID int) (string, error) {
 	trace, _, err := c.api.Jobs.GetTraceFile(projectID, jobID, gl.WithContext(ctx))
 	if err != nil {
@@ -46,7 +50,9 @@ func (c *Client) GetJobTrace(ctx context.Context, projectID, jobID int) (string,
 	return string(data), nil
 }
 
-// RetryJob retries a single job run.
+// RetryJob retries a single job, creating a new run of that job within the
+// same pipeline. Returns an error if jobID is zero (a common caller bug when
+// no job is selected).
 func (c *Client) RetryJob(ctx context.Context, projectID, jobID int) (PipelineJob, error) {
 	if jobID == 0 {
 		return PipelineJob{}, fmt.Errorf("retry job: missing job id")
@@ -67,7 +73,8 @@ func (c *Client) CancelJob(ctx context.Context, projectID, jobID int) error {
 	return nil
 }
 
-// PlayJob triggers a manual job and returns its updated state.
+// PlayJob triggers a manual (when:manual) job that is waiting for user
+// action and returns its updated state. Has no effect on non-manual jobs.
 func (c *Client) PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error) {
 	job, _, err := c.api.Jobs.PlayJob(projectID, jobID, nil, gl.WithContext(ctx))
 	if err != nil {
@@ -76,7 +83,7 @@ func (c *Client) PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob
 	return mapJob(job), nil
 }
 
-// mapJob converts a client-go Job to a PipelineJob.
+// mapJob converts a client-go Job to our flat PipelineJob, nil-safe.
 func mapJob(job *gl.Job) PipelineJob {
 	if job == nil {
 		return PipelineJob{}

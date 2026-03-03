@@ -1,4 +1,13 @@
-// Package gitlab wraps the GitLab API client with TUI-focused helpers.
+// Package gitlab provides a TUI-oriented facade over gitlab.com/gitlab-org/api/client-go.
+//
+// Rather than exposing the upstream library's deeply nested types and pointer-heavy
+// options structs, this package defines flat domain types (ProjectNode, PipelineSummary,
+// TreeNode, etc.) that the Bubble Tea UI layer can consume without importing the GitLab
+// SDK directly. This isolation means the UI tests can run against a mock [Service]
+// without standing up an HTTP server.
+//
+// All methods accept a context.Context so the TUI can enforce per-request timeouts
+// and cancel in-flight calls when the user navigates away.
 package gitlab
 
 import (
@@ -12,8 +21,9 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// Client is a small facade over the GitLab client-go API that exposes higher-level types
-// tailored for the TUI.
+// Client is a thin wrapper around the upstream GitLab SDK. It translates between
+// client-go's pointer-heavy response types and the flat domain types that the TUI
+// consumes. The host field is retained for cache-key derivation elsewhere.
 type Client struct {
 	api  *gl.Client
 	host string
@@ -51,8 +61,11 @@ func NewClient(token, host string) (*Client, error) {
 	return &Client{api: api, host: trimmedHost}, nil
 }
 
-// Service is the interface that the UI layer depends on. It covers every
-// Client method the TUI calls, making it possible to swap in a mock for tests.
+// Service is the contract between the UI layer and the GitLab API. The UI
+// imports only this interface — never *Client — so that tests can substitute a
+// mock without network access. Every method must be safe for concurrent use;
+// the TUI may fire several calls in parallel (e.g., pipeline status + stage
+// list) from a single Bubble Tea Cmd.
 type Service interface {
 	ListProjects(ctx context.Context, opts ProjectListOptions) (ProjectPage, error)
 	ListTree(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error)
@@ -68,6 +81,8 @@ type Service interface {
 	CancelJob(ctx context.Context, projectID, jobID int) error
 	PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
 	ListMergeRequests(ctx context.Context, projectID int, opts MRListOptions) (MRPage, error)
+	ListMergeRequestDiscussions(ctx context.Context, projectID, mrIID int) ([]MRDiscussion, error)
+	ListMergeRequestDiffs(ctx context.Context, projectID, mrIID int) ([]MRDiffFile, error)
 	ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error)
 	GetPipelineTestReport(ctx context.Context, projectID, pipelineID int) (*TestReport, error)
 	// ListProjectCommits returns recent commits for display in the detail pane.
@@ -78,7 +93,9 @@ type Service interface {
 // Verify at compile time that *Client satisfies Service.
 var _ Service = (*Client)(nil)
 
-// ProjectNode represents the subset of GitLab projects used by the UI.
+// ProjectNode is a deliberately minimal view of a GitLab project. It carries
+// only the fields the TUI needs for display and navigation, keeping JSON
+// cache files small and avoiding accidental token leakage through serialisation.
 type ProjectNode struct {
 	ID                int
 	Name              string
@@ -98,7 +115,9 @@ type ProjectListOptions struct {
 	PerPage int
 }
 
-// ProjectPage contains a slice of projects along with pagination metadata.
+// ProjectPage bundles a slice of projects with cursor-style pagination metadata.
+// PrevPage/NextPage are zero when there is no previous/next page, matching the
+// convention used by the GitLab API response headers.
 type ProjectPage struct {
 	Projects   []ProjectNode
 	Page       int
@@ -135,7 +154,9 @@ func (n TreeNode) IsDir() bool {
 	return n.Type == "tree"
 }
 
-// PipelineSummary represents the last known pipeline for a project/ref.
+// PipelineSummary is the primary pipeline representation used throughout the TUI.
+// Stages may be nil when the summary comes from a list endpoint (populated lazily
+// by a separate PipelineStages call), or pre-filled when fetched via LatestPipeline.
 type PipelineSummary struct {
 	ID        int
 	Status    string
@@ -150,13 +171,18 @@ type PipelineSummary struct {
 	User      string
 }
 
-// PipelineStage captures a GitLab CI stage and its aggregated status.
+// PipelineStage captures a GitLab CI stage with a single aggregated status
+// derived from all jobs in that stage. See mergeStageStatus for the priority
+// rules that determine which job status "wins".
 type PipelineStage struct {
 	Name   string
 	Status string
 }
 
-// PipelineJob represents a single job in a pipeline.
+// PipelineJob represents a single job in a pipeline. AllowFailure is
+// significant for status display: a failed job with AllowFailure=true should
+// be shown as a warning rather than a hard failure. FailureReason is only
+// populated when the job has actually failed.
 type PipelineJob struct {
 	ID                int
 	Name              string
@@ -189,7 +215,6 @@ type MergeRequestSummary struct {
 	Author       string
 	SourceBranch string
 	TargetBranch string
-	PipelineID   int
 	WebURL       string
 	UpdatedAt    time.Time
 }
@@ -210,7 +235,10 @@ type MRPage struct {
 	TotalPages    int
 }
 
-// PipelineBridge represents a bridge (child pipeline trigger) job.
+// PipelineBridge represents a bridge (child pipeline trigger) job. Bridges
+// are GitLab's mechanism for multi-project and parent-child pipelines.
+// DownstreamPipeline is nil when the trigger hasn't fired yet or when the
+// current user lacks access to the downstream project.
 type PipelineBridge struct {
 	ID                 int
 	Name               string
@@ -224,9 +252,10 @@ type PipelineBridge struct {
 
 // PipelineBridgeDownstream is the downstream pipeline triggered by a bridge.
 type PipelineBridgeDownstream struct {
-	ID     int
-	Status string
-	WebURL string
+	ID        int
+	ProjectID int
+	Status    string
+	WebURL    string
 }
 
 // TestReport contains a pipeline's test report summary.
@@ -282,10 +311,47 @@ type CommitSummary struct {
 	CreatedAt time.Time
 }
 
-// ErrNoPipelines indicates no pipeline runs were returned by GitLab.
+// MRDiscussion represents a threaded discussion on a merge request.
+// Notes are ordered chronologically; the first note is the discussion opener.
+type MRDiscussion struct {
+	ID    string
+	Notes []MRNote
+}
+
+// MRNote is a single note (comment) within a merge request discussion.
+// System notes are auto-generated by GitLab (e.g., "assigned to @user") and
+// callers typically filter them out for display. Resolvable/Resolved only
+// apply to diff-line comments — general comments have Resolvable=false.
+type MRNote struct {
+	ID         int
+	Author     string
+	Body       string
+	System     bool
+	Resolvable bool
+	Resolved   bool
+	CreatedAt  time.Time
+}
+
+// MRDiffFile represents a single changed file in a merge request diff.
+// OldPath and NewPath differ only for renames; for additions/deletions/edits
+// they are the same. The Diff field contains the raw unified diff text.
+type MRDiffFile struct {
+	OldPath     string
+	NewPath     string
+	Diff        string
+	NewFile     bool
+	RenamedFile bool
+	DeletedFile bool
+}
+
+// ErrNoPipelines is returned when a project (or ref) has no pipeline runs.
+// Callers should treat this as a normal "empty" state, not a fatal error —
+// many projects simply haven't configured CI yet.
 var ErrNoPipelines = errors.New("no pipelines found")
 
-// ErrNoJobs indicates no jobs were returned for a pipeline.
+// ErrNoJobs is returned when a pipeline exists but has no associated jobs.
+// This can happen briefly after a pipeline is created but before GitLab has
+// scheduled its jobs.
 var ErrNoJobs = errors.New("no jobs found")
 
 // TreeListOptions configures repository tree listing.
@@ -294,8 +360,9 @@ type TreeListOptions struct {
 	Ref  string
 }
 
-// ListProjects returns the authenticated user's projects ordered by recent
-// activity.
+// ListProjects returns projects the authenticated user is a member of, ordered
+// by most recent activity. Only "simple" project data is requested to minimise
+// response size — fields like statistics and custom attributes are omitted.
 func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (ProjectPage, error) {
 	if opts.PerPage <= 0 {
 		opts.PerPage = 30
@@ -344,6 +411,7 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 	return pageInfo, nil
 }
 
+// ensureAPIBaseURL appends /api/v4 if not already present.
 func ensureAPIBaseURL(host string) string {
 	host = strings.TrimSuffix(host, "/")
 	if strings.HasSuffix(host, "/api/v4") {
@@ -352,10 +420,11 @@ func ensureAPIBaseURL(host string) string {
 	return host + "/api/v4"
 }
 
-// paginate collects all pages from a GitLab list endpoint. The fetch function
-// receives a 1-based page number and returns a slice of items plus the raw
-// *gl.Response (which carries NextPage). paginate keeps calling until there are
-// no more pages.
+// paginate exhausts a GitLab list endpoint by following NextPage links until
+// none remain. It returns partial results on error so callers can degrade
+// gracefully rather than losing all data when a mid-sequence page fails.
+// The fetch function receives a 1-based page number and must return the raw
+// *gl.Response so paginate can read the NextPage cursor.
 func paginate[T any](ctx context.Context, fetch func(page int) ([]T, *gl.Response, error)) ([]T, error) {
 	var all []T
 	page := 1

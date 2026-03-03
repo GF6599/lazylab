@@ -12,7 +12,11 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// ListTree returns the immediate children of the path for the given project.
+// ListTree returns the immediate children of a directory in the repository,
+// sorted directories-first then case-insensitively by name — matching the
+// convention used by file managers like yazi and ranger. Results are fetched
+// non-recursively with a single 200-item page, which is sufficient for most
+// directories and avoids expensive recursive tree walks.
 func (c *Client) ListTree(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error) {
 	treeOpts := &gl.ListTreeOptions{
 		ListOptions: gl.ListOptions{
@@ -48,7 +52,16 @@ func (c *Client) ListTree(ctx context.Context, projectID int, opts TreeListOptio
 	return out, nil
 }
 
-// GetFileContent fetches the contents of a GitLab repository file at the given ref.
+// GetFileContent fetches and decodes a single file from the repository.
+//
+// Security: the path is validated against directory traversal attacks (e.g.,
+// "../../etc/passwd") using both raw string checks and filepath.Clean
+// normalisation after URL-decoding, to guard against percent-encoded bypasses.
+//
+// Size: files larger than 10 MB are rejected before decoding to prevent
+// excessive memory allocation in the TUI process. The GitLab API returns file
+// content base64-encoded, so the check happens on the server-reported size
+// before the decode step.
 func (c *Client) GetFileContent(ctx context.Context, projectID int, path, ref string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("file path required")
