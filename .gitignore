@@ -3,3 +3,6 @@
 justfile
 .claude
 CLAUDE.md
+*.out
+debug.log
+debug.log,
