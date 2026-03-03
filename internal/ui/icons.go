@@ -14,6 +14,8 @@ const (
 	iconPending  = "○"
 	iconCanceled = "⊘"
 	iconSkipped  = "−"
+	iconManual   = "▶"
+	iconBlocked  = "◧"
 	iconUnknown  = "?"
 )
 
@@ -50,6 +52,10 @@ func pipelineStatusIcon(status string) string {
 		return iconCanceled
 	case "skipped":
 		return iconSkipped
+	case "manual":
+		return iconManual
+	case "blocked":
+		return iconBlocked
 	default:
 		return iconUnknown
 	}
@@ -121,6 +127,25 @@ func formatTimeAgo(t time.Time) string {
 			return "1mo ago"
 		}
 		return fmt.Sprintf("%dmo ago", months)
+	}
+}
+
+// formatBytes formats a byte count into a human-readable string.
+func formatBytes(b int) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case b >= gb:
+		return fmt.Sprintf("%.1f GB", float64(b)/float64(gb))
+	case b >= mb:
+		return fmt.Sprintf("%.1f MB", float64(b)/float64(mb))
+	case b >= kb:
+		return fmt.Sprintf("%.1f KB", float64(b)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", b)
 	}
 }
 

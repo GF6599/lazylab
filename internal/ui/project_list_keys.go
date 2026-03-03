@@ -10,57 +10,54 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// handleProjectSearchKey handles key events while the search input is active.
+func (m Model) handleProjectSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.search.active = false
+		m.search.query = ""
+		m.search.pendingQuery = ""
+		m.search.debounceTimer = nil
+		m.search.input.Reset()
+		m.search.input.Blur()
+		m.invalidateVisibleCache()
+		m.ensureSelectionBounds()
+		m.updateProjectList()
+		m.status = "Search cleared"
+		return m, (&m).queueBatchPrefetchPipelineStatus()
+	case tea.KeyEnter:
+		m.search.active = false
+		m.search.query = m.search.input.Value()
+		m.search.pendingQuery = ""
+		m.search.debounceTimer = nil
+		m.search.input.Blur()
+		m.status = fmt.Sprintf("Search: %s", m.search.query)
+		m.invalidateVisibleCache()
+		m.ensureSelectionBounds()
+		m.updateProjectList()
+		return m, (&m).queueBatchPrefetchPipelineStatus()
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	default:
+		m.search.input, cmd = m.search.input.Update(msg)
+		inputValue := m.search.input.Value()
+		now := time.Now()
+		m.search.pendingQuery = inputValue
+		m.search.debounceTimer = &now
+		debounceCmd := searchDebounceTickCmd(inputValue, now)
+		if cmd != nil {
+			return m, tea.Batch(cmd, debounceCmd)
+		}
+		return m, debounceCmd
+	}
+}
+
 func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	prevID, prevOK := m.currentSelectedProjectID()
 	key := msg.String()
 	if m.search.active {
-		var cmd tea.Cmd
-		switch msg.Type {
-		case tea.KeyEsc:
-			m.search.active = false
-			m.search.query = ""
-			m.search.pendingQuery = ""
-			m.search.debounceTimer = nil
-			m.search.input.Reset()
-			m.search.input.Blur()
-			m.invalidateVisibleCache()
-			m.ensureSelectionBounds()
-			m.updateProjectList()
-			m.status = "Search cleared"
-			// Batch prefetch for new visible projects after search clear
-			return m, (&m).queueBatchPrefetchPipelineStatus()
-		case tea.KeyEnter:
-			// Apply search immediately on Enter
-			m.search.active = false
-			m.search.query = m.search.input.Value()
-			m.search.pendingQuery = ""
-			m.search.debounceTimer = nil
-			m.search.input.Blur()
-			m.status = fmt.Sprintf("Search: %s", m.search.query)
-			m.invalidateVisibleCache()
-			m.ensureSelectionBounds()
-			m.updateProjectList()
-			// Batch prefetch for search results
-			return m, (&m).queueBatchPrefetchPipelineStatus()
-		case tea.KeyCtrlC:
-			return m, tea.Quit
-		default:
-			// Update input and queue debounced filter
-			m.search.input, cmd = m.search.input.Update(msg)
-			inputValue := m.search.input.Value()
-
-			// Queue debounced search
-			now := time.Now()
-			m.search.pendingQuery = inputValue
-			m.search.debounceTimer = &now
-
-			// Return input cmd + debounce tick cmd
-			debounceCmd := searchDebounceTickCmd(inputValue, now)
-			if cmd != nil {
-				return m, tea.Batch(cmd, debounceCmd)
-			}
-			return m, debounceCmd
-		}
+		return m.handleProjectSearchKey(msg)
 	}
 
 	switch key {
@@ -68,8 +65,8 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "/":
 		m.search.active = true
-		m.search.input.SetValue(m.search.query)
-		m.search.input.CursorEnd()
+		m.search.query = ""
+		m.search.input.SetValue("")
 		m.search.input.Focus()
 		return m, textinput.Blink
 	case "enter":
@@ -284,23 +281,35 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pipelineView.logViewport.HalfViewUp()
 		m.pipelineView.logAutoFollow = false
 		return m, nil
+	case "ctrl+d", "ctrl+u", "<", ">":
+		return m.handlePipelineNavigation(key)
+	case "down", "j", "up", "k":
+		return m.handlePipelineItemNavigation(msg)
+	case "r", "ctrl+r":
+		return m.reloadPipelineView()
+	case "R":
+		return m.handlePipelineRetryRequest()
+	}
+	return m, nil
+}
+
+// handlePipelineNavigation handles half-page and jump-to-end navigation in
+// the pipeline view (ctrl+d, ctrl+u, <, >).
+func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
+	step := listPageStep(m.height)
+	switch key {
 	case "ctrl+d":
 		m.pipelineView.logViewport.HalfViewDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
-		step := listPageStep(m.height)
 		if m.pipelineView.focus == pipelineFocusPipelines {
 			if m.pipelineView.selected < len(m.pipelineView.pipelines)-1 {
 				m.pipelineView.selected = min(m.pipelineView.selected+step, len(m.pipelineView.pipelines)-1)
-				m.pipelineView.stageSelected = 0
-				m.pipelineView.stageTable.SetCursor(0)
-				m.resetPipelineLogPreview()
-				cmd := m.queuePipelineStagesForSelection()
-				return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+				return m, m.selectPipelineAndLoadStages()
 			}
 		} else {
-			stages := m.selectedPipelineStages()
-			if m.pipelineView.stageSelected < len(stages)-1 {
-				m.pipelineView.stageSelected = min(m.pipelineView.stageSelected+step, len(stages)-1)
+			jobCount := len(m.pipelineView.jobRows)
+			if m.pipelineView.stageSelected < jobCount-1 {
+				m.pipelineView.stageSelected = min(m.pipelineView.stageSelected+step, jobCount-1)
 				m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
 				m.resetPipelineLogPreview()
 				return m, m.queuePipelineLogPreview()
@@ -309,15 +318,10 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.pipelineView.logViewport.HalfViewUp()
 		m.pipelineView.logAutoFollow = false
-		step := listPageStep(m.height)
 		if m.pipelineView.focus == pipelineFocusPipelines {
 			if m.pipelineView.selected > 0 {
 				m.pipelineView.selected = max(m.pipelineView.selected-step, 0)
-				m.pipelineView.stageSelected = 0
-				m.pipelineView.stageTable.SetCursor(0)
-				m.resetPipelineLogPreview()
-				cmd := m.queuePipelineStagesForSelection()
-				return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+				return m, m.selectPipelineAndLoadStages()
 			}
 		} else {
 			if m.pipelineView.stageSelected > 0 {
@@ -333,10 +337,7 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.pipelineView.focus == pipelineFocusPipelines {
 			if len(m.pipelineView.pipelines) > 0 && m.pipelineView.selected != 0 {
 				m.pipelineView.selected = 0
-				m.pipelineView.stageSelected = 0
-				m.resetPipelineLogPreview()
-				cmd := m.queuePipelineStagesForSelection()
-				return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+				return m, m.selectPipelineAndLoadStages()
 			}
 		} else if m.pipelineView.stageSelected != 0 {
 			m.pipelineView.stageSelected = 0
@@ -352,16 +353,13 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				last := len(m.pipelineView.pipelines) - 1
 				if m.pipelineView.selected != last {
 					m.pipelineView.selected = last
-					m.pipelineView.stageSelected = 0
-					m.resetPipelineLogPreview()
-					cmd := m.queuePipelineStagesForSelection()
-					return m, tea.Batch(cmd, m.queuePipelineJobsForSelection())
+					return m, m.selectPipelineAndLoadStages()
 				}
 			}
 		} else {
-			stages := m.selectedPipelineStages()
-			if len(stages) > 0 {
-				last := len(stages) - 1
+			jobCount := len(m.pipelineView.jobRows)
+			if jobCount > 0 {
+				last := jobCount - 1
 				if m.pipelineView.stageSelected != last {
 					m.pipelineView.stageSelected = last
 					m.pipelineView.stageTable.SetCursor(last)
@@ -370,82 +368,92 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	case "down", "j", "up", "k":
-		if m.pipelineView.focus == pipelineFocusPipelines {
-			// Let Bubbles list handle navigation
-			prevIdx := m.pipelineView.pipelineList.Index()
-			var cmd tea.Cmd
-			m.pipelineView.pipelineList, cmd = m.pipelineView.pipelineList.Update(msg)
-			newIdx := m.pipelineView.pipelineList.Index()
-			m.pipelineView.selected = newIdx
-			if newIdx != prevIdx {
-				m.pipelineView.stageSelected = 0
-				m.pipelineView.stageTable.SetCursor(0)
-				m.resetPipelineLogPreview()
-				stagesCmd := m.queuePipelineStagesForSelection()
-				jobsCmd := m.queuePipelineJobsForSelection()
-				return m, tea.Batch(cmd, stagesCmd, jobsCmd)
-			}
-			return m, cmd
-		} else {
-			// Let Bubbles table handle navigation
-			prevIdx := m.pipelineView.stageTable.Cursor()
-			var cmd tea.Cmd
-			m.pipelineView.stageTable, cmd = m.pipelineView.stageTable.Update(msg)
-			newIdx := m.pipelineView.stageTable.Cursor()
-			m.pipelineView.stageSelected = newIdx
-			if newIdx != prevIdx {
-				m.resetPipelineLogPreview()
-				return m, tea.Batch(cmd, m.queuePipelineLogPreview())
-			}
-			return m, cmd
+	}
+	return m, nil
+}
+
+// selectPipelineAndLoadStages resets stage selection and triggers stage + job
+// loading for the currently selected pipeline. Used after changing the pipeline
+// selection via half-page scroll or jump-to-end.
+func (m *Model) selectPipelineAndLoadStages() tea.Cmd {
+	m.pipelineView.stageSelected = 0
+	m.pipelineView.stageTable.SetCursor(0)
+	m.resetPipelineLogPreview()
+	cmd := m.queuePipelineStagesForSelection()
+	return tea.Batch(cmd, m.queuePipelineJobsForSelection())
+}
+
+// handlePipelineItemNavigation handles single-item j/k navigation in the
+// pipeline view, delegating to either the bubbles list or table component.
+func (m Model) handlePipelineItemNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.pipelineView.focus == pipelineFocusPipelines {
+		prevIdx := m.pipelineView.pipelineList.Index()
+		var cmd tea.Cmd
+		m.pipelineView.pipelineList, cmd = m.pipelineView.pipelineList.Update(msg)
+		newIdx := m.pipelineView.pipelineList.Index()
+		m.pipelineView.selected = newIdx
+		if newIdx != prevIdx {
+			return m, tea.Batch(cmd, m.selectPipelineAndLoadStages())
 		}
-	case "r", "ctrl+r":
-		return m.reloadPipelineView()
-	case "R":
-		if m.pipelineView.retrying {
-			m.status = "Retry already in progress"
-			return m, nil
-		}
-		pipeline := m.selectedPipeline()
-		if pipeline == nil {
-			m.status = "No pipeline selected"
-			return m, nil
-		}
-		if m.pipelineView.focus == pipelineFocusStages {
-			job := m.selectedPipelineJob()
-			if job == nil {
-				var cmds []tea.Cmd
-				if cmd := m.queuePipelineStagesForSelection(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-				if cmd := m.queuePipelineJobsForSelection(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-				if len(cmds) > 0 {
-					m.status = "Loading pipeline jobs..."
-					return m, tea.Batch(cmds...)
-				}
-				m.status = "No job selected"
-				return m, nil
+		return m, cmd
+	}
+	prevIdx := m.pipelineView.stageTable.Cursor()
+	var cmd tea.Cmd
+	m.pipelineView.stageTable, cmd = m.pipelineView.stageTable.Update(msg)
+	newIdx := m.pipelineView.stageTable.Cursor()
+	m.pipelineView.stageSelected = newIdx
+	if newIdx != prevIdx {
+		m.resetPipelineLogPreview()
+		return m, tea.Batch(cmd, m.queuePipelineLogPreview())
+	}
+	return m, cmd
+}
+
+// handlePipelineRetryRequest opens the retry confirmation modal for either a
+// pipeline or a specific job, depending on the current focus.
+func (m Model) handlePipelineRetryRequest() (tea.Model, tea.Cmd) {
+	if m.pipelineView.retrying {
+		m.status = "Retry already in progress"
+		return m, nil
+	}
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		m.status = msgNoPipeline
+		return m, nil
+	}
+	if m.pipelineView.focus == pipelineFocusStages {
+		job := m.selectedPipelineJob()
+		if job == nil {
+			var cmds []tea.Cmd
+			if cmd := m.queuePipelineStagesForSelection(); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
-			m.pipelineView.confirmRetry = true
-			m.pipelineView.confirmRetryIsJob = true
-			m.pipelineView.confirmRetryID = pipeline.ID
-			m.pipelineView.confirmRetryRef = ""
-			m.pipelineView.confirmRetryJobID = job.ID
-			m.pipelineView.confirmRetryJobName = job.Name
-			m.pipelineView.confirmRetryJobStage = job.Stage
+			if cmd := m.queuePipelineJobsForSelection(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			if len(cmds) > 0 {
+				m.status = "Loading pipeline jobs..."
+				return m, tea.Batch(cmds...)
+			}
+			m.status = "No job selected"
 			return m, nil
 		}
 		m.pipelineView.confirmRetry = true
-		m.pipelineView.confirmRetryIsJob = false
+		m.pipelineView.confirmRetryIsJob = true
 		m.pipelineView.confirmRetryID = pipeline.ID
-		m.pipelineView.confirmRetryRef = pipeline.Ref
-		m.pipelineView.confirmRetryJobID = 0
-		m.pipelineView.confirmRetryJobName = ""
-		m.pipelineView.confirmRetryJobStage = ""
+		m.pipelineView.confirmRetryRef = ""
+		m.pipelineView.confirmRetryJobID = job.ID
+		m.pipelineView.confirmRetryJobName = job.Name
+		m.pipelineView.confirmRetryJobStage = job.Stage
+		return m, nil
 	}
+	m.pipelineView.confirmRetry = true
+	m.pipelineView.confirmRetryIsJob = false
+	m.pipelineView.confirmRetryID = pipeline.ID
+	m.pipelineView.confirmRetryRef = pipeline.Ref
+	m.pipelineView.confirmRetryJobID = 0
+	m.pipelineView.confirmRetryJobName = ""
+	m.pipelineView.confirmRetryJobStage = ""
 	return m, nil
 }
 

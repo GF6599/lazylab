@@ -7,11 +7,43 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"lazylab/internal/gitlab"
+)
+
+// newBareList creates a list.Model with all chrome (status bar, pagination,
+// help, filtering) disabled — the common baseline for every list in the UI.
+func newBareList(items []list.Item, delegate list.ItemDelegate, w, h int) list.Model {
+	l := list.New(items, delegate, w, h)
+	l.Title = ""
+	l.SetShowTitle(false)
+	l.SetShowStatusBar(false)
+	l.SetShowPagination(false)
+	l.SetShowHelp(false)
+	l.SetFilteringEnabled(false)
+	return l
+}
+
+// listCursorStyle returns the cursor prefix and style for a list item based
+// on whether it is the currently selected item.
+func listCursorStyle(index int, listIndex int) (string, lipgloss.Style) {
+	if index == listIndex {
+		return ">", selectedItemStyle
+	}
+	return " ", itemStyle
+}
+
+// Commonly reused strings.
+const (
+	unknownStatus   = "unknown"
+	timestampFormat = "01-02 15:04"
+	msgNoPipeline   = "No pipeline selected"
+	msgNoStages     = "No stages available"
+	msgNoPipelines  = "No pipelines found"
 )
 
 // Layout constants for UI calculations
@@ -79,10 +111,10 @@ func (m *Model) isLoading() bool {
 		}
 		// Check if any stages or jobs are loading for selected pipeline
 		if pipeline := m.selectedPipeline(); pipeline != nil {
-			if m.pipelineView.stageLoading[pipeline.ID] {
+			if m.pipelineView.stages.IsLoading(pipeline.ID) {
 				return true
 			}
-			if m.pipelineView.jobsLoading[pipeline.ID] {
+			if m.pipelineView.jobs.IsLoading(pipeline.ID) {
 				return true
 			}
 		}
@@ -131,6 +163,8 @@ func pipelineStatusStyle(status string) lipgloss.Style {
 		return pipelineCanceled
 	case "skipped":
 		return pipelineSkipped
+	case "manual", "blocked":
+		return pipelinePending
 	default:
 		return pipelineUnknown
 	}
@@ -196,7 +230,7 @@ func stageJobSummary(jobs []gitlab.PipelineJob, stage string) string {
 		total++
 		status := strings.ToLower(job.Status)
 		if status == "" {
-			status = "unknown"
+			status = unknownStatus
 		}
 		counts[status]++
 	}
@@ -204,7 +238,7 @@ func stageJobSummary(jobs []gitlab.PipelineJob, stage string) string {
 		return ""
 	}
 	parts := make([]string, 0, 3)
-	for _, status := range []string{"success", "failed", "running", "pending", "canceled", "skipped", "manual", "unknown"} {
+	for _, status := range []string{"success", "failed", "running", "pending", "canceled", "skipped", "manual", "blocked", unknownStatus} {
 		if count := counts[status]; count > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", count, status))
 		}
@@ -226,7 +260,7 @@ func (m *Model) pipelineLogJob() *gitlab.PipelineJob {
 	if pipeline == nil {
 		return nil
 	}
-	jobs := m.pipelineView.jobsCache[pipeline.ID]
+	jobs, _ := m.pipelineView.jobs.Get(pipeline.ID)
 	for i := range jobs {
 		if jobs[i].ID == m.pipelineView.logJobID {
 			return &jobs[i]
@@ -737,6 +771,17 @@ func normalizePipelineLogContent(content string) string {
 	return strings.ReplaceAll(content, "\t", "    ")
 }
 
+// setLogViewportContent normalizes and wraps content to fit the viewport width.
+func (m *Model) setLogViewportContent(content string) {
+	w := m.pipelineView.logViewport.Width
+	if w <= 0 {
+		w = 80
+	}
+	normalized := normalizePipelineLogContent(content)
+	wrapped := ansi.Wrap(normalized, w, "")
+	m.pipelineView.logViewport.SetContent(wrapped)
+}
+
 func pipelineLogContentLines(preview previewState, width int) []string {
 	if preview.content == "" {
 		return nil
@@ -794,3 +839,8 @@ func (m *Model) refreshPreviewHighlight() {
 }
 
 // Pipeline log scrolling now handled by viewport directly in key handlers
+
+// joinLines joins non-empty lines with newlines.
+func joinLines(lines []string) string {
+	return strings.Join(lines, "\n")
+}

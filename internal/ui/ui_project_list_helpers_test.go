@@ -67,10 +67,10 @@ func TestClampLineANSI(t *testing.T) {
 
 func TestFuzzyMatch(t *testing.T) {
 	tests := []struct {
-		name    string
+		name     string
 		haystack string
-		needle  string
-		want    bool
+		needle   string
+		want     bool
 	}{
 		{
 			name:     "exact match",
@@ -156,9 +156,9 @@ func TestPageSlice(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		page     int
-		wantLen  int
+		name      string
+		page      int
+		wantLen   int
 		wantFirst int // ID of first project
 	}{
 		{

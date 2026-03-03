@@ -71,7 +71,8 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 //   - Directory navigation: if msg.path matches a stack entry, populate its
 //     entries and update the corresponding bubbles list.
 func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeExplorer || m.explorer.project.ID != msg.projectID {
+	isExplorer := m.mode == modeExplorer || (m.mode == modeMultiPanel && m.explorer.project.ID != 0)
+	if !isExplorer || m.explorer.project.ID != msg.projectID {
 		return m, nil
 	}
 	// If this was triggered for directory preview (path matches preview.path), format preview.
@@ -150,7 +151,8 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleFileLoaded(msg fileLoadedMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeExplorer || m.explorer.project.ID != msg.projectID {
+	isExplorer := m.mode == modeExplorer || (m.mode == modeMultiPanel && m.explorer.project.ID != 0)
+	if !isExplorer || m.explorer.project.ID != msg.projectID {
 		return m, nil
 	}
 	if msg.path != m.explorer.preview.path {
@@ -297,7 +299,7 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 
 func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) {
 	selectedID := 0
-	if m.mode == modeProjects {
+	if m.mode == modeProjects || m.mode == modeMultiPanel {
 		visible := m.visibleProjects()
 		if m.selected >= 0 && m.selected < len(visible) {
 			selectedID = visible[m.selected].ID
@@ -336,7 +338,7 @@ func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
 	}
 	prevSelectedID := 0
@@ -437,58 +439,48 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 }
 
 func (m Model) handlePipelineStagesLoaded(msg pipelineStagesLoadedMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
-	}
-	if m.pipelineView.stageLoading != nil {
-		m.pipelineView.stageLoading[msg.pipelineID] = false
 	}
 	if msg.err != nil {
-		if m.pipelineView.stageErr == nil {
-			m.pipelineView.stageErr = make(map[int]error)
-		}
-		m.pipelineView.stageErr[msg.pipelineID] = msg.err
+		m.pipelineView.stages.SetErr(msg.pipelineID, msg.err)
 		return m, nil
 	}
-	if m.pipelineView.stageCache == nil {
-		m.pipelineView.stageCache = make(map[int][]gitlab.PipelineStage)
-	}
-	m.pipelineView.stageCache[msg.pipelineID] = msg.stages
-	if m.pipelineView.stageErr != nil {
-		delete(m.pipelineView.stageErr, msg.pipelineID)
-	}
+	m.pipelineView.stages.Set(msg.pipelineID, msg.stages)
 
 	// Update stage table with new data
 	m.updateStageTable()
 
-	return m, m.queuePipelineLogPreview()
+	// Fetch bridges for this pipeline if not already cached
+	var cmds []tea.Cmd
+	if cmd := m.queuePipelineLogPreview(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if _, bridgeCached := m.pipelineView.bridges.Get(msg.pipelineID); !bridgeCached {
+		if !m.pipelineView.bridges.IsLoading(msg.pipelineID) {
+			m.pipelineView.bridges.SetLoading(msg.pipelineID)
+			cmds = append(cmds, fetchBridgesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, msg.pipelineID))
+		}
+	}
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) handlePipelineJobsLoaded(msg pipelineJobsLoadedMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
-	}
-	if m.pipelineView.jobsLoading != nil {
-		m.pipelineView.jobsLoading[msg.pipelineID] = false
 	}
 	if msg.err != nil {
 		if errors.Is(msg.err, gitlab.ErrNoPipelines) {
-			m.pipelineView.jobsCache[msg.pipelineID] = nil
+			m.pipelineView.jobs.Set(msg.pipelineID, nil)
 			return m, m.queuePipelineLogPreview()
 		}
-		if m.pipelineView.jobsErr == nil {
-			m.pipelineView.jobsErr = make(map[int]error)
-		}
-		m.pipelineView.jobsErr[msg.pipelineID] = msg.err
+		m.pipelineView.jobs.SetErr(msg.pipelineID, msg.err)
 		return m, nil
 	}
-	if m.pipelineView.jobsCache == nil {
-		m.pipelineView.jobsCache = make(map[int][]gitlab.PipelineJob)
-	}
-	m.pipelineView.jobsCache[msg.pipelineID] = msg.jobs
-	if m.pipelineView.jobsErr != nil {
-		delete(m.pipelineView.jobsErr, msg.pipelineID)
-	}
+	m.pipelineView.jobs.Set(msg.pipelineID, msg.jobs)
 
 	// Update stage table with new job data
 	m.updateStageTable()
@@ -497,17 +489,11 @@ func (m Model) handlePipelineJobsLoaded(msg pipelineJobsLoadedMsg) (tea.Model, t
 }
 
 func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
 	}
-	if m.pipelineView.logLoading != nil {
-		m.pipelineView.logLoading[msg.jobID] = false
-	}
 	if msg.err != nil {
-		if m.pipelineView.logErr == nil {
-			m.pipelineView.logErr = make(map[int]error)
-		}
-		m.pipelineView.logErr[msg.jobID] = msg.err
+		m.pipelineView.logs.SetErr(msg.jobID, msg.err)
 		if msg.jobID == m.pipelineView.pendingLogJobID {
 			m.pipelineView.pendingLogJobID = 0
 		}
@@ -516,17 +502,11 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 		}
 		return m, nil
 	}
-	if m.pipelineView.logCache == nil {
-		m.pipelineView.logCache = make(map[int]string)
-	}
 
 	// Truncate oversized logs and evict old entries to prevent OOM
 	truncated := truncateLogContent(msg.content)
-	m.pipelineView.logCache[msg.jobID] = truncated
+	m.pipelineView.logs.Set(msg.jobID, truncated)
 	m.evictOldLogs()
-	if m.pipelineView.logErr != nil {
-		delete(m.pipelineView.logErr, msg.jobID)
-	}
 	if msg.jobID != m.pipelineView.logJobID && msg.jobID != m.pipelineView.pendingLogJobID {
 		return m, nil
 	}
@@ -542,7 +522,7 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 		raw:     msg.content,
 		loading: false,
 	}
-	m.pipelineView.logViewport.SetContent(msg.content)
+	m.setLogViewportContent(msg.content)
 	m.pipelineView.logJobID = msg.jobID
 	if m.pipelineView.logAutoFollow {
 		m.pipelineView.logViewport.GotoBottom()
@@ -551,7 +531,7 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 }
 
 func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
 	}
 	m.clearAllRetryState()
@@ -578,7 +558,7 @@ func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd
 }
 
 func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modePipelines || m.pipelineView.project.ID != msg.projectID {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
 	}
 	m.clearAllRetryState()
@@ -622,6 +602,21 @@ func (m Model) handlePipelineTick() (tea.Model, tea.Cmd) {
 	case modePipelines:
 		cmd := (&m).queuePipelineViewRefresh()
 		return m, cmd
+	case modeMultiPanel:
+		// In multi-panel mode, refresh both project pipeline badges and pipeline view data
+		var cmds []tea.Cmd
+		if cmd := (&m).queuePipelineFetchForSelection(false); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if m.pipelineView.project.ID != 0 {
+			if cmd := (&m).queuePipelineViewRefresh(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if len(cmds) == 0 {
+			return m, nil
+		}
+		return m, tea.Batch(cmds...)
 	default:
 		return m, nil
 	}
@@ -652,7 +647,7 @@ func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model,
 	}
 
 	selectedID := 0
-	if m.mode == modeProjects {
+	if m.mode == modeProjects || m.mode == modeMultiPanel {
 		visible := m.visibleProjects()
 		if m.selected >= 0 && m.selected < len(visible) {
 			selectedID = visible[m.selected].ID
@@ -688,6 +683,135 @@ func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model,
 	// Evict old cache entries if needed
 	(&m).evictOldPipelineStatusCache()
 
+	return m, nil
+}
+
+func (m Model) handleMRsLoaded(msg mrsLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	m.mrView.loading = false
+	if msg.err != nil {
+		m.mrView.err = msg.err
+		return m, nil
+	}
+	m.mrView.err = nil
+	m.mrView.mrs = msg.mrs
+	m.mrView.page = msg.page
+	m.mrView.total = msg.total
+	if m.mrView.selected >= len(m.mrView.mrs) {
+		m.mrView.selected = max(0, len(m.mrView.mrs)-1)
+	}
+	return m, nil
+}
+
+func (m Model) handlePipelineCanceled(msg pipelineCanceledMsg) (tea.Model, tea.Cmd) {
+	if m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.status = fmt.Sprintf("Failed to cancel pipeline #%d: %v", msg.pipelineID, msg.err)
+		return m, nil
+	}
+	m.status = fmt.Sprintf("Canceled pipeline #%d", msg.pipelineID)
+	return m.reloadPipelineView()
+}
+
+func (m Model) handleJobCanceled(msg jobCanceledMsg) (tea.Model, tea.Cmd) {
+	if m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.status = fmt.Sprintf("Failed to cancel job #%d: %v", msg.jobID, msg.err)
+		return m, nil
+	}
+	m.status = fmt.Sprintf("Canceled job #%d", msg.jobID)
+	var cmds []tea.Cmd
+	if cmd := m.queuePipelineStagesRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queuePipelineJobsRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) handleJobPlayed(msg jobPlayedMsg) (tea.Model, tea.Cmd) {
+	if m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.status = fmt.Sprintf("Failed to play job #%d: %v", msg.jobID, msg.err)
+		return m, nil
+	}
+	if msg.job.Name != "" {
+		m.status = fmt.Sprintf("Triggered job %s (#%d)", msg.job.Name, msg.job.ID)
+	} else {
+		m.status = fmt.Sprintf("Triggered job #%d", msg.jobID)
+	}
+	var cmds []tea.Cmd
+	if cmd := m.queuePipelineStagesRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queuePipelineJobsRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) handleBridgesLoaded(msg bridgesLoadedMsg) (tea.Model, tea.Cmd) {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.pipelineView.bridges.SetErr(msg.pipelineID, msg.err)
+		return m, nil
+	}
+	m.pipelineView.bridges.Set(msg.pipelineID, msg.bridges)
+	return m, nil
+}
+
+func (m Model) handleTestReportLoaded(msg testReportLoadedMsg) (tea.Model, tea.Cmd) {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	m.pipelineView.testReportLoading = false
+	if msg.err != nil {
+		m.pipelineView.testReportErr = msg.err
+		return m, nil
+	}
+	m.pipelineView.testReport = msg.report
+	m.pipelineView.testReportErr = nil
+	m.pipelineView.testReportPipelineID = msg.pipelineID
+	return m, nil
+}
+
+// handleCommitsLoaded stores fetched commits and invalidates the detail pane
+// cache so the "Recent Commits" section renders on the next frame. Errors are
+// logged but not surfaced to the user — missing commits are non-critical.
+func (m Model) handleCommitsLoaded(msg commitsLoadedMsg) (tea.Model, tea.Cmd) {
+	m.commitLoading[msg.projectID] = false
+	if msg.err != nil {
+		if m.opts.Logger != nil {
+			m.opts.Logger.Error("load commits", "err", msg.err, "project", msg.projectID)
+		}
+		return m, nil
+	}
+	m.commitCache[msg.projectID] = msg.commits
+	// Invalidate detail cache so commits appear immediately
+	selectedID := 0
+	if project, ok := m.selectedProject(); ok {
+		selectedID = project.ID
+	}
+	if msg.projectID == selectedID {
+		(&m).invalidateDetailCache()
+	}
 	return m, nil
 }
 

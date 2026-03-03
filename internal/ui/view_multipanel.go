@@ -1,0 +1,423 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+// renderMultiPanelView renders the lazygit-style multi-panel layout.
+func renderMultiPanelView(m *Model, width, height int) string {
+	layout := computeLayout(width, height, m.focus)
+	if !layout.OK {
+		return lipgloss.NewStyle().Width(width).Render(" Terminal too small for multi-panel view.")
+	}
+
+	// Render sidebar panels
+	sidebar := renderSidebar(m, layout)
+
+	// Render right area (detail pane)
+	rightArea := renderRightArea(m, layout)
+
+	// Join sidebar and right area
+	gap := renderPaneGap(paneGap, layout.TotalHeight-infoBarHeight)
+	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, gap, rightArea)
+
+	// Info bar at bottom
+	infoBar := renderInfoBar(m, layout.InfoBarWidth)
+
+	return main + "\n" + infoBar
+}
+
+// renderSidebar renders all left-side panels stacked vertically.
+func renderSidebar(m *Model, layout layoutResult) string {
+	var panels []string
+	for _, panelID := range SidebarPanels {
+		h := layout.PanelHeights[panelID]
+		focused := m.focus.Active == panelID
+		content := renderSidebarPanelContent(m, panelID, layout.SidebarWidth, h)
+		tabs, activeTab := panelTabs(panelID, m)
+		footer := panelFooter(panelID, m)
+		rendered := renderBorderedPane(content, layout.SidebarWidth+borderCharsH, h, focused, panelLabel(panelID), tabs, activeTab, footer)
+		panels = append(panels, rendered)
+	}
+	return strings.Join(panels, "\n")
+}
+
+// renderSidebarPanelContent renders the content for a sidebar panel.
+func renderSidebarPanelContent(m *Model, panel PanelID, width, height int) string {
+	switch panel {
+	case PanelProjects:
+		return renderProjectsPanelContent(m, width, height)
+	case PanelPipelines:
+		return renderPipelinesPanelContent(m, width, height)
+	case PanelStages:
+		return renderStagesPanelContent(m, width, height)
+	case PanelMRs:
+		return renderMRsPanel(m, width, height)
+	default:
+		return ""
+	}
+}
+
+// renderProjectsPanelContent renders the projects list for the sidebar.
+func renderProjectsPanelContent(m *Model, width, height int) string {
+	if m.loading && len(m.allProjects) == 0 {
+		return explorerHintStyle.Render(clampLine(fmt.Sprintf(" %s Loading projects...", m.spinner.View()), width))
+	}
+	if m.err != nil {
+		return explorerErrorStyle.Render(clampLine(" "+m.err.Error(), width))
+	}
+	visible := m.visibleProjects()
+	if len(visible) == 0 && !m.loading {
+		return explorerHintStyle.Render(clampLine(" No projects found", width))
+	}
+
+	// Render project list
+	listHeight := max(1, height)
+	m.projectList.SetSize(width, listHeight)
+	content := m.projectList.View()
+
+	// Add search bar at bottom if active
+	if m.search.active || m.search.query != "" {
+		searchBar := renderSearchBar(*m, width)
+		return renderWithBottomHint(content, searchBar, height)
+	}
+	return content
+}
+
+// renderPipelinesPanelContent renders the pipelines list for the sidebar.
+func renderPipelinesPanelContent(m *Model, width, height int) string {
+	if m.pipelineView.project.ID == 0 {
+		return explorerHintStyle.Render(clampLine(" Select a project", width))
+	}
+	if m.pipelineView.loading && len(m.pipelineView.pipelines) == 0 {
+		return explorerHintStyle.Render(clampLine(" Loading pipelines...", width))
+	}
+	if m.pipelineView.err != nil {
+		return explorerErrorStyle.Render(clampLine(" "+m.pipelineView.err.Error(), width))
+	}
+	if len(m.pipelineView.pipelines) == 0 {
+		return explorerHintStyle.Render(clampLine(" "+msgNoPipelines, width))
+	}
+
+	listHeight := max(1, height)
+	m.pipelineView.pipelineList.SetSize(width, listHeight)
+	return m.pipelineView.pipelineList.View()
+}
+
+// renderStagesPanelContent renders the stages for the sidebar.
+func renderStagesPanelContent(m *Model, width, height int) string {
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return explorerHintStyle.Render(clampLine(" Select a pipeline", width))
+	}
+
+	stages, _ := m.pipelineView.stages.Get(pipeline.ID)
+	if m.pipelineView.stages.IsLoading(pipeline.ID) && len(stages) == 0 {
+		return explorerHintStyle.Render(clampLine(" Loading stages...", width))
+	}
+	if err := m.pipelineView.stages.Err(pipeline.ID); err != nil {
+		return explorerErrorStyle.Render(clampLine(" "+err.Error(), width))
+	}
+	if len(stages) == 0 {
+		return explorerHintStyle.Render(clampLine(" "+msgNoStages, width))
+	}
+
+	// Render stage table (height minus header row and its border)
+	m.pipelineView.stageTable.SetHeight(max(1, height-2))
+	return m.pipelineView.stageTable.View()
+}
+
+// renderRightArea renders the detail pane.
+func renderRightArea(m *Model, layout layoutResult) string {
+	detailContent := renderDetailContent(m, layout.DetailWidth, layout.DetailHeight)
+	detailFocused := m.focus.Active == PanelDetail
+	detailTitle := detailPaneTitle(m)
+	detailTabs, detailActiveTab := detailPaneTabs(m)
+	return renderBorderedPane(detailContent, layout.DetailWidth+borderCharsH, layout.DetailHeight, detailFocused, detailTitle, detailTabs, detailActiveTab, "")
+}
+
+// detailContextPanel returns the sidebar panel that determines detail content.
+// When the Detail pane itself is focused, we use PrevActive to know what to render.
+func detailContextPanel(m *Model) PanelID {
+	if m.focus.Active == PanelDetail {
+		return m.focus.PrevActive
+	}
+	return m.focus.Active
+}
+
+// renderDetailContent renders contextual content based on the focused sidebar panel.
+func renderDetailContent(m *Model, width, height int) string {
+	switch detailContextPanel(m) {
+	case PanelProjects:
+		return (&*m).cachedDetailPane(width, height)
+	case PanelPipelines, PanelStages:
+		return renderPipelineDetailContent(m, width, height)
+	case PanelMRs:
+		return renderMRDetailContent(m, width, height)
+	default:
+		return (&*m).cachedDetailPane(width, height)
+	}
+}
+
+// renderPipelineDetailContent dispatches to the correct tab content.
+func renderPipelineDetailContent(m *Model, width, height int) string {
+	switch m.pipelineView.detailTab {
+	case detailTabTests:
+		return renderTestReportContent(m, width, height)
+	case detailTabArtifacts:
+		return renderArtifactsContent(m, width, height)
+	default:
+		return renderPipelineLogContent(m, width, height)
+	}
+}
+
+// renderPipelineLogContent renders the job log in the detail pane.
+func renderPipelineLogContent(m *Model, width, height int) string {
+	preview := m.pipelineView.logPreview
+	b := &strings.Builder{}
+
+	job := m.pipelineLogJob()
+	if job != nil {
+		title := fmt.Sprintf("Job: %s (#%d)", job.Name, job.ID)
+		b.WriteString(detailHeaderStyle.Render(clampLine(title, width)))
+		b.WriteString("\n")
+		writeDetailKV(b, "Stage", job.Stage, width)
+		writeDetailKV(b, "Status", job.Status, width)
+		if job.FailureReason != "" {
+			writeDetailKV(b, "Failure", job.FailureReason, width)
+		}
+		if job.Duration > 0 {
+			writeDetailKV(b, "Duration", fmt.Sprintf("%.1fs", job.Duration), width)
+		}
+		writeDetailDivider(b, width)
+	}
+
+	if m.pipelineView.logAutoFollow && job != nil {
+		b.WriteString(lipgloss.NewStyle().Foreground(rosePineFoam).Render("[LIVE] "))
+	}
+
+	if preview.loading && preview.content == "" {
+		b.WriteString(explorerHintStyle.Render(clampLine(" Loading job log...", width)))
+		return b.String()
+	}
+	if preview.err != nil && preview.content == "" {
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+preview.err.Error(), width)))
+		return b.String()
+	}
+	if preview.content == "" {
+		b.WriteString(explorerHintStyle.Render(clampLine(" Select a stage to preview logs", width)))
+		return b.String()
+	}
+
+	// Sync viewport dimensions from layout before rendering
+	headerLines := strings.Count(b.String(), "\n")
+	vpHeight := max(1, height-headerLines)
+	if m.pipelineView.logViewport.Width != width || m.pipelineView.logViewport.Height != vpHeight {
+		m.pipelineView.logViewport.Width = width
+		m.pipelineView.logViewport.Height = vpHeight
+	}
+
+	b.WriteString(m.pipelineView.logViewport.View())
+	return b.String()
+}
+
+// renderTestReportContent renders the pipeline test report in the detail pane.
+func renderTestReportContent(m *Model, width, height int) string {
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return explorerHintStyle.Render(clampLine(" Select a pipeline", width))
+	}
+	if m.pipelineView.testReportLoading {
+		return explorerHintStyle.Render(clampLine(" Loading test report...", width))
+	}
+	if m.pipelineView.testReportErr != nil {
+		return explorerErrorStyle.Render(clampLine(" "+m.pipelineView.testReportErr.Error(), width))
+	}
+	if m.pipelineView.testReport == nil || m.pipelineView.testReportPipelineID != pipeline.ID {
+		return explorerHintStyle.Render(clampLine(" Press 't' to load test report", width))
+	}
+
+	report := m.pipelineView.testReport
+	b := &strings.Builder{}
+	b.WriteString(detailHeaderStyle.Render(clampLine(fmt.Sprintf("Test Report · Pipeline #%d", pipeline.ID), width)))
+	b.WriteString("\n")
+	writeDetailKV(b, "Total", fmt.Sprintf("%d", report.TotalCount), width)
+	writeDetailKV(b, "Passed", fmt.Sprintf("%d", report.SuccessCount), width)
+	writeDetailKV(b, "Failed", fmt.Sprintf("%d", report.FailedCount), width)
+	writeDetailKV(b, "Skipped", fmt.Sprintf("%d", report.SkippedCount), width)
+	writeDetailKV(b, "Errors", fmt.Sprintf("%d", report.ErrorCount), width)
+	if report.TotalTime > 0 {
+		writeDetailKV(b, "Time", fmt.Sprintf("%.2fs", report.TotalTime), width)
+	}
+
+	// Show failing test cases
+	for _, suite := range report.Suites {
+		if suite.FailedCount == 0 && suite.ErrorCount == 0 {
+			continue
+		}
+		writeDetailDivider(b, width)
+		writeDetailSection(b, fmt.Sprintf("%s (%d failed)", suite.Name, suite.FailedCount), width)
+		for _, tc := range suite.Cases {
+			if tc.Status != "failed" && tc.Status != "error" {
+				continue
+			}
+			b.WriteString(explorerErrorStyle.Render(clampLine(fmt.Sprintf("  %s %s", pipelineStatusIcon("failed"), tc.Name), width)))
+			b.WriteString("\n")
+			if tc.Classname != "" {
+				b.WriteString(explorerHintStyle.Render(clampLine(fmt.Sprintf("    class: %s", tc.Classname), width)))
+				b.WriteString("\n")
+			}
+			if tc.SystemOutput != "" {
+				lines := strings.Split(tc.SystemOutput, "\n")
+				for i, line := range lines {
+					if i >= 5 {
+						b.WriteString(explorerHintStyle.Render(clampLine("    ...", width)))
+						b.WriteString("\n")
+						break
+					}
+					b.WriteString(clampLine("    "+line, width))
+					b.WriteString("\n")
+				}
+			}
+		}
+	}
+	return b.String()
+}
+
+// renderArtifactsContent renders job artifacts in the detail pane.
+func renderArtifactsContent(m *Model, width, height int) string {
+	job := m.pipelineLogJob()
+	if job == nil {
+		return explorerHintStyle.Render(clampLine(" Select a stage to view artifacts", width))
+	}
+	b := &strings.Builder{}
+	b.WriteString(detailHeaderStyle.Render(clampLine(fmt.Sprintf("Artifacts · %s (#%d)", job.Name, job.ID), width)))
+	b.WriteString("\n")
+
+	if job.ArtifactsCount == 0 {
+		b.WriteString(explorerHintStyle.Render(clampLine(" No artifacts for this job", width)))
+		return b.String()
+	}
+
+	writeDetailKV(b, "Count", fmt.Sprintf("%d", job.ArtifactsCount), width)
+	if !job.ArtifactsExpireAt.IsZero() {
+		writeDetailKV(b, "Expires", formatTimeAgo(job.ArtifactsExpireAt), width)
+	}
+	writeDetailDivider(b, width)
+
+	for _, a := range job.Artifacts {
+		sizeStr := formatBytes(a.Size)
+		line := fmt.Sprintf("  %s  %s (%s)", a.FileType, a.Filename, sizeStr)
+		b.WriteString(clampLine(line, width))
+		b.WriteString("\n")
+	}
+
+	// Show bridges (child pipelines) if any
+	pipeline := m.selectedPipeline()
+	if pipeline != nil {
+		if bridges, _ := m.pipelineView.bridges.Get(pipeline.ID); len(bridges) > 0 {
+			writeDetailDivider(b, width)
+			writeDetailSection(b, "Child Pipelines", width)
+			for _, bridge := range bridges {
+				icon := pipelineStatusIcon(bridge.Status)
+				line := fmt.Sprintf("  %s %s", icon, bridge.Name)
+				if bridge.DownstreamPipeline != nil {
+					line += fmt.Sprintf(" -> #%d (%s)", bridge.DownstreamPipeline.ID, bridge.DownstreamPipeline.Status)
+				}
+				b.WriteString(clampLine(line, width))
+				b.WriteString("\n")
+			}
+		}
+	}
+
+	return b.String()
+}
+
+// renderMRDetailContent renders MR detail in the right pane.
+func renderMRDetailContent(m *Model, width, height int) string {
+	if len(m.mrView.mrs) == 0 || m.mrView.selected >= len(m.mrView.mrs) {
+		return explorerHintStyle.Render(clampLine(" Select a merge request", width))
+	}
+	mr := m.mrView.mrs[m.mrView.selected]
+	b := &strings.Builder{}
+	b.WriteString(detailHeaderStyle.Render(clampLine(fmt.Sprintf("!%d %s", mr.IID, mr.Title), width)))
+	b.WriteString("\n")
+	writeDetailKV(b, "State", mr.State, width)
+	writeDetailKV(b, "Author", mr.Author, width)
+	writeDetailKV(b, "Source", mr.SourceBranch, width)
+	writeDetailKV(b, "Target", mr.TargetBranch, width)
+	if mr.WebURL != "" {
+		writeDetailKV(b, "URL", truncate(mr.WebURL, width-10), width)
+	}
+	return b.String()
+}
+
+// detailPaneTitle returns the title for the detail pane based on context.
+func detailPaneTitle(m *Model) string {
+	switch detailContextPanel(m) {
+	case PanelProjects:
+		if proj, ok := m.selectedProject(); ok {
+			return "Details · " + truncate(proj.PathWithNamespace, 30)
+		}
+		return "Details"
+	case PanelPipelines, PanelStages:
+		tab := pipelineDetailTabLabels[m.pipelineView.detailTab]
+		switch m.pipelineView.detailTab {
+		case detailTabLog:
+			if job := m.pipelineLogJob(); job != nil {
+				suffix := " [LIVE]"
+				if !m.pipelineView.logAutoFollow {
+					suffix = " [PAUSED]"
+				}
+				return tab + " · " + job.Name + suffix
+			}
+			return tab
+		case detailTabTests:
+			if p := m.selectedPipeline(); p != nil {
+				return fmt.Sprintf("%s · #%d", tab, p.ID)
+			}
+			return tab
+		case detailTabArtifacts:
+			if job := m.pipelineLogJob(); job != nil {
+				return fmt.Sprintf("%s · %s", tab, job.Name)
+			}
+			return tab
+		default:
+			return tab
+		}
+	case PanelMRs:
+		return "Merge Request"
+	default:
+		return "Detail"
+	}
+}
+
+// detailPaneTabs returns tabs for the detail pane if applicable.
+func detailPaneTabs(m *Model) ([]string, int) {
+	switch detailContextPanel(m) {
+	case PanelPipelines, PanelStages:
+		return pipelineDetailTabLabels, int(m.pipelineView.detailTab)
+	default:
+		return nil, 0
+	}
+}
+
+// panelTabs returns the tab labels and active tab for a sidebar panel.
+func panelTabs(panel PanelID, m *Model) ([]string, int) {
+	switch panel {
+	case PanelPipelines:
+		page := max(1, m.pipelineView.page)
+		total := max(1, m.pipelineView.totalPages)
+		if total > 1 {
+			return []string{fmt.Sprintf("Page %d/%d", page, total)}, 0
+		}
+		return nil, 0
+	case PanelMRs:
+		return mrTabLabels, int(m.mrView.tab)
+	default:
+		return nil, 0
+	}
+}

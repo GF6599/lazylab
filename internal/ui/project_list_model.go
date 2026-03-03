@@ -29,6 +29,7 @@ const (
 	modeExplorer
 	modeProjectActions
 	modePipelines
+	modeMultiPanel // New lazygit-style multi-panel layout
 )
 
 const (
@@ -95,12 +96,7 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		return
 	}
 
-	cursor := " "
-	style := itemStyle
-	if index == m.Index() {
-		cursor = ">"
-		style = selectedItemStyle
-	}
+	cursor, style := listCursorStyle(index, m.Index())
 
 	// Add pipeline status icon if available
 	statusIcon := ""
@@ -135,12 +131,7 @@ func (d actionMenuDelegate) Render(w io.Writer, m list.Model, index int, item li
 		return
 	}
 
-	cursor := " "
-	style := itemStyle
-	if index == m.Index() {
-		cursor = ">"
-		style = selectedItemStyle
-	}
+	cursor, style := listCursorStyle(index, m.Index())
 
 	line := fmt.Sprintf("%s %s", cursor, aItem.label)
 	fmt.Fprint(w, style.Render(line))
@@ -156,9 +147,9 @@ func (i pipelineItem) Title() string {
 }
 
 func (i pipelineItem) Description() string {
-	timestamp := "unknown"
+	timestamp := unknownStatus
 	if !i.summary.UpdatedAt.IsZero() {
-		timestamp = i.summary.UpdatedAt.Local().Format("01-02 15:04")
+		timestamp = i.summary.UpdatedAt.Local().Format(timestampFormat)
 	}
 	return fmt.Sprintf("%s - %s - %s", i.summary.Status, timestamp, i.summary.Ref)
 }
@@ -182,17 +173,12 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 		return
 	}
 
-	cursor := " "
-	style := itemStyle
-	if index == m.Index() {
-		cursor = ">"
-		style = selectedItemStyle
-	}
+	cursor, style := listCursorStyle(index, m.Index())
 
 	statusBadge := pipelineStatusBadgeWithWidth(pItem.summary.Status, 12)
-	timestamp := "unknown"
+	timestamp := unknownStatus
 	if !pItem.summary.UpdatedAt.IsZero() {
-		timestamp = pItem.summary.UpdatedAt.Local().Format("01-02 15:04")
+		timestamp = pItem.summary.UpdatedAt.Local().Format(timestampFormat)
 	}
 	ref := pItem.summary.Ref
 	if ref == "" {
@@ -233,12 +219,7 @@ func (d treeEntryDelegate) Render(w io.Writer, m list.Model, index int, item lis
 		return
 	}
 
-	cursor := " "
-	style := itemStyle
-	if index == m.Index() {
-		cursor = ">"
-		style = selectedItemStyle
-	}
+	cursor, style := listCursorStyle(index, m.Index())
 
 	icon := explorerEntryIcon(eItem.entry)
 	name := eItem.entry.Name
@@ -253,7 +234,7 @@ func (d treeEntryDelegate) Render(w io.Writer, m list.Model, index int, item lis
 // Model shows a list of projects and metadata for the selected entry.
 type Model struct {
 	ctx               context.Context // Parent context for cancellation
-	client            *gitlab.Client
+	client            gitlab.Service
 	opts              Options
 	allProjects       []gitlab.ProjectNode
 	selected          int
@@ -270,11 +251,12 @@ type Model struct {
 	backgroundLoading bool
 	cache             *projectCache
 	mode              Mode
+	focus             FocusState // Multi-panel focus tracking
 	explorer          explorerState
 	pipelineStatus    map[int]pipelineState
 	actionMenu        actionMenuState
 	pipelineView      pipelineViewState
-
+	mrView            mrViewState
 	// Bubble components
 	keys           keyMap
 	help           help.Model
@@ -303,6 +285,13 @@ type Model struct {
 
 	previewHighlightCache map[string]previewHighlightEntry
 	previewHighlightOrder []string
+
+	// commitCache and commitLoading track per-project recent commits, keyed
+	// by project ID. Fetched lazily when a project is selected in the multi-panel
+	// layout and cached indefinitely (commits rarely change fast enough to matter
+	// during a single session). Unlike pipeline status, there is no periodic refresh.
+	commitCache   map[int][]gitlab.CommitSummary
+	commitLoading map[int]bool
 }
 
 type searchState struct {
@@ -357,17 +346,12 @@ type pipelineViewState struct {
 	page                 int
 	totalPages           int
 	perPage              int
-	stageCache           map[int][]gitlab.PipelineStage
-	stageLoading         map[int]bool
-	stageErr             map[int]error
+	stages               AsyncCache[int, []gitlab.PipelineStage]
 	stageSelected        int
-	stageTable           table.Model // Table for displaying stages
-	jobsCache            map[int][]gitlab.PipelineJob
-	jobsLoading          map[int]bool
-	jobsErr              map[int]error
-	logCache             map[int]string
-	logLoading           map[int]bool
-	logErr               map[int]error
+	stageTable           table.Model          // Table for displaying stages
+	jobRows              []gitlab.PipelineJob // Maps table cursor index → job
+	jobs                 AsyncCache[int, []gitlab.PipelineJob]
+	logs                 AsyncCache[int, string]
 	logPreview           previewState
 	logViewport          viewport.Model
 	logJobID             int
@@ -385,6 +369,12 @@ type pipelineViewState struct {
 	retryErr             error
 	pendingSelectID      int
 	paginator            paginator.Model
+	bridges              AsyncCache[int, []gitlab.PipelineBridge]
+	testReport           *gitlab.TestReport
+	testReportLoading    bool
+	testReportErr        error
+	testReportPipelineID int
+	detailTab            pipelineDetailTab
 }
 
 type pipelineState struct {
@@ -406,7 +396,7 @@ const (
 )
 
 // NewModel returns a ready-to-run Bubble Tea model.
-func NewModel(client *gitlab.Client, opts Options) Model {
+func NewModel(client gitlab.Service, opts Options) Model {
 	if opts.ProjectsPerPage <= 0 {
 		opts.ProjectsPerPage = 30
 	}
@@ -446,12 +436,7 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 
 	// Initialize project list
 	delegate := projectDelegate{pipelineStatus: pipelineStatus}
-	projectList := list.New([]list.Item{}, delegate, 0, 0)
-	projectList.Title = ""
-	projectList.SetShowStatusBar(false)
-	projectList.SetShowPagination(false)
-	projectList.SetShowHelp(false)
-	projectList.SetFilteringEnabled(false)
+	projectList := newBareList(nil, delegate, 0, 0)
 	projectList.Styles.Title = titleStyle
 
 	m := Model{
@@ -459,7 +444,8 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 		client:         client,
 		opts:           opts,
 		page:           1,
-		mode:           modeProjects,
+		mode:           modeMultiPanel,
+		focus:          FocusState{Active: PanelProjects},
 		pipelineStatus: pipelineStatus,
 		search: searchState{
 			active: false,
@@ -475,6 +461,8 @@ func NewModel(client *gitlab.Client, opts Options) Model {
 		recentProjects:        make([]int, 0, 10),
 		previewHighlightCache: make(map[string]previewHighlightEntry),
 		previewHighlightOrder: make([]string, 0, maxPreviewHighlightEntries),
+		commitCache:           make(map[int][]gitlab.CommitSummary),
+		commitLoading:         make(map[int]bool),
 	}
 	if cache, err := newProjectCache(opts.Host); err == nil {
 		m.cache = cache
@@ -533,6 +521,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, spinnerCmd
 		}
 		switch m.mode {
+		case modeMultiPanel:
+			// Check if in explorer overlay
+			if m.explorer.project.ID != 0 && len(m.explorer.stack) > 0 {
+				newModel, cmd := m.handleExplorerKey(msg)
+				return newModel, tea.Batch(spinnerCmd, cmd)
+			}
+			// Retry confirmation modal
+			if m.pipelineView.confirmRetry {
+				newModel, cmd := m.handlePipelineRetryConfirmKey(msg)
+				return newModel, tea.Batch(spinnerCmd, cmd)
+			}
+			newModel, cmd := m.handleMultiPanelKey(msg)
+			return newModel, tea.Batch(spinnerCmd, cmd)
 		case modeExplorer:
 			newModel, cmd := m.handleExplorerKey(msg)
 			return newModel, tea.Batch(spinnerCmd, cmd)
@@ -586,6 +587,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePipelineDebounceTickMsg(msg)
 	case searchDebounceTickMsg:
 		return m.handleSearchDebounceTickMsg(msg)
+	case mrsLoadedMsg:
+		return m.handleMRsLoaded(msg)
+	case pipelineCanceledMsg:
+		return m.handlePipelineCanceled(msg)
+	case jobCanceledMsg:
+		return m.handleJobCanceled(msg)
+	case jobPlayedMsg:
+		return m.handleJobPlayed(msg)
+	case bridgesLoadedMsg:
+		return m.handleBridgesLoaded(msg)
+	case testReportLoadedMsg:
+		return m.handleTestReportLoaded(msg)
+	case commitsLoadedMsg:
+		return m.handleCommitsLoaded(msg)
 	}
 	return m, nil
 }

@@ -27,12 +27,7 @@ func (m Model) openProjectActions(project gitlab.ProjectNode) (tea.Model, tea.Cm
 	}
 
 	delegate := actionMenuDelegate{}
-	menuList := list.New(items, delegate, 0, 0)
-	menuList.Title = ""
-	menuList.SetShowStatusBar(false)
-	menuList.SetShowPagination(false)
-	menuList.SetShowHelp(false)
-	menuList.SetFilteringEnabled(false)
+	menuList := newBareList(items, delegate, 0, 0)
 	menuList.Styles.Title = titleStyle
 
 	m.actionMenu = actionMenuState{
@@ -59,19 +54,8 @@ func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 
 	// Initialize bubbles lists for explorer panes
 	delegate := treeEntryDelegate{}
-	parentList := list.New([]list.Item{}, delegate, 0, 0)
-	parentList.Title = ""
-	parentList.SetShowStatusBar(false)
-	parentList.SetShowPagination(false)
-	parentList.SetShowHelp(false)
-	parentList.SetFilteringEnabled(false)
-
-	currentList := list.New([]list.Item{}, delegate, 0, 0)
-	currentList.Title = ""
-	currentList.SetShowStatusBar(false)
-	currentList.SetShowPagination(false)
-	currentList.SetShowHelp(false)
-	currentList.SetFilteringEnabled(false)
+	parentList := newBareList(nil, delegate, 0, 0)
+	currentList := newBareList(nil, delegate, 0, 0)
 
 	// Initialize preview viewport with proper dimensions
 	previewVp := viewport.New(previewContentWidth(m.width), previewContentHeight(m.height))
@@ -91,11 +75,11 @@ func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	m.mode = modePipelines
 
-	// Initialize stage table
+	// Initialize stage table (job-per-row layout)
 	columns := []table.Column{
-		{Title: "Stage", Width: 20},
-		{Title: "Status", Width: 12},
-		{Title: "Jobs", Width: 30},
+		{Title: "Job", Width: 24},
+		{Title: "Stage", Width: 16},
+		{Title: "Status", Width: 16},
 	}
 	t := table.New(
 		table.WithColumns(columns),
@@ -121,12 +105,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 
 	// Initialize pipeline list
 	delegate := pipelineDelegate{}
-	pipelineList := list.New([]list.Item{}, delegate, 0, 0)
-	pipelineList.Title = ""
-	pipelineList.SetShowStatusBar(false)
-	pipelineList.SetShowPagination(false)
-	pipelineList.SetShowHelp(false)
-	pipelineList.SetFilteringEnabled(false)
+	pipelineList := newBareList(nil, delegate, 0, 0)
 	pipelineList.Styles.Title = titleStyle
 
 	// Initialize log viewport with proper dimensions
@@ -139,19 +118,14 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		page:          1,
 		totalPages:    1,
 		perPage:       pipelinePerPage,
-		stageCache:    make(map[int][]gitlab.PipelineStage),
-		stageLoading:  make(map[int]bool),
-		stageErr:      make(map[int]error),
+		stages:        NewAsyncCache[int, []gitlab.PipelineStage](),
 		stageTable:    t,
-		jobsCache:     make(map[int][]gitlab.PipelineJob),
-		jobsLoading:   make(map[int]bool),
-		jobsErr:       make(map[int]error),
-		logCache:      make(map[int]string),
-		logLoading:    make(map[int]bool),
-		logErr:        make(map[int]error),
+		jobs:          NewAsyncCache[int, []gitlab.PipelineJob](),
+		logs:          NewAsyncCache[int, string](),
 		logViewport:   logVp,
 		logAutoFollow: true,
 		focus:         pipelineFocusPipelines,
+		bridges:       NewAsyncCache[int, []gitlab.PipelineBridge](),
 	}
 	m.status = fmt.Sprintf("Pipelines for %s", project.PathWithNamespace)
 	return m, fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, m.pipelineView.page, m.pipelineView.perPage)
@@ -184,6 +158,16 @@ func (m *Model) closePipelineView() {
 	m.updateProjectListSize()
 }
 
+// resetPipelineViewCaches reinitializes all per-pipeline caches (stages, jobs,
+// logs) so that stale data from a previous page or reload is not displayed.
+func (pv *pipelineViewState) resetCaches() {
+	pv.stages.Clear()
+	pv.stageSelected = 0
+	pv.jobRows = nil
+	pv.jobs.Clear()
+	pv.logs.Clear()
+}
+
 func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
 	if m.pipelineView.project.ID == 0 {
 		return *m, nil
@@ -202,16 +186,7 @@ func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
 	m.pipelineView.selected = 0
 	m.pipelineView.page = page
 	m.pipelineView.perPage = perPage
-	m.pipelineView.stageCache = make(map[int][]gitlab.PipelineStage)
-	m.pipelineView.stageLoading = make(map[int]bool)
-	m.pipelineView.stageErr = make(map[int]error)
-	m.pipelineView.stageSelected = 0
-	m.pipelineView.jobsCache = make(map[int][]gitlab.PipelineJob)
-	m.pipelineView.jobsLoading = make(map[int]bool)
-	m.pipelineView.jobsErr = make(map[int]error)
-	m.pipelineView.logCache = make(map[int]string)
-	m.pipelineView.logLoading = make(map[int]bool)
-	m.pipelineView.logErr = make(map[int]error)
+	m.pipelineView.resetCaches()
 	m.pipelineView.logPreview = previewState{}
 	m.pipelineView.logJobID = 0
 	m.pipelineView.pendingLogJobID = 0
@@ -249,16 +224,7 @@ func (m *Model) changePipelinePage(delta int) tea.Cmd {
 	m.pipelineView.page = target
 	m.pipelineView.perPage = perPage
 	m.pipelineView.totalPages = max(1, m.pipelineView.totalPages)
-	m.pipelineView.stageCache = make(map[int][]gitlab.PipelineStage)
-	m.pipelineView.stageLoading = make(map[int]bool)
-	m.pipelineView.stageErr = make(map[int]error)
-	m.pipelineView.stageSelected = 0
-	m.pipelineView.jobsCache = make(map[int][]gitlab.PipelineJob)
-	m.pipelineView.jobsLoading = make(map[int]bool)
-	m.pipelineView.jobsErr = make(map[int]error)
-	m.pipelineView.logCache = make(map[int]string)
-	m.pipelineView.logLoading = make(map[int]bool)
-	m.pipelineView.logErr = make(map[int]error)
+	m.pipelineView.resetCaches()
 	m.resetPipelineLogPreview()
 	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, target, perPage)
 }
@@ -307,7 +273,9 @@ func (m Model) reloadExplorerPath() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) closeExplorer(status string) {
-	m.mode = modeProjects
+	if m.mode != modeMultiPanel {
+		m.mode = modeProjects
+	}
 	m.explorer = explorerState{}
 	if status != "" {
 		m.status = status
@@ -355,6 +323,69 @@ func (m *Model) copyCloneCommand() {
 		return
 	}
 	m.status = "Copied clone command to clipboard"
+}
+
+// copyPipelineURL copies the selected pipeline's web URL to the clipboard.
+func (m *Model) copyPipelineURL() {
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		m.status = msgNoPipeline
+		return
+	}
+	if pipeline.WebURL == "" {
+		m.status = "Pipeline has no URL"
+		return
+	}
+	if err := clipboard.WriteAll(pipeline.WebURL); err != nil {
+		m.status = "Failed to copy pipeline URL"
+		if m.opts.Logger != nil {
+			m.opts.Logger.Error("copy clipboard", "err", err)
+		}
+		return
+	}
+	m.status = fmt.Sprintf("Copied pipeline #%d URL", pipeline.ID)
+}
+
+// copyJobURL copies the selected job's web URL to the clipboard.
+func (m *Model) copyJobURL() {
+	job := m.selectedPipelineJob()
+	if job == nil {
+		m.status = "No job selected"
+		return
+	}
+	if job.WebURL == "" {
+		m.status = "Job has no URL"
+		return
+	}
+	if err := clipboard.WriteAll(job.WebURL); err != nil {
+		m.status = "Failed to copy job URL"
+		if m.opts.Logger != nil {
+			m.opts.Logger.Error("copy clipboard", "err", err)
+		}
+		return
+	}
+	m.status = fmt.Sprintf("Copied job %s URL", job.Name)
+}
+
+// copyMRURL copies the selected merge request's web URL to the clipboard.
+func (m *Model) copyMRURL() {
+	if len(m.mrView.mrs) == 0 || m.mrView.selected >= len(m.mrView.mrs) {
+		m.status = "No merge request selected"
+		return
+	}
+	mr := m.mrView.mrs[m.mrView.selected]
+	if mr.WebURL == "" {
+		m.status = "Merge request has no URL"
+		return
+	}
+	if err := clipboard.WriteAll(mr.WebURL); err != nil {
+		m.status = "Failed to copy MR URL"
+		if m.opts.Logger != nil {
+			m.opts.Logger.Error("copy clipboard", "err", err)
+		}
+		return
+	}
+	m.status = fmt.Sprintf("Copied !%d URL", mr.IID)
 }
 
 func (m Model) selectedProject() (gitlab.ProjectNode, bool) {
@@ -509,66 +540,50 @@ func (m *Model) shouldFetchPipelineData(loading map[int]bool) (int, bool) {
 // skipping if already cached. Used on initial selection — contrast with
 // queuePipelineStagesRefresh which always re-fetches.
 func (m *Model) queuePipelineStagesForSelection() tea.Cmd {
-	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.stageLoading)
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.stages.LoadingMap())
 	if !ok {
 		return nil
 	}
-	if _, cached := m.pipelineView.stageCache[pipelineID]; cached {
+	if _, cached := m.pipelineView.stages.Get(pipelineID); cached {
 		return nil
 	}
-	if m.pipelineView.stageLoading == nil {
-		m.pipelineView.stageLoading = make(map[int]bool)
-	}
-	m.pipelineView.stageLoading[pipelineID] = true
-	delete(m.pipelineView.stageErr, pipelineID)
+	m.pipelineView.stages.SetLoading(pipelineID)
 	return fetchPipelineStagesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
 // queuePipelineJobsForSelection fetches jobs for the selected pipeline,
 // skipping if already cached. See queuePipelineJobsRefresh for forced re-fetch.
 func (m *Model) queuePipelineJobsForSelection() tea.Cmd {
-	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.jobsLoading)
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.jobs.LoadingMap())
 	if !ok {
 		return nil
 	}
-	if _, cached := m.pipelineView.jobsCache[pipelineID]; cached {
+	if _, cached := m.pipelineView.jobs.Get(pipelineID); cached {
 		return nil
 	}
-	if m.pipelineView.jobsLoading == nil {
-		m.pipelineView.jobsLoading = make(map[int]bool)
-	}
-	m.pipelineView.jobsLoading[pipelineID] = true
-	delete(m.pipelineView.jobsErr, pipelineID)
+	m.pipelineView.jobs.SetLoading(pipelineID)
 	return fetchPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
 // queuePipelineStagesRefresh re-fetches stages unconditionally (ignores cache).
 // Called during auto-refresh ticks to pick up status changes.
 func (m *Model) queuePipelineStagesRefresh() tea.Cmd {
-	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.stageLoading)
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.stages.LoadingMap())
 	if !ok {
 		return nil
 	}
-	if m.pipelineView.stageLoading == nil {
-		m.pipelineView.stageLoading = make(map[int]bool)
-	}
-	m.pipelineView.stageLoading[pipelineID] = true
-	delete(m.pipelineView.stageErr, pipelineID)
+	m.pipelineView.stages.SetLoading(pipelineID)
 	return fetchPipelineStagesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
 // queuePipelineJobsRefresh re-fetches jobs unconditionally (ignores cache).
 // Called during auto-refresh ticks to pick up status changes.
 func (m *Model) queuePipelineJobsRefresh() tea.Cmd {
-	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.jobsLoading)
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.jobs.LoadingMap())
 	if !ok {
 		return nil
 	}
-	if m.pipelineView.jobsLoading == nil {
-		m.pipelineView.jobsLoading = make(map[int]bool)
-	}
-	m.pipelineView.jobsLoading[pipelineID] = true
-	delete(m.pipelineView.jobsErr, pipelineID)
+	m.pipelineView.jobs.SetLoading(pipelineID)
 	return fetchPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
@@ -577,34 +592,16 @@ func (m *Model) selectedPipelineStages() []gitlab.PipelineStage {
 	if pipeline == nil {
 		return nil
 	}
-	if m.pipelineView.stageCache == nil {
-		return nil
-	}
-	return m.pipelineView.stageCache[pipeline.ID]
+	stages, _ := m.pipelineView.stages.Get(pipeline.ID)
+	return stages
 }
 
 func (m *Model) selectedPipelineJob() *gitlab.PipelineJob {
-	pipeline := m.selectedPipeline()
-	if pipeline == nil {
+	idx := m.pipelineView.stageSelected
+	if idx < 0 || idx >= len(m.pipelineView.jobRows) {
 		return nil
 	}
-	if m.pipelineView.jobsCache == nil {
-		return nil
-	}
-	jobs, ok := m.pipelineView.jobsCache[pipeline.ID]
-	if !ok {
-		return nil
-	}
-	stages := m.selectedPipelineStages()
-	if len(stages) == 0 {
-		return nil
-	}
-	stageIndex := m.pipelineView.stageSelected
-	if stageIndex < 0 || stageIndex >= len(stages) {
-		stageIndex = max(0, len(stages)-1)
-	}
-	stageName := stages[stageIndex].Name
-	return latestJobForStage(jobs, stageName)
+	return &m.pipelineView.jobRows[idx]
 }
 
 func (m *Model) queuePipelineLogPreview() tea.Cmd {
@@ -612,58 +609,37 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 	if pipeline == nil {
 		return nil
 	}
-	if m.pipelineView.jobsCache == nil {
+	if _, ok := m.pipelineView.jobs.Get(pipeline.ID); !ok {
 		return m.queuePipelineJobsForSelection()
 	}
-	jobs, ok := m.pipelineView.jobsCache[pipeline.ID]
-	if !ok {
-		return m.queuePipelineJobsForSelection()
-	}
-	stages := m.selectedPipelineStages()
-	if len(stages) == 0 {
-		m.pipelineView.logPreview = previewState{content: "No stages available.", loading: false}
-		return nil
-	}
-	if m.pipelineView.stageSelected >= len(stages) {
-		m.pipelineView.stageSelected = max(0, len(stages)-1)
-	}
-	stageName := stages[m.pipelineView.stageSelected].Name
-	job := latestJobForStage(jobs, stageName)
+	job := m.selectedPipelineJob()
 	if job == nil {
-		m.pipelineView.logPreview = previewState{content: "No jobs available for stage.", loading: false}
+		m.pipelineView.logPreview = previewState{content: "No jobs available.", loading: false}
 		return nil
 	}
-	if m.pipelineView.logCache != nil {
-		if content, ok := m.pipelineView.logCache[job.ID]; ok {
-			prevJobID := m.pipelineView.logJobID
-			m.pipelineView.logPreview = previewState{
-				path:    job.Name,
-				content: content,
-				raw:     content,
-				loading: false,
-			}
-			m.pipelineView.logViewport.SetContent(content)
-			m.pipelineView.logJobID = job.ID
-			if m.pipelineView.logAutoFollow {
-				m.pipelineView.logViewport.GotoBottom()
-			} else {
-				if prevJobID != job.ID {
-					m.pipelineView.logViewport.GotoTop()
-				}
-			}
-			return nil
+	if content, ok := m.pipelineView.logs.Get(job.ID); ok {
+		prevJobID := m.pipelineView.logJobID
+		m.pipelineView.logPreview = previewState{
+			path:    job.Name,
+			content: content,
+			raw:     content,
+			loading: false,
 		}
-	}
-	if m.pipelineView.logLoading == nil {
-		m.pipelineView.logLoading = make(map[int]bool)
-	}
-	if m.pipelineView.logLoading[job.ID] {
+		m.setLogViewportContent(content)
+		m.pipelineView.logJobID = job.ID
+		if m.pipelineView.logAutoFollow {
+			m.pipelineView.logViewport.GotoBottom()
+		} else {
+			if prevJobID != job.ID {
+				m.pipelineView.logViewport.GotoTop()
+			}
+		}
 		return nil
 	}
-	m.pipelineView.logLoading[job.ID] = true
-	if m.pipelineView.logErr != nil {
-		delete(m.pipelineView.logErr, job.ID)
+	if m.pipelineView.logs.IsLoading(job.ID) {
+		return nil
 	}
+	m.pipelineView.logs.SetLoading(job.ID)
 	m.pipelineView.logPreview = previewState{path: job.Name, loading: true}
 	m.pipelineView.logJobID = job.ID
 	return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, job.ID)
@@ -674,41 +650,20 @@ func (m *Model) queuePipelineLogRefresh() tea.Cmd {
 	if pipeline == nil {
 		return nil
 	}
-	if m.pipelineView.jobsCache == nil {
+	if _, ok := m.pipelineView.jobs.Get(pipeline.ID); !ok {
 		return m.queuePipelineJobsForSelection()
 	}
-	jobs, ok := m.pipelineView.jobsCache[pipeline.ID]
-	if !ok {
-		return m.queuePipelineJobsForSelection()
-	}
-	stages := m.selectedPipelineStages()
-	if len(stages) == 0 {
-		if m.pipelineView.logPreview.content == "" {
-			m.pipelineView.logPreview = previewState{content: "No stages available.", loading: false}
-		}
-		return nil
-	}
-	if m.pipelineView.stageSelected >= len(stages) {
-		m.pipelineView.stageSelected = max(0, len(stages)-1)
-	}
-	stageName := stages[m.pipelineView.stageSelected].Name
-	job := latestJobForStage(jobs, stageName)
+	job := m.selectedPipelineJob()
 	if job == nil {
 		if m.pipelineView.logPreview.content == "" {
-			m.pipelineView.logPreview = previewState{content: "No jobs available for stage.", loading: false}
+			m.pipelineView.logPreview = previewState{content: "No jobs available.", loading: false}
 		}
 		return nil
 	}
-	if m.pipelineView.logLoading == nil {
-		m.pipelineView.logLoading = make(map[int]bool)
-	}
-	if m.pipelineView.logLoading[job.ID] {
+	if m.pipelineView.logs.IsLoading(job.ID) {
 		return nil
 	}
-	m.pipelineView.logLoading[job.ID] = true
-	if m.pipelineView.logErr != nil {
-		delete(m.pipelineView.logErr, job.ID)
-	}
+	m.pipelineView.logs.SetLoading(job.ID)
 	if job.ID != m.pipelineView.logJobID {
 		m.pipelineView.pendingLogJobID = job.ID
 		if m.pipelineView.logPreview.err != nil && m.pipelineView.logPreview.content == "" {
@@ -721,9 +676,6 @@ func (m *Model) queuePipelineLogRefresh() tea.Cmd {
 }
 
 func (m *Model) refreshPipelineLogPreviewFromCache() bool {
-	if m.pipelineView.logCache == nil {
-		return false
-	}
 	if m.pipelineView.logAutoFollow && m.pipelineView.pendingLogJobID != 0 {
 		m.pipelineView.logJobID = m.pipelineView.pendingLogJobID
 		m.pipelineView.pendingLogJobID = 0
@@ -731,7 +683,7 @@ func (m *Model) refreshPipelineLogPreviewFromCache() bool {
 	if m.pipelineView.logJobID == 0 {
 		return false
 	}
-	content, ok := m.pipelineView.logCache[m.pipelineView.logJobID]
+	content, ok := m.pipelineView.logs.Get(m.pipelineView.logJobID)
 	if !ok || content == "" {
 		return false
 	}
@@ -922,15 +874,12 @@ func (m *Model) appendPage(page gitlab.ProjectPage) {
 // evictOldLogs removes oldest entries from logCache if it exceeds maxLogCacheEntries.
 // This prevents unbounded memory growth when auto-refreshing pipeline logs.
 func (m *Model) evictOldLogs() {
-	if m.pipelineView.logCache == nil || len(m.pipelineView.logCache) <= maxLogCacheEntries {
+	if m.pipelineView.logs.Len() <= maxLogCacheEntries {
 		return
 	}
 
 	// Find jobs to evict (oldest by job ID - assumes increasing IDs over time)
-	jobIDs := make([]int, 0, len(m.pipelineView.logCache))
-	for jobID := range m.pipelineView.logCache {
-		jobIDs = append(jobIDs, jobID)
-	}
+	jobIDs := m.pipelineView.logs.Keys()
 	sort.Ints(jobIDs)
 
 	// Keep the current job and the most recent ones, remove the oldest
@@ -941,13 +890,7 @@ func (m *Model) evictOldLogs() {
 		if jobID == m.pipelineView.logJobID {
 			continue
 		}
-		delete(m.pipelineView.logCache, jobID)
-		if m.pipelineView.logLoading != nil {
-			delete(m.pipelineView.logLoading, jobID)
-		}
-		if m.pipelineView.logErr != nil {
-			delete(m.pipelineView.logErr, jobID)
-		}
+		m.pipelineView.logs.Delete(jobID)
 	}
 }
 
@@ -1017,44 +960,54 @@ func (m *Model) selectedEntry() *gitlab.TreeNode {
 	return &dir.entries[dir.selected]
 }
 
-// updateStageTable updates the stage table with current pipeline stages and jobs
+// updateStageTable builds a job-per-row table grouped by stage.
+// Each row maps to one job; the stage column is shown only on the
+// first job of each stage group so the table reads cleanly.
 func (m *Model) updateStageTable() {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
 		m.pipelineView.stageTable.SetRows([]table.Row{})
+		m.pipelineView.jobRows = nil
 		return
 	}
 
-	stages := m.pipelineView.stageCache[pipeline.ID]
-	jobs := m.pipelineView.jobsCache[pipeline.ID]
+	stages, _ := m.pipelineView.stages.Get(pipeline.ID)
+	jobs, _ := m.pipelineView.jobs.Get(pipeline.ID)
 
-	if len(stages) == 0 {
+	if len(stages) == 0 || len(jobs) == 0 {
 		m.pipelineView.stageTable.SetRows([]table.Row{})
+		m.pipelineView.jobRows = nil
 		return
 	}
 
-	// Build rows for the table
-	rows := make([]table.Row, len(stages))
-	for i, stage := range stages {
-		status := stage.Status
-		if status == "" {
-			status = "unknown"
-		}
-		summary := stageJobSummary(jobs, stage.Name)
-		if summary != "" {
-			summary = strings.TrimPrefix(summary, " ")
-		}
-		rows[i] = table.Row{
-			stage.Name,
-			pipelineStatusLabel(status),
-			summary,
+	// Build ordered job list grouped by stage order
+	var rows []table.Row
+	var jobRows []gitlab.PipelineJob
+	for _, stage := range stages {
+		first := true
+		for _, job := range jobs {
+			if job.Stage != stage.Name {
+				continue
+			}
+			stageCol := ""
+			if first {
+				stageCol = stage.Name
+				first = false
+			}
+			status := strings.ToLower(job.Status)
+			if status == "" {
+				status = unknownStatus
+			}
+			statusLabel := pipelineStatusIcon(status) + " " + strings.ToUpper(status)
+			rows = append(rows, table.Row{job.Name, stageCol, statusLabel})
+			jobRows = append(jobRows, job)
 		}
 	}
 
+	m.pipelineView.jobRows = jobRows
 	m.pipelineView.stageTable.SetRows(rows)
 
-	// Update cursor position to match stageSelected
-	if m.pipelineView.stageSelected >= 0 && m.pipelineView.stageSelected < len(stages) {
+	if m.pipelineView.stageSelected >= 0 && m.pipelineView.stageSelected < len(rows) {
 		m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
 	}
 }
@@ -1062,7 +1015,7 @@ func (m *Model) updateStageTable() {
 // updateViewportSizes updates viewport dimensions when terminal resizes.
 // viewport.Model exposes Width/Height as public fields (no SetSize method).
 func (m *Model) updateViewportSizes() {
-	if m.mode == modeExplorer {
+	if m.mode == modeExplorer || (m.mode == modeMultiPanel && m.explorer.project.ID != 0) {
 		width := previewContentWidth(m.width)
 		height := previewContentHeight(m.height)
 		if m.explorer.preview.viewport.Width != width || m.explorer.preview.viewport.Height != height {
@@ -1070,18 +1023,33 @@ func (m *Model) updateViewportSizes() {
 			m.explorer.preview.viewport.Height = height
 		}
 	}
-	if m.mode == modePipelines {
-		width := pipelineLogContentWidth(m.width)
-		height := pipelineLogContentHeight(m.height)
-		if m.pipelineView.logViewport.Width != width || m.pipelineView.logViewport.Height != height {
-			m.pipelineView.logViewport.Width = width
-			m.pipelineView.logViewport.Height = height
+	if m.mode == modePipelines || m.mode == modeMultiPanel {
+		var width, height int
+		if m.mode == modeMultiPanel {
+			layout := computeLayout(m.width, m.height, m.focus)
+			if layout.OK {
+				width = layout.DetailWidth
+				height = layout.DetailHeight
+			}
+		} else {
+			width = pipelineLogContentWidth(m.width)
+			height = pipelineLogContentHeight(m.height)
+		}
+		if width > 0 && height > 0 {
+			if m.pipelineView.logViewport.Width != width || m.pipelineView.logViewport.Height != height {
+				m.pipelineView.logViewport.Width = width
+				m.pipelineView.logViewport.Height = height
+			}
 		}
 	}
 }
 
 func (m *Model) updateProjectListSize() {
-	if m.mode != modeProjects {
+	if m.mode != modeProjects && m.mode != modeMultiPanel {
+		return
+	}
+	if m.mode == modeMultiPanel {
+		// In multi-panel mode, project list size is set during render
 		return
 	}
 	listWidth, _, contentHeight, ok := projectPaneLayout(m.width, m.height)

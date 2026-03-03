@@ -23,6 +23,22 @@ func (m Model) View() string {
 		return m.renderHelpView(width)
 	}
 
+	// Multi-panel mode: the new default
+	if m.mode == modeMultiPanel {
+		// Explorer overlay on top of multi-panel
+		if m.mode == modeMultiPanel && m.explorer.project.ID != 0 && len(m.explorer.stack) > 0 {
+			return renderExplorerView(m, width)
+		}
+		// Retry confirmation modal overlay
+		if m.pipelineView.confirmRetry {
+			base := renderMultiPanelView(&m, width, m.height)
+			modal := renderPipelineRetryConfirmModal(m, width)
+			return overlayCentered(base, modal, width)
+		}
+		return renderMultiPanelView(&m, width, m.height)
+	}
+
+	// Legacy modes (kept for backward compatibility during transition)
 	var mainView string
 	switch m.mode {
 	case modeExplorer:
@@ -239,6 +255,29 @@ func renderDetailPane(m *Model, width, height int) string {
 		b.WriteString(detailValueStyle.Render(line))
 		b.WriteString("\n")
 	}
+	// Recent commits section
+	writeDetailDivider(b, width)
+	writeDetailSection(b, "Recent Commits", width)
+	if m.commitLoading[project.ID] {
+		b.WriteString(detailValueStyle.Render(" Loading commits..."))
+		b.WriteString("\n")
+	} else if commits, ok := m.commitCache[project.ID]; ok && len(commits) > 0 {
+		for _, c := range commits {
+			timeAgo := formatTimeAgo(c.CreatedAt)
+			// sha + 2 spaces + title + 2 spaces + (time ago) = need to fit in width
+			maxTitle := width - len(c.ShortID) - len(timeAgo) - 7 // " sha  title  (ago)"
+			title := c.Title
+			if maxTitle > 0 && len(title) > maxTitle {
+				title = title[:maxTitle-1] + "…"
+			}
+			line := fmt.Sprintf(" %s  %s  (%s)", c.ShortID, title, timeAgo)
+			b.WriteString(detailValueStyle.Render(clampLine(line, width)))
+			b.WriteString("\n")
+		}
+	} else {
+		b.WriteString(detailValueStyle.Render(" No commits loaded."))
+		b.WriteString("\n")
+	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
@@ -269,7 +308,7 @@ func renderPipelineListPane(m Model, width, height int, focused bool) string {
 		b.WriteString("\n")
 	}
 	if len(m.pipelineView.pipelines) == 0 && !m.pipelineView.loading && m.pipelineView.err == nil {
-		b.WriteString(explorerHintStyle.Render(clampLine(" No pipelines found.", width)))
+		b.WriteString(explorerHintStyle.Render(clampLine(" "+msgNoPipelines+".", width)))
 		b.WriteString("\n")
 	}
 	// Render pipeline list using bubbles list component
@@ -304,8 +343,8 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 	pipeline := m.selectedPipeline()
 	title := "Stages"
 	if pipeline != nil {
-		stages := m.pipelineView.stageCache[pipeline.ID]
-		if m.pipelineView.stageLoading[pipeline.ID] && len(stages) > 0 {
+		stages, _ := m.pipelineView.stages.Get(pipeline.ID)
+		if m.pipelineView.stages.IsLoading(pipeline.ID) && len(stages) > 0 {
 			title += " (refreshing)"
 		}
 	}
@@ -327,22 +366,22 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 		b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Ref: %s", pipeline.Ref), width)))
 		b.WriteString("\n")
 	}
-	stages := m.pipelineView.stageCache[pipeline.ID]
-	jobs := m.pipelineView.jobsCache[pipeline.ID]
-	if m.pipelineView.stageLoading[pipeline.ID] && len(stages) == 0 {
+	stages, _ := m.pipelineView.stages.Get(pipeline.ID)
+	jobs, _ := m.pipelineView.jobs.Get(pipeline.ID)
+	if m.pipelineView.stages.IsLoading(pipeline.ID) && len(stages) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading stages...", width)))
 		b.WriteString("\n")
 		return finalize()
 	}
-	if m.pipelineView.jobsLoading[pipeline.ID] && len(jobs) == 0 && len(stages) == 0 {
+	if m.pipelineView.jobs.IsLoading(pipeline.ID) && len(jobs) == 0 && len(stages) == 0 {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Loading jobs...", width)))
 		b.WriteString("\n")
 	}
-	if err := m.pipelineView.jobsErr[pipeline.ID]; err != nil {
+	if err := m.pipelineView.jobs.Err(pipeline.ID); err != nil {
 		b.WriteString(explorerErrorStyle.Render(clampLine(" "+err.Error(), width)))
 		b.WriteString("\n")
 	}
-	if err := m.pipelineView.stageErr[pipeline.ID]; err != nil {
+	if err := m.pipelineView.stages.Err(pipeline.ID); err != nil {
 		b.WriteString(explorerErrorStyle.Render(clampLine(" "+err.Error(), width)))
 		b.WriteString("\n")
 		if len(stages) == 0 {
@@ -417,7 +456,7 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 	case state.err != nil:
 		b.WriteString("  Error: " + state.err.Error() + "\n")
 	case state.empty:
-		fmt.Fprintf(&b, "  No pipelines found for %s.\n", refLabel)
+		fmt.Fprintf(&b, "  %s for %s.\n", msgNoPipelines, refLabel)
 	case state.hasInfo:
 		fmt.Fprintf(&b, "  Status: %s (#%d)\n", state.info.Status, state.info.ID)
 		if state.info.SHA != "" {

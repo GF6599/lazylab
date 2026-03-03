@@ -115,7 +115,7 @@ type pipelineStatusResult struct {
 	empty    bool
 }
 
-func fetchProjectsCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, perPage, page int, background bool) tea.Cmd {
+func fetchProjectsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, perPage, page int, background bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -146,7 +146,7 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 	}
 }
 
-func batchFetchPipelineStatusCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projects []gitlab.ProjectNode) tea.Cmd {
+func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projects []gitlab.ProjectNode) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -192,7 +192,7 @@ func batchFetchPipelineStatusCmd(parentCtx context.Context, client *gitlab.Clien
 	}
 }
 
-func fetchTreeCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID int, ref, path string) tea.Cmd {
+func fetchTreeCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, ref, path string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -201,7 +201,7 @@ func fetchTreeCmd(parentCtx context.Context, client *gitlab.Client, timeout time
 	}
 }
 
-func fetchFileCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID int, ref, filePath string) tea.Cmd {
+func fetchFileCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, ref, filePath string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -213,7 +213,7 @@ func fetchFileCmd(parentCtx context.Context, client *gitlab.Client, timeout time
 	}
 }
 
-func fetchPipelineCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID int, ref string) tea.Cmd {
+func fetchPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, ref string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -226,7 +226,7 @@ func fetchPipelineCmd(parentCtx context.Context, client *gitlab.Client, timeout 
 	}
 }
 
-func fetchPipelinesCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, page, perPage int) tea.Cmd {
+func fetchPipelinesCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, page, perPage int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -245,7 +245,7 @@ func fetchPipelinesCmd(parentCtx context.Context, client *gitlab.Client, timeout
 	}
 }
 
-func fetchPipelineStagesCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
+func fetchPipelineStagesCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -254,7 +254,7 @@ func fetchPipelineStagesCmd(parentCtx context.Context, client *gitlab.Client, ti
 	}
 }
 
-func fetchPipelineJobsCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
+func fetchPipelineJobsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -263,7 +263,7 @@ func fetchPipelineJobsCmd(parentCtx context.Context, client *gitlab.Client, time
 	}
 }
 
-func fetchPipelineLogCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, jobID int) tea.Cmd {
+func fetchPipelineLogCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, jobID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -275,7 +275,7 @@ func fetchPipelineLogCmd(parentCtx context.Context, client *gitlab.Client, timeo
 	}
 }
 
-func retryPipelineCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, pipelineID int, ref string) tea.Cmd {
+func retryPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID int, ref string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -284,7 +284,7 @@ func retryPipelineCmd(parentCtx context.Context, client *gitlab.Client, timeout 
 	}
 }
 
-func retryJobCmd(parentCtx context.Context, client *gitlab.Client, timeout time.Duration, projectID, pipelineID, jobID int) tea.Cmd {
+func retryJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID, jobID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
@@ -310,5 +310,134 @@ func searchDebounceTickCmd(query string, timestamp time.Time) tea.Cmd {
 	return func() tea.Msg {
 		time.Sleep(searchDebounceDelay)
 		return searchDebounceTickMsg{query: query, timestamp: timestamp}
+	}
+}
+
+// --- New cmd functions for multi-panel mode ---
+
+type mrsLoadedMsg struct {
+	projectID int
+	mrs       []gitlab.MergeRequestSummary
+	page      int
+	total     int
+	err       error
+}
+
+type pipelineCanceledMsg struct {
+	projectID  int
+	pipelineID int
+	err        error
+}
+
+type jobCanceledMsg struct {
+	projectID int
+	jobID     int
+	err       error
+}
+
+type jobPlayedMsg struct {
+	projectID int
+	jobID     int
+	job       gitlab.PipelineJob
+	err       error
+}
+
+func fetchMRsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, state string, page, perPage int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		mrPage, err := client.ListMergeRequests(ctx, projectID, gitlab.MRListOptions{
+			State:   state,
+			Page:    page,
+			PerPage: perPage,
+		})
+		if err != nil {
+			return mrsLoadedMsg{projectID: projectID, err: err}
+		}
+		return mrsLoadedMsg{
+			projectID: projectID,
+			mrs:       mrPage.MergeRequests,
+			page:      mrPage.Page,
+			total:     mrPage.TotalPages,
+		}
+	}
+}
+
+func cancelPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		err := client.CancelPipeline(ctx, projectID, pipelineID)
+		return pipelineCanceledMsg{projectID: projectID, pipelineID: pipelineID, err: err}
+	}
+}
+
+func cancelJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, jobID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		err := client.CancelJob(ctx, projectID, jobID)
+		return jobCanceledMsg{projectID: projectID, jobID: jobID, err: err}
+	}
+}
+
+func playJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, jobID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		job, err := client.PlayJob(ctx, projectID, jobID)
+		return jobPlayedMsg{projectID: projectID, jobID: jobID, job: job, err: err}
+	}
+}
+
+// commitsLoadedMsg is sent when recent commits for a project have been fetched.
+// Handled in handleCommitsLoaded to populate the detail pane's "Recent Commits" section.
+type commitsLoadedMsg struct {
+	projectID int
+	commits   []gitlab.CommitSummary
+	err       error
+}
+
+// fetchCommitsCmd fetches the 5 most recent commits for a project's branch.
+// Uses the project's default branch when ref is provided; the result is cached
+// per project ID so subsequent visits skip the API call.
+func fetchCommitsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, ref string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		commits, err := client.ListProjectCommits(ctx, projectID, ref, 5)
+		return commitsLoadedMsg{projectID: projectID, commits: commits, err: err}
+	}
+}
+
+type bridgesLoadedMsg struct {
+	projectID  int
+	pipelineID int
+	bridges    []gitlab.PipelineBridge
+	err        error
+}
+
+type testReportLoadedMsg struct {
+	projectID  int
+	pipelineID int
+	report     *gitlab.TestReport
+	err        error
+}
+
+func fetchBridgesCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		bridges, err := client.ListPipelineBridges(ctx, projectID, pipelineID)
+		return bridgesLoadedMsg{projectID: projectID, pipelineID: pipelineID, bridges: bridges, err: err}
+	}
+}
+
+func fetchTestReportCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		report, err := client.GetPipelineTestReport(ctx, projectID, pipelineID)
+		return testReportLoadedMsg{projectID: projectID, pipelineID: pipelineID, report: report, err: err}
 	}
 }

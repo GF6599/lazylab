@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -54,12 +55,15 @@ func TestVisibleProjectsSearch(t *testing.T) {
 }
 
 func TestHandlePipelineLogLoadedIgnoresStale(t *testing.T) {
+	logs := NewAsyncCache[int, string]()
+	logs.SetLoading(10)
+	logs.SetLoading(20)
 	m := Model{
 		mode: modePipelines,
 		pipelineView: pipelineViewState{
 			project:    gitlab.ProjectNode{ID: 1},
 			logJobID:   20,
-			logLoading: map[int]bool{10: true, 20: true},
+			logs:       logs,
 			logPreview: previewState{content: "current"},
 		},
 	}
@@ -69,28 +73,33 @@ func TestHandlePipelineLogLoadedIgnoresStale(t *testing.T) {
 	if got.logPreview.content != "current" {
 		t.Fatalf("expected preview to stay on current job, got %q", got.logPreview.content)
 	}
-	if got.logCache == nil || got.logCache[10] != "stale" {
-		t.Fatalf("expected stale log to be cached, got %#v", got.logCache)
+	if v, ok := got.logs.Get(10); !ok || v != "stale" {
+		t.Fatalf("expected stale log to be cached")
 	}
-	if got.logLoading[10] {
+	if got.logs.IsLoading(10) {
 		t.Fatalf("expected stale log loading to clear")
 	}
 }
 
 func TestQueuePipelineLogPreviewPreservesOffset(t *testing.T) {
 	content := strings.Repeat("line\n", 40)
+	stages := NewAsyncCache[int, []gitlab.PipelineStage]()
+	stages.Set(10, []gitlab.PipelineStage{{Name: "build"}})
+	jobs := NewAsyncCache[int, []gitlab.PipelineJob]()
+	jobs.Set(10, []gitlab.PipelineJob{{ID: 100, Name: "build-job", Stage: "build"}})
+	logs := NewAsyncCache[int, string]()
+	logs.Set(100, content)
 	m := Model{
 		width:  80,
 		height: 20,
 		pipelineView: pipelineViewState{
-			project:    gitlab.ProjectNode{ID: 1},
-			pipelines:  []gitlab.PipelineSummary{{ID: 10}},
-			selected:   0,
-			stageCache: map[int][]gitlab.PipelineStage{10: {{Name: "build"}}},
-			jobsCache: map[int][]gitlab.PipelineJob{
-				10: {{ID: 100, Name: "build-job", Stage: "build"}},
-			},
-			logCache:      map[int]string{100: content},
+			project:       gitlab.ProjectNode{ID: 1},
+			pipelines:     []gitlab.PipelineSummary{{ID: 10}},
+			selected:      0,
+			stages:        stages,
+			jobs:          jobs,
+			jobRows:       []gitlab.PipelineJob{{ID: 100, Name: "build-job", Stage: "build"}},
+			logs:          logs,
 			logPreview:    previewState{content: "old", raw: "old"},
 			logJobID:      100,
 			logAutoFollow: false,
@@ -144,19 +153,20 @@ func TestTruncateLogContent(t *testing.T) {
 
 func TestEvictOldLogs(t *testing.T) {
 	// Create a model with more than maxLogCacheEntries logs
+	logs := NewAsyncCache[int, string]()
 	m := Model{
 		pipelineView: pipelineViewState{
-			logCache: make(map[int]string),
+			logs:     logs,
 			logJobID: 15, // Currently viewing job 15
 		},
 	}
 
 	// Add more logs than the max
 	for i := 1; i <= maxLogCacheEntries+5; i++ {
-		m.pipelineView.logCache[i] = fmt.Sprintf("log content for job %d", i)
+		m.pipelineView.logs.Set(i, fmt.Sprintf("log content for job %d", i))
 	}
 
-	initialCount := len(m.pipelineView.logCache)
+	initialCount := m.pipelineView.logs.Len()
 	if initialCount != maxLogCacheEntries+5 {
 		t.Fatalf("Setup failed: expected %d logs, got %d", maxLogCacheEntries+5, initialCount)
 	}
@@ -165,22 +175,22 @@ func TestEvictOldLogs(t *testing.T) {
 	m.evictOldLogs()
 
 	// Should keep maxLogCacheEntries logs
-	if len(m.pipelineView.logCache) > maxLogCacheEntries {
-		t.Errorf("evictOldLogs() left %d logs, want at most %d", len(m.pipelineView.logCache), maxLogCacheEntries)
+	if m.pipelineView.logs.Len() > maxLogCacheEntries {
+		t.Errorf("evictOldLogs() left %d logs, want at most %d", m.pipelineView.logs.Len(), maxLogCacheEntries)
 	}
 
 	// Should keep the currently viewed log (15)
-	if _, exists := m.pipelineView.logCache[15]; !exists {
+	if _, exists := m.pipelineView.logs.Get(15); !exists {
 		t.Error("evictOldLogs() evicted the currently displayed log")
 	}
 
 	// Should evict oldest logs (lowest IDs)
-	if _, exists := m.pipelineView.logCache[1]; exists {
+	if _, exists := m.pipelineView.logs.Get(1); exists {
 		t.Error("evictOldLogs() should have evicted job 1 (oldest)")
 	}
 
 	// Should keep newest logs (highest IDs)
-	if _, exists := m.pipelineView.logCache[maxLogCacheEntries+5]; !exists {
+	if _, exists := m.pipelineView.logs.Get(maxLogCacheEntries + 5); !exists {
 		t.Error("evictOldLogs() should have kept the newest log")
 	}
 }
@@ -411,6 +421,326 @@ func TestRenderExplorerPreviewWrapsLongLines(t *testing.T) {
 		}
 		if lipgloss.Width(line) > width {
 			t.Fatalf("line %q exceeds preview width %d", line, width)
+		}
+	}
+}
+
+func TestComputeLayout_DetailWidthFitsTerminal(t *testing.T) {
+	layout := computeLayout(120, 40, FocusState{Active: PanelProjects})
+	if !layout.OK {
+		t.Fatal("expected layout.OK to be true")
+	}
+	totalWidth := (layout.SidebarWidth + borderCharsH) + paneGap + (layout.DetailWidth + borderCharsH)
+	if totalWidth > 120 {
+		t.Fatalf("total width %d exceeds terminal width 120", totalWidth)
+	}
+	totalHeight := layout.DetailHeight + borderCharsV + infoBarHeight
+	if totalHeight > 40 {
+		t.Fatalf("total height %d exceeds terminal height 40", totalHeight)
+	}
+}
+
+func TestComputeLayout_DetailGetsFullHeight(t *testing.T) {
+	tests := []struct {
+		width, height int
+	}{
+		{120, 40},
+		{80, 24},
+		{200, 60},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%dx%d", tt.width, tt.height), func(t *testing.T) {
+			layout := computeLayout(tt.width, tt.height, FocusState{Active: PanelProjects})
+			if !layout.OK {
+				t.Fatal("expected layout.OK to be true")
+			}
+			want := tt.height - infoBarHeight - borderCharsV
+			if layout.DetailHeight != want {
+				t.Fatalf("DetailHeight = %d, want %d", layout.DetailHeight, want)
+			}
+		})
+	}
+}
+
+func TestSetLogViewportContent_WrapsLongLines(t *testing.T) {
+	vp := viewport.New(40, 20)
+	m := Model{
+		pipelineView: pipelineViewState{
+			logViewport: vp,
+		},
+	}
+	longLine := strings.Repeat("X", 200)
+	m.setLogViewportContent(longLine)
+
+	output := m.pipelineView.logViewport.View()
+	for _, line := range strings.Split(output, "\n") {
+		if w := lipgloss.Width(line); w > 40 {
+			t.Fatalf("line visual width %d exceeds viewport width 40: %q", w, line)
+		}
+	}
+}
+
+func TestRenderBorderedPane_OutputFitsWidth(t *testing.T) {
+	content := strings.Repeat("Z", 200)
+	output := renderBorderedPane(content, 50, 10, false, "Test", nil, 0, "")
+	for i, line := range strings.Split(output, "\n") {
+		if w := lipgloss.Width(line); w > 50 {
+			t.Fatalf("line %d visual width %d exceeds pane width 50: %q", i, w, line)
+		}
+	}
+}
+
+func TestRenderBorderedPane_OutputFitsHeight(t *testing.T) {
+	content := strings.Repeat("line\n", 50)
+	output := renderBorderedPane(content, 40, 5, false, "Test", nil, 0, "")
+	lines := strings.Split(output, "\n")
+	// Remove trailing empty line from final newline
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	wantHeight := 5 + borderCharsV // content + top/bottom borders
+	if len(lines) != wantHeight {
+		t.Fatalf("output has %d lines, want %d (content %d + borders %d)", len(lines), wantHeight, 5, borderCharsV)
+	}
+}
+
+// --- Arrow key navigation tests ---
+
+func keyMsg(s string) tea.KeyMsg {
+	switch s {
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	default:
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+	}
+}
+
+func newMultiPanelModel(active PanelID) Model {
+	projects := []gitlab.ProjectNode{
+		{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha"},
+		{ID: 2, Name: "beta", PathWithNamespace: "team/beta"},
+	}
+	delegate := projectDelegate{}
+	items := make([]list.Item, len(projects))
+	for i, p := range projects {
+		items[i] = projectItem{project: p}
+	}
+	pl := newBareList(items, delegate, 40, 20)
+
+	return Model{
+		mode:        modeMultiPanel,
+		width:       120,
+		height:      40,
+		allProjects: projects,
+		opts:        Options{ProjectsPerPage: 10},
+		pagesReady:  map[int]bool{1: true},
+		page:        1,
+		projectList: pl,
+		focus:       FocusState{Active: active},
+		pipelineView: pipelineViewState{
+			project:     projects[0],
+			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main"}},
+			stages:      NewAsyncCache[int, []gitlab.PipelineStage](),
+			jobs:        NewAsyncCache[int, []gitlab.PipelineJob](),
+			logs:        NewAsyncCache[int, string](),
+			bridges:     NewAsyncCache[int, []gitlab.PipelineBridge](),
+			logViewport: viewport.New(60, 20),
+		},
+		mrView:        mrViewState{project: projects[0]},
+		commitCache:   make(map[int][]gitlab.CommitSummary),
+		commitLoading: make(map[int]bool),
+	}
+}
+
+func TestRightArrow_FocusesDetailFromAnySidebar(t *testing.T) {
+	for _, panel := range SidebarPanels {
+		t.Run(panelLabel(panel), func(t *testing.T) {
+			m := newMultiPanelModel(panel)
+			updated, _ := m.handleMultiPanelKey(keyMsg("right"))
+			got := updated.(Model)
+			if got.focus.Active != PanelDetail {
+				t.Fatalf("expected Active=PanelDetail, got %d", got.focus.Active)
+			}
+			if got.focus.PrevActive != panel {
+				t.Fatalf("expected PrevActive=%d, got %d", panel, got.focus.PrevActive)
+			}
+		})
+	}
+}
+
+func TestLeftArrow_ReturnsFromDetail(t *testing.T) {
+	for _, panel := range SidebarPanels {
+		t.Run(panelLabel(panel), func(t *testing.T) {
+			m := newMultiPanelModel(PanelDetail)
+			m.focus.PrevActive = panel
+			updated, _ := m.handleMultiPanelKey(keyMsg("left"))
+			got := updated.(Model)
+			if got.focus.Active != panel {
+				t.Fatalf("expected Active=%d, got %d", panel, got.focus.Active)
+			}
+		})
+	}
+}
+
+func TestLeftArrow_DoesNotNavigateBackInSidebar(t *testing.T) {
+	// left arrow in Pipelines/Stages/MRs should NOT change panel (h/esc does that)
+	tests := []struct {
+		panel PanelID
+	}{
+		{PanelPipelines},
+		{PanelStages},
+		{PanelMRs},
+	}
+	for _, tt := range tests {
+		t.Run(panelLabel(tt.panel), func(t *testing.T) {
+			m := newMultiPanelModel(tt.panel)
+			updated, _ := m.handleMultiPanelKey(keyMsg("left"))
+			got := updated.(Model)
+			if got.focus.Active != tt.panel {
+				t.Fatalf("left arrow changed panel from %d to %d; should be no-op", tt.panel, got.focus.Active)
+			}
+		})
+	}
+}
+
+func TestH_StillNavigatesBackHierarchically(t *testing.T) {
+	tests := []struct {
+		from PanelID
+		to   PanelID
+	}{
+		{PanelPipelines, PanelProjects},
+		{PanelStages, PanelPipelines},
+		{PanelMRs, PanelProjects},
+	}
+	for _, tt := range tests {
+		t.Run(panelLabel(tt.from)+"_to_"+panelLabel(tt.to), func(t *testing.T) {
+			m := newMultiPanelModel(tt.from)
+			updated, _ := m.handleMultiPanelKey(keyMsg("h"))
+			got := updated.(Model)
+			if got.focus.Active != tt.to {
+				t.Fatalf("expected h to navigate to %d, got %d", tt.to, got.focus.Active)
+			}
+		})
+	}
+}
+
+func TestEnterL_DrillsIn_NotRight(t *testing.T) {
+	// enter/l from Projects should go to Pipelines (not Detail)
+	for _, key := range []string{"enter", "l"} {
+		t.Run("Projects_"+key, func(t *testing.T) {
+			m := newMultiPanelModel(PanelProjects)
+			updated, _ := m.handleMultiPanelKey(keyMsg(key))
+			got := updated.(Model)
+			if got.focus.Active != PanelPipelines {
+				t.Fatalf("expected %s to drill into Pipelines, got %d", key, got.focus.Active)
+			}
+		})
+	}
+	// enter/l from Pipelines should go to Stages (not Detail)
+	for _, key := range []string{"enter", "l"} {
+		t.Run("Pipelines_"+key, func(t *testing.T) {
+			m := newMultiPanelModel(PanelPipelines)
+			updated, _ := m.handleMultiPanelKey(keyMsg(key))
+			got := updated.(Model)
+			if got.focus.Active != PanelStages {
+				t.Fatalf("expected %s to drill into Stages, got %d", key, got.focus.Active)
+			}
+		})
+	}
+}
+
+func TestDetailPanel_ScrollKeys(t *testing.T) {
+	m := newMultiPanelModel(PanelDetail)
+	m.focus.PrevActive = PanelPipelines
+	content := strings.Repeat("line\n", 100)
+	m.pipelineView.logViewport.SetContent(content)
+
+	// Scroll down
+	updated, _ := m.handleMultiPanelKey(keyMsg("j"))
+	got := updated.(Model)
+	if got.focus.Active != PanelDetail {
+		t.Fatal("j should not change focus")
+	}
+
+	// Tab cycling
+	updated, _ = got.handleMultiPanelKey(keyMsg("t"))
+	got = updated.(Model)
+	if got.pipelineView.detailTab != detailTabTests {
+		t.Fatal("t should cycle detail tab")
+	}
+}
+
+func TestProjectNav_TriggersAutoLoad(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	// Start with project index 0 (ID=1)
+	m.selected = 0
+	m.projectList.Select(0)
+
+	// Press down to move to project index 1 (ID=2)
+	updated, cmd := m.handleMultiPanelKey(keyMsg("down"))
+	got := updated.(Model)
+	if got.selected != 1 {
+		t.Fatalf("expected selected=1 after down, got %d", got.selected)
+	}
+	// The auto-load block should fire and return a batch command
+	if cmd == nil {
+		t.Fatal("expected auto-load command after project selection change, got nil")
+	}
+}
+
+// --- Layout tests ---
+
+func TestAccordionLayout_NormalMode_UnfocusedPanelsUsable(t *testing.T) {
+	heights := accordionLayout(SidebarPanels, PanelProjects, ScreenNormal, 50)
+	for _, panel := range SidebarPanels {
+		if panel == PanelProjects {
+			continue
+		}
+		if heights[panel] < minPanelHeight {
+			t.Fatalf("unfocused panel %d height %d < minPanelHeight %d", panel, heights[panel], minPanelHeight)
+		}
+	}
+	// In ScreenNormal, unfocused panels should get MORE than minPanelHeight
+	// when there's enough budget (50 lines is plenty)
+	for _, panel := range SidebarPanels {
+		if panel == PanelProjects {
+			continue
+		}
+		if heights[panel] <= minPanelHeight {
+			t.Fatalf("ScreenNormal: unfocused panel %d height %d should exceed minPanelHeight %d when space allows",
+				panel, heights[panel], minPanelHeight)
+		}
+	}
+}
+
+func TestAccordionLayout_NormalVsFull_UnfocusedDiffers(t *testing.T) {
+	normal := accordionLayout(SidebarPanels, PanelProjects, ScreenNormal, 50)
+	full := accordionLayout(SidebarPanels, PanelProjects, ScreenFull, 50)
+	// ScreenFull should give unfocused panels less space than ScreenNormal
+	for _, panel := range SidebarPanels {
+		if panel == PanelProjects {
+			continue
+		}
+		if normal[panel] <= full[panel] {
+			t.Fatalf("ScreenNormal unfocused panel %d (%d) should be larger than ScreenFull (%d)",
+				panel, normal[panel], full[panel])
+		}
+	}
+}
+
+func TestAccordionLayout_HeightsSumCorrectly(t *testing.T) {
+	for _, mode := range []ScreenMode{ScreenNormal, ScreenHalf, ScreenFull} {
+		heights := accordionLayout(SidebarPanels, PanelPipelines, mode, 50)
+		total := 0
+		for _, panel := range SidebarPanels {
+			total += heights[panel] + borderCharsV
+		}
+		if total > 50 {
+			t.Fatalf("mode %d: panel heights sum %d exceeds available 50", mode, total)
 		}
 	}
 }
