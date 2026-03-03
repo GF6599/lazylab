@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -41,6 +43,7 @@ func TestVisibleProjectsSearch(t *testing.T) {
 		opts:       Options{ProjectsPerPage: 10},
 		pagesReady: map[int]bool{1: true},
 		page:       1,
+		projectTab: projectTabAll,
 	}
 	m.search.query = "api"
 	filtered := m.visibleProjects()
@@ -524,23 +527,35 @@ func newMultiPanelModel(active PanelID) Model {
 		{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha"},
 		{ID: 2, Name: "beta", PathWithNamespace: "team/beta"},
 	}
-	delegate := projectDelegate{}
+	pipelineStatus := make(map[int]pipelineState)
+	favorites := make(map[int]bool)
+	delegate := projectDelegate{pipelineStatus: pipelineStatus, favorites: favorites}
 	items := make([]list.Item, len(projects))
 	for i, p := range projects {
 		items[i] = projectItem{project: p}
 	}
 	pl := newBareList(items, delegate, 40, 20)
 
+	ti := textinput.New()
+	ti.Placeholder = "Search projects"
+	ti.CharLimit = 128
+	ti.Prompt = "/ "
+	ti.Blur()
+
 	return Model{
-		mode:        modeMultiPanel,
-		width:       120,
-		height:      40,
-		allProjects: projects,
-		opts:        Options{ProjectsPerPage: 10},
-		pagesReady:  map[int]bool{1: true},
-		page:        1,
-		projectList: pl,
-		focus:       FocusState{Active: active},
+		mode:           modeMultiPanel,
+		width:          120,
+		height:         40,
+		allProjects:    projects,
+		opts:           Options{ProjectsPerPage: 10},
+		pagesReady:     map[int]bool{1: true},
+		page:           1,
+		projectTab:     projectTabAll,
+		favorites:      favorites,
+		pipelineStatus: pipelineStatus,
+		projectList:    pl,
+		focus:          FocusState{Active: active},
+		search:         searchState{input: ti},
 		pipelineView: pipelineViewState{
 			project:     projects[0],
 			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main"}},
@@ -614,7 +629,7 @@ func TestH_StillNavigatesBackHierarchically(t *testing.T) {
 	}{
 		{PanelPipelines, PanelProjects},
 		{PanelStages, PanelPipelines},
-		{PanelMRs, PanelProjects},
+		{PanelMRs, PanelStages},
 	}
 	for _, tt := range tests {
 		t.Run(panelLabel(tt.from)+"_to_"+panelLabel(tt.to), func(t *testing.T) {
@@ -745,6 +760,78 @@ func TestAccordionLayout_HeightsSumCorrectly(t *testing.T) {
 	}
 }
 
+func TestFocusState_ToggleLayoutMode(t *testing.T) {
+	f := FocusState{}
+	if f.LayoutMode != LayoutDefault {
+		t.Fatal("expected initial LayoutMode to be LayoutDefault")
+	}
+	f.ToggleLayoutMode()
+	if f.LayoutMode != LayoutWide {
+		t.Fatal("expected LayoutMode to be LayoutWide after first toggle")
+	}
+	f.ToggleLayoutMode()
+	if f.LayoutMode != LayoutDefault {
+		t.Fatal("expected LayoutMode to be LayoutDefault after second toggle")
+	}
+}
+
+func TestComputeLayout_DefaultLayoutSidebarWidth(t *testing.T) {
+	layout := computeLayout(200, 40, FocusState{Active: PanelProjects, LayoutMode: LayoutDefault})
+	if !layout.OK {
+		t.Fatal("expected layout.OK")
+	}
+	// 30% of 200 = 60, but capped at maxSidebarWidth (50)
+	if layout.SidebarWidth > maxSidebarWidth {
+		t.Fatalf("default layout sidebar %d exceeds maxSidebarWidth %d", layout.SidebarWidth, maxSidebarWidth)
+	}
+	if layout.SidebarWidth < minSidebarWidth {
+		t.Fatalf("default layout sidebar %d below minSidebarWidth %d", layout.SidebarWidth, minSidebarWidth)
+	}
+}
+
+func TestComputeLayout_WideLayoutSidebarWidth(t *testing.T) {
+	layout := computeLayout(200, 40, FocusState{Active: PanelProjects, LayoutMode: LayoutWide})
+	if !layout.OK {
+		t.Fatal("expected layout.OK")
+	}
+	// 50% of 200 = 100, should not be capped at maxSidebarWidth
+	expected := 200 * 50 / 100
+	if layout.SidebarWidth != expected {
+		t.Fatalf("wide layout sidebar = %d, want %d", layout.SidebarWidth, expected)
+	}
+}
+
+func TestComputeLayout_TotalWidthBothModes(t *testing.T) {
+	for _, width := range []int{80, 120, 160, 200} {
+		for _, mode := range []LayoutMode{LayoutDefault, LayoutWide} {
+			t.Run(fmt.Sprintf("%dx40_mode%d", width, mode), func(t *testing.T) {
+				layout := computeLayout(width, 40, FocusState{Active: PanelProjects, LayoutMode: mode})
+				if !layout.OK {
+					t.Skip("terminal too small")
+				}
+				totalWidth := (layout.SidebarWidth + borderCharsH) + paneGap + (layout.DetailWidth + borderCharsH)
+				if totalWidth > width {
+					t.Fatalf("total width %d exceeds terminal width %d", totalWidth, width)
+				}
+			})
+		}
+	}
+}
+
+func TestComputeLayout_WideLayoutNarrowTerminal(t *testing.T) {
+	// Minimum viable terminal: minSidebarWidth + detailMinWidth + paneGap + borderCharsH*2 = 28+30+1+4 = 63
+	layout := computeLayout(65, 20, FocusState{Active: PanelProjects, LayoutMode: LayoutWide})
+	if !layout.OK {
+		t.Fatal("expected layout.OK for narrow terminal")
+	}
+	if layout.SidebarWidth < minSidebarWidth {
+		t.Fatalf("sidebar %d below minimum %d", layout.SidebarWidth, minSidebarWidth)
+	}
+	if layout.DetailWidth < detailMinWidth {
+		t.Fatalf("detail %d below minimum %d", layout.DetailWidth, detailMinWidth)
+	}
+}
+
 func TestRenderPipelineLogPaneWrapsLongLines(t *testing.T) {
 	m := Model{
 		pipelineView: pipelineViewState{
@@ -769,5 +856,346 @@ func TestRenderPipelineLogPaneWrapsLongLines(t *testing.T) {
 		if strings.Contains(line, "\t") || strings.Contains(line, "\r") {
 			t.Fatalf("line %q should not contain tabs or carriage returns", line)
 		}
+	}
+}
+
+func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
+	proj := projectItem{project: gitlab.ProjectNode{ID: 1, PathWithNamespace: "team/app"}}
+	items := []list.Item{proj}
+	delegate := projectDelegate{
+		pipelineStatus: map[int]pipelineState{},
+		favorites:      map[int]bool{},
+	}
+	m := list.New(items, delegate, 60, 10)
+
+	render := func(d projectDelegate) string {
+		var buf strings.Builder
+		d.Render(&buf, m, 0, proj)
+		return buf.String()
+	}
+
+	tests := []struct {
+		name     string
+		state    pipelineState
+		wantIcon string
+	}{
+		{"success", pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "success"}}, iconSuccess},
+		{"failed", pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "failed"}}, iconFailed},
+		{"empty", pipelineState{empty: true}, iconNoPipeline},
+		{"loading", pipelineState{loading: true}, iconLoading},
+		{"error", pipelineState{err: fmt.Errorf("oops")}, iconUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			delegate.pipelineStatus[1] = tt.state
+			out := render(delegate)
+			if !strings.Contains(out, tt.wantIcon) {
+				t.Fatalf("expected icon %q in output %q", tt.wantIcon, out)
+			}
+		})
+	}
+
+	// No state at all — no icon
+	t.Run("no state", func(t *testing.T) {
+		d := projectDelegate{
+			pipelineStatus: map[int]pipelineState{},
+			favorites:      map[int]bool{},
+		}
+		out := render(d)
+		for _, icon := range []string{iconSuccess, iconFailed, iconNoPipeline, iconLoading, iconUnknown} {
+			if strings.Contains(out, icon) {
+				t.Fatalf("expected no icon, but found %q in output %q", icon, out)
+			}
+		}
+	})
+}
+
+// --- Phase 3: State management tests ---
+
+func TestVisibleProjects_FavoritesTab(t *testing.T) {
+	m := Model{
+		allProjects: []gitlab.ProjectNode{
+			{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha"},
+			{ID: 2, Name: "beta", PathWithNamespace: "team/beta"},
+			{ID: 3, Name: "gamma", PathWithNamespace: "team/gamma"},
+		},
+		opts:       Options{ProjectsPerPage: 10},
+		pagesReady: map[int]bool{1: true},
+		page:       1,
+		projectTab: projectTabFavorites,
+		favorites:  map[int]bool{1: true, 3: true},
+	}
+	filtered := m.visibleProjects()
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 favorites, got %d", len(filtered))
+	}
+	if filtered[0].ID != 1 || filtered[1].ID != 3 {
+		t.Fatalf("unexpected favorites: %v", filtered)
+	}
+}
+
+func TestVisibleProjects_CacheHit(t *testing.T) {
+	m := Model{
+		allProjects: []gitlab.ProjectNode{
+			{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha"},
+		},
+		opts:       Options{ProjectsPerPage: 10},
+		pagesReady: map[int]bool{1: true},
+		page:       1,
+		projectTab: projectTabAll,
+	}
+	// First call populates cache
+	result1 := m.visibleProjects()
+	// Second call should use cache
+	result2 := m.visibleProjects()
+	if len(result1) != len(result2) {
+		t.Fatalf("cache miss: %d vs %d", len(result1), len(result2))
+	}
+}
+
+func TestVisibleProjects_CacheInvalidation(t *testing.T) {
+	m := Model{
+		allProjects: []gitlab.ProjectNode{
+			{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha"},
+			{ID: 2, Name: "beta", PathWithNamespace: "team/beta"},
+		},
+		opts:       Options{ProjectsPerPage: 10},
+		pagesReady: map[int]bool{1: true},
+		page:       1,
+		projectTab: projectTabAll,
+	}
+	// Populate cache
+	_ = m.visibleProjects()
+	// Change query
+	m.search.query = "alpha"
+	m.invalidateVisibleCache()
+	filtered := m.visibleProjects()
+	if len(filtered) != 1 || filtered[0].Name != "alpha" {
+		t.Fatalf("cache not invalidated: got %v", filtered)
+	}
+}
+
+func TestEvictOldPipelineStatusCache_BelowMax(t *testing.T) {
+	m := Model{
+		pipelineStatus: map[int]pipelineState{
+			1: {hasInfo: true},
+			2: {hasInfo: true},
+		},
+	}
+	m.evictOldPipelineStatusCache()
+	if len(m.pipelineStatus) != 2 {
+		t.Fatalf("should not evict when below max, got %d", len(m.pipelineStatus))
+	}
+}
+
+func TestEvictOldPipelineStatusCache_RemovesOldest(t *testing.T) {
+	m := Model{
+		pipelineStatus: make(map[int]pipelineState),
+	}
+	// Fill beyond max
+	for i := 0; i <= maxPipelineStatusCacheSize; i++ {
+		m.pipelineStatus[i] = pipelineState{
+			hasInfo:      true,
+			lastAccessed: time.Now().Add(time.Duration(i) * time.Second),
+		}
+	}
+	m.evictOldPipelineStatusCache()
+	if len(m.pipelineStatus) != maxPipelineStatusCacheSize {
+		t.Fatalf("expected %d entries after eviction, got %d", maxPipelineStatusCacheSize, len(m.pipelineStatus))
+	}
+	// Oldest (ID=0) should have been evicted
+	if _, exists := m.pipelineStatus[0]; exists {
+		t.Fatal("expected oldest entry (ID=0) to be evicted")
+	}
+}
+
+func TestAppendPage_SortsIntoCorrectSlot(t *testing.T) {
+	m := Model{
+		opts:       Options{ProjectsPerPage: 2},
+		pagesReady: make(map[int]bool),
+	}
+	// Append page 2 first
+	m.appendPage(gitlab.ProjectPage{
+		Page:       2,
+		TotalPages: 2,
+		Projects: []gitlab.ProjectNode{
+			{ID: 3, Name: "gamma"},
+			{ID: 4, Name: "delta"},
+		},
+	})
+	// Then page 1
+	m.appendPage(gitlab.ProjectPage{
+		Page:       1,
+		TotalPages: 2,
+		Projects: []gitlab.ProjectNode{
+			{ID: 1, Name: "alpha"},
+			{ID: 2, Name: "beta"},
+		},
+	})
+	if len(m.allProjects) != 4 {
+		t.Fatalf("expected 4 projects, got %d", len(m.allProjects))
+	}
+	if m.allProjects[0].Name != "alpha" || m.allProjects[2].Name != "gamma" {
+		t.Fatalf("projects not in correct slot: %v", m.allProjects)
+	}
+}
+
+// --- Phase 4: Key handler smoke tests ---
+
+func TestMultiPanelKey_Tab_CyclesPanels(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	updated, _ := m.handleMultiPanelKey(keyMsg("tab"))
+	got := updated.(Model)
+	if got.focus.Active != PanelPipelines {
+		t.Fatalf("Tab from Projects should go to Pipelines, got %d", got.focus.Active)
+	}
+
+	updated, _ = got.handleMultiPanelKey(keyMsg("tab"))
+	got = updated.(Model)
+	if got.focus.Active != PanelStages {
+		t.Fatalf("Tab from Pipelines should go to Stages, got %d", got.focus.Active)
+	}
+
+	updated, _ = got.handleMultiPanelKey(keyMsg("tab"))
+	got = updated.(Model)
+	if got.focus.Active != PanelMRs {
+		t.Fatalf("Tab from Stages should go to MRs, got %d", got.focus.Active)
+	}
+
+	updated, _ = got.handleMultiPanelKey(keyMsg("tab"))
+	got = updated.(Model)
+	if got.focus.Active != PanelProjects {
+		t.Fatalf("Tab from MRs should wrap to Projects, got %d", got.focus.Active)
+	}
+}
+
+func TestMultiPanelKey_ShiftTab_CyclesReverse(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	msg := tea.KeyMsg{Type: tea.KeyShiftTab}
+	updated, _ := m.handleMultiPanelKey(msg)
+	got := updated.(Model)
+	if got.focus.Active != PanelMRs {
+		t.Fatalf("Shift+Tab from Projects should go to MRs, got %d", got.focus.Active)
+	}
+}
+
+func TestMultiPanelKey_NumberKeys_SwitchPanels(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+
+	tests := []struct {
+		key  string
+		want PanelID
+	}{
+		{"1", PanelProjects},
+		{"2", PanelPipelines},
+		{"3", PanelStages},
+		{"4", PanelMRs},
+	}
+	for _, tt := range tests {
+		updated, _ := m.handleMultiPanelKey(keyMsg(tt.key))
+		got := updated.(Model)
+		if got.focus.Active != tt.want {
+			t.Errorf("key %s: expected panel %d, got %d", tt.key, tt.want, got.focus.Active)
+		}
+	}
+
+	// Key 5 should be a no-op (falls through to panel handler)
+	updated, _ := m.handleMultiPanelKey(keyMsg("5"))
+	got := updated.(Model)
+	if got.focus.Active != PanelProjects {
+		t.Errorf("key 5 should not change panel, got %d", got.focus.Active)
+	}
+}
+
+func TestMultiPanelKey_Plus_TogglesLayout(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	if m.focus.LayoutMode != LayoutDefault {
+		t.Fatal("expected initial LayoutDefault")
+	}
+	updated, _ := m.handleMultiPanelKey(keyMsg("+"))
+	got := updated.(Model)
+	if got.focus.LayoutMode != LayoutWide {
+		t.Fatalf("expected LayoutWide after +, got %d", got.focus.LayoutMode)
+	}
+	updated, _ = got.handleMultiPanelKey(keyMsg("+"))
+	got = updated.(Model)
+	if got.focus.LayoutMode != LayoutDefault {
+		t.Fatalf("expected LayoutDefault after second +, got %d", got.focus.LayoutMode)
+	}
+}
+
+func TestMultiPanelKey_Equals_CyclesScreenMode(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	updated, _ := m.handleMultiPanelKey(keyMsg("="))
+	got := updated.(Model)
+	if got.focus.ScreenMode != ScreenHalf {
+		t.Fatalf("expected ScreenHalf after =, got %d", got.focus.ScreenMode)
+	}
+	updated, _ = got.handleMultiPanelKey(keyMsg("="))
+	got = updated.(Model)
+	if got.focus.ScreenMode != ScreenFull {
+		t.Fatalf("expected ScreenFull, got %d", got.focus.ScreenMode)
+	}
+	updated, _ = got.handleMultiPanelKey(keyMsg("="))
+	got = updated.(Model)
+	if got.focus.ScreenMode != ScreenNormal {
+		t.Fatalf("expected ScreenNormal (wrap), got %d", got.focus.ScreenMode)
+	}
+}
+
+func TestProjectsPanelKey_Slash_ActivatesSearch(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	updated, _ := m.handleMultiPanelKey(keyMsg("/"))
+	got := updated.(Model)
+	if !got.search.active {
+		t.Fatal("/ should activate search")
+	}
+}
+
+func TestProjectsPanelKey_F_TogglesFavorite(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	m.selected = 0
+	m.projectList.Select(0)
+
+	// Add favorite
+	updated, _ := m.handleMultiPanelKey(keyMsg("f"))
+	got := updated.(Model)
+	if !got.favorites[1] { // project ID 1
+		t.Fatal("f should add favorite")
+	}
+
+	// Remove favorite
+	updated, _ = got.handleMultiPanelKey(keyMsg("f"))
+	got = updated.(Model)
+	if got.favorites[1] {
+		t.Fatal("f should remove favorite on second press")
+	}
+}
+
+func TestDetailPanelKey_Left_ReturnsToSidebar(t *testing.T) {
+	for _, panel := range SidebarPanels {
+		t.Run(panelLabel(panel), func(t *testing.T) {
+			m := newMultiPanelModel(PanelDetail)
+			m.focus.PrevActive = panel
+			updated, _ := m.handleMultiPanelKey(keyMsg("left"))
+			got := updated.(Model)
+			if got.focus.Active != panel {
+				t.Fatalf("expected return to %d, got %d", panel, got.focus.Active)
+			}
+		})
+	}
+}
+
+func TestDetailPanelKey_T_CyclesDetailTab(t *testing.T) {
+	m := newMultiPanelModel(PanelDetail)
+	m.focus.PrevActive = PanelPipelines
+	if m.pipelineView.detailTab != detailTabLog {
+		t.Fatal("expected initial detailTabLog")
+	}
+	updated, _ := m.handleMultiPanelKey(keyMsg("t"))
+	got := updated.(Model)
+	if got.pipelineView.detailTab != detailTabTests {
+		t.Fatalf("expected detailTabTests after t, got %d", got.pipelineView.detailTab)
 	}
 }

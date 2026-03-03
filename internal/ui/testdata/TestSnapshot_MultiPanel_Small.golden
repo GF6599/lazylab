@@ -1,0 +1,25 @@
+╭─ 1 Projects────────────── ─╮ ╭─ Details · team/alpha─────────────────────── ─╮
+│> ✓ team/alpha              │ │Details                                        │
+│  team/beta                 │ │                                               │
+│                            │ │ Project                                       │
+│                            │ │───────────────────────────────────────────────│
+╰──────────────────── 1 of 2 ╯ │ Name: alpha                                   │
+╭─ 2 Pipelines───────────── ─╮ │ Path: team/alpha                              │
+│> ✓ #10 unknown main        │ │ Visibility: 📦                                │
+│                            │ │───────────────────────────────────────────────│
+│                            │ │ Links                                         │
+│                            │ │───────────────────────────────────────────────│
+╰──────────────────── 1 of 1 ╯ │───────────────────────────────────────────────│
+╭─ 3 Stages──────────────── ─╮ │ Pipeline                                      │
+│ No stages available        │ │───────────────────────────────────────────────│
+│                            │ │ Pipeline (all refs):                          │
+│                            │ │  Status: success (#100)                       │
+│                            │ │  URL: https://gitlab.com/team/alpha/-/pipelin…│
+╰────────────────────────────╯ │───────────────────────────────────────────────│
+╭─ 4 Merge Requests──────── ─╮ │ Recent Commits                                │
+│> !42 Add dark mode support │ │───────────────────────────────────────────────│
+│  !41 Fix login redirect    │ │ No commits loaded.                            │
+│                            │ │                                               │
+│                            │ ╰───────────────────────────────────────────────╯
+╰──────────────────── 1 of 2 ╯                                                  
+Ready j/k nav · / search · f fav · t tab · e explorer · Enter pipe…   team/alpha
