@@ -1,3 +1,7 @@
+// icons.go provides Unicode visual indicators for pipeline statuses, project
+// metadata, and file types. These replace text labels with compact glyphs that
+// are scannable at a glance in the TUI. The pipeline status icons mirror
+// GitLab's web UI conventions (checkmark for success, X for failed, etc.).
 package ui
 
 import (
@@ -6,38 +10,42 @@ import (
 	"time"
 )
 
-// Pipeline status icons
+// Pipeline status icons — each maps to a GitLab CI pipeline/job status string.
 const (
-	iconSuccess  = "✓"
-	iconFailed   = "✗"
-	iconRunning  = "●"
-	iconPending  = "○"
-	iconCanceled = "⊘"
-	iconSkipped  = "−"
-	iconManual   = "▶"
-	iconBlocked  = "◧"
-	iconUnknown  = "?"
+	iconSuccess    = "✓"
+	iconFailed     = "✗"
+	iconRunning    = "●"
+	iconPending    = "○"
+	iconCanceled   = "⊘"
+	iconSkipped    = "−"
+	iconManual     = "▶"
+	iconBlocked    = "◧"
+	iconUnknown    = "?"
+	iconNoPipeline = "—"
 )
 
 // General icons
 const (
-	iconProject    = "📦"
-	iconFolder     = "📁"
-	iconFile       = "📄"
-	iconPrivate    = "🔒"
-	iconPublic     = "🌐"
-	iconInternal   = "🏢"
-	iconStar       = "⭐"
-	iconClock      = "⏱"
-	iconBranch     = "🌿"
-	iconCommit     = "●"
-	iconTag        = "🏷"
-	iconLoading    = "⟳"
-	iconRecent     = "🕐"
-	iconBreadcrumb = "›"
+	iconProject       = "📦"
+	iconFolder        = "📁"
+	iconFile          = "📄"
+	iconPrivate       = "🔒"
+	iconPublic        = "🌐"
+	iconInternal      = "🏢"
+	iconStar          = "⭐"
+	iconClock         = "⏱"
+	iconBranch        = "🌿"
+	iconCommit        = "●"
+	iconTag           = "🏷"
+	iconLoading       = "⟳"
+	iconRecent        = "🕐"
+	iconBreadcrumb    = "›"
+	iconTreeCollapsed = "▸"
+	iconTreeExpanded  = "▾"
 )
 
-// pipelineStatusIcon returns a Unicode icon for the pipeline status
+// pipelineStatusIcon maps a GitLab status string to its Unicode indicator.
+// Handles all known statuses; unknown values get "?".
 func pipelineStatusIcon(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "success":

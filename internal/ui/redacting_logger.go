@@ -1,3 +1,14 @@
+// redacting_logger.go provides a security-critical slog.Handler that prevents
+// GitLab tokens and bearer credentials from leaking into log files or stderr.
+//
+// Because the TUI renders on an alternate screen, log output goes to stderr or
+// a file. Without redaction, debug-level logs from the HTTP client would expose
+// PRIVATE-TOKEN headers and glpat-* values. This handler intercepts every log
+// record — messages, attributes, and nested groups — and applies regex-based
+// scrubbing before forwarding to the wrapped handler.
+//
+// The regex patterns are intentionally broad (matching any gl*-prefixed token
+// with 6+ characters) to catch future GitLab token formats without code changes.
 package ui
 
 import (
@@ -6,23 +17,28 @@ import (
 	"regexp"
 )
 
-// redactingHandler wraps an slog.Handler to redact sensitive information from logs.
+// redactingHandler wraps an slog.Handler to scrub sensitive credentials.
+// It implements the full slog.Handler interface so it can be used as a
+// drop-in decorator around any underlying handler (text, JSON, etc.).
 type redactingHandler struct {
 	handler slog.Handler
 }
 
-// NewRedactingHandler creates a handler that redacts sensitive tokens from log output.
+// NewRedactingHandler wraps h so that every log record has GitLab tokens,
+// Authorization headers, and bearer credentials replaced with [REDACTED]
+// placeholders before reaching the underlying handler.
 func NewRedactingHandler(h slog.Handler) slog.Handler {
 	return &redactingHandler{handler: h}
 }
 
+// Redaction patterns are applied in order: auth headers first (most specific),
+// then bearer tokens, then bare GitLab tokens. Order matters because
+// "Authorization: Bearer glpat-xxx" should become "Authorization: [REDACTED]",
+// not "Authorization: Bearer [REDACTED-TOKEN]".
 var (
-	// GitLab token patterns (glpat-, gloas-, gldt-, etc.) - minimum 6 chars after prefix
-	tokenPattern = regexp.MustCompile(`gl[a-z]{2,4}-[a-zA-Z0-9_-]{6,}`)
-	// Authorization headers (must come before bearer to catch full header value)
+	tokenPattern      = regexp.MustCompile(`gl[a-z]{2,4}-[a-zA-Z0-9_-]{6,}`)
 	authHeaderPattern = regexp.MustCompile(`[Aa]uthorization:\s+[^\s]+(\s+[^\s]+)*`)
-	// Generic bearer tokens
-	bearerPattern = regexp.MustCompile(`[Bb]earer\s+[a-zA-Z0-9_-]+`)
+	bearerPattern     = regexp.MustCompile(`[Bb]earer\s+[a-zA-Z0-9_-]+`)
 )
 
 // redactString sanitizes sensitive information from a string.
@@ -95,8 +111,8 @@ func (h *redactingHandler) WithGroup(name string) slog.Handler {
 	return &redactingHandler{handler: h.handler.WithGroup(name)}
 }
 
-// RedactToken is a helper function to redact tokens in error messages.
-// This can be used by other parts of the codebase to manually redact sensitive data.
+// RedactToken applies the same redaction rules used by the log handler.
+// Call this when surfacing error messages in the TUI that might contain tokens.
 func RedactToken(s string) string {
 	return redactString(s)
 }

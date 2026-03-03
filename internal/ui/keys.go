@@ -1,8 +1,19 @@
+// keys.go defines the canonical set of keybindings for the application.
+//
+// All bindings are declared in one place so that help text, key matching,
+// and mode-specific subsets stay in sync. The keyMap struct implements
+// help.KeyMap (via ShortHelp/FullHelp) for integration with the Bubbles
+// help component.
+//
+// Mode-specific functions (projectsKeyMap, explorerKeyMap, pipelinesKeyMap)
+// return subsets for contextual help rendering — they don't create new
+// bindings, just select which ones to display.
 package ui
 
 import "github.com/charmbracelet/bubbles/key"
 
-// keyMap defines all keybindings for the application
+// keyMap holds every keybinding the TUI recognizes. Bindings use vim-style
+// mnemonics (j/k/h/l, g/G, Ctrl-D/U) to feel natural for terminal users.
 type keyMap struct {
 	// Navigation
 	Up       key.Binding
@@ -41,7 +52,8 @@ type keyMap struct {
 	ClearError key.Binding
 }
 
-// newKeyMap creates a new keyMap with all bindings
+// newKeyMap returns the default keybinding set. Each binding carries its own
+// help text so that ShortHelp/FullHelp can render contextual hints.
 func newKeyMap() keyMap {
 	return keyMap{
 		// Navigation
@@ -160,12 +172,12 @@ func newKeyMap() keyMap {
 	}
 }
 
-// ShortHelp returns bindings to show in the short help view
+// ShortHelp returns the minimal set of bindings for the collapsed help bar.
 func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Help, k.Up, k.Down, k.Enter, k.Search, k.Quit}
 }
 
-// FullHelp returns bindings to show in the full help view
+// FullHelp returns grouped bindings for the expanded help overlay.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},

@@ -1,3 +1,12 @@
+// info_bar.go renders the single-line status bar at the bottom of the screen.
+//
+// The bar is divided into three sections:
+//   - Left: spinner + status message (loading state, action confirmations)
+//   - Center: contextual keybinding hints for the focused panel
+//   - Right: selected project path for orientation
+//
+// When the terminal is too narrow, the center section is truncated first to
+// preserve the status message and project context.
 package ui
 
 import (
@@ -8,7 +17,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// renderInfoBar renders the bottom info bar with contextual keybinding hints.
+// renderInfoBar renders the bottom status bar with three sections:
+// status (left), keybinding hints (center), project context (right).
 func renderInfoBar(m *Model, width int) string {
 	if width <= 0 {
 		return ""
@@ -65,25 +75,27 @@ func renderInfoBar(m *Model, width int) string {
 	return left + strings.Repeat(" ", gap1) + center + strings.Repeat(" ", gap2) + right
 }
 
-// panelKeyHints returns contextual keybinding hints for the focused panel.
+// panelKeyHints returns a compact keybinding cheat-sheet for the focused panel.
+// These are intentionally terse — full help is available via '?'.
 func panelKeyHints(panel PanelID, m *Model) string {
 	switch panel {
 	case PanelProjects:
-		return "j/k nav · / search · e explorer · Enter pipelines · r refresh · ? help"
+		return "j/k nav · / search · f fav · t tab · e explorer · Enter pipelines · r refresh"
 	case PanelPipelines:
 		return "j/k nav · l stages · [ ] page · R retry · C cancel · t tab · r refresh"
 	case PanelStages:
 		return "j/k nav · J/K log · R retry · C cancel · P play · t tab"
 	case PanelMRs:
-		return "j/k nav · [ ] tab: Open/Merged/Closed · Enter details"
+		return "j/k nav · J/K scroll · [ ] filter · t tab · Ctrl+O copy URL"
 	case PanelDetail:
 		return "J/K scroll · Tab switch panels"
 	default:
-		return "Tab switch · 1-5 jump · + screen mode · ? help"
+		return "Tab switch · 1-5 jump · -/+ layout · = screen mode · ? help"
 	}
 }
 
-// panelFooter returns the "N of M" counter for a sidebar panel.
+// panelFooter returns the "N of M" position indicator rendered in the bottom
+// border of each sidebar panel.
 func panelFooter(panel PanelID, m *Model) string {
 	switch panel {
 	case PanelProjects:

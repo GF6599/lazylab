@@ -3,6 +3,14 @@ package ui
 // AsyncCache is a generic map-based cache that tracks loading and error state
 // per key. It replaces the repeated (map[K]V, map[K]bool, map[K]error) triplet
 // used throughout pipelineViewState.
+//
+// Each key transitions through a simple state machine:
+//
+//	idle → SetLoading → (Set | SetErr) → idle
+//
+// Set clears loading/error, so callers don't need to track transitions manually.
+// This is not concurrency-safe; it relies on Bubble Tea's single-goroutine
+// Update loop for all mutations.
 type AsyncCache[K comparable, V any] struct {
 	data    map[K]V
 	loading map[K]bool
@@ -81,8 +89,8 @@ func (c *AsyncCache[K, V]) Keys() []K {
 	return keys
 }
 
-// LoadingMap returns the underlying loading map for backward compatibility
-// with code that passes it to shouldFetchPipelineData.
+// LoadingMap exposes the underlying loading map for backward compatibility
+// with shouldFetchPipelineData guards. Prefer IsLoading for new code.
 func (c *AsyncCache[K, V]) LoadingMap() map[K]bool {
 	return c.loading
 }

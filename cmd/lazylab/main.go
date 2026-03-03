@@ -1,4 +1,11 @@
-// Package main provides the lazylab CLI entrypoint.
+// Package main is the entrypoint for lazylab, a terminal UI for browsing
+// GitLab projects, pipelines, and repository files.
+//
+// It wires together configuration loading, GitLab client creation, and the
+// Bubble Tea program. Logs are emitted to stderr through a redacting handler
+// so that token values never appear in output, even at debug level. The TUI
+// itself renders on the alternate screen to avoid polluting the user's
+// scrollback buffer.
 package main
 
 import (
@@ -58,6 +65,8 @@ func main() {
 	}
 }
 
+// parseLogLevel accepts loose aliases ("warn", "warning", "err") so users
+// don't need to memorize the exact slog constant names.
 func parseLogLevel(lvl string) (slog.Level, error) {
 	switch strings.ToLower(lvl) {
 	case "debug":
