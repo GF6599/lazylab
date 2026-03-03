@@ -3,20 +3,16 @@ package gitlab
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// Client is a small façade over the GitLab client-go API that exposes higher-level types
+// Client is a small facade over the GitLab client-go API that exposes higher-level types
 // tailored for the TUI.
 type Client struct {
 	api  *gl.Client
@@ -54,6 +50,33 @@ func NewClient(token, host string) (*Client, error) {
 	}
 	return &Client{api: api, host: trimmedHost}, nil
 }
+
+// Service is the interface that the UI layer depends on. It covers every
+// Client method the TUI calls, making it possible to swap in a mock for tests.
+type Service interface {
+	ListProjects(ctx context.Context, opts ProjectListOptions) (ProjectPage, error)
+	ListTree(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error)
+	GetFileContent(ctx context.Context, projectID int, path, ref string) (string, error)
+	LatestPipeline(ctx context.Context, projectID int, ref string) (PipelineSummary, error)
+	ListPipelines(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error)
+	PipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error)
+	ListPipelineJobs(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error)
+	GetJobTrace(ctx context.Context, projectID, jobID int) (string, error)
+	RetryPipeline(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error)
+	RetryJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+	CancelPipeline(ctx context.Context, projectID, pipelineID int) error
+	CancelJob(ctx context.Context, projectID, jobID int) error
+	PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+	ListMergeRequests(ctx context.Context, projectID int, opts MRListOptions) (MRPage, error)
+	ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error)
+	GetPipelineTestReport(ctx context.Context, projectID, pipelineID int) (*TestReport, error)
+	// ListProjectCommits returns recent commits for display in the detail pane.
+	// Pass an empty ref to use the project's default branch.
+	ListProjectCommits(ctx context.Context, projectID int, ref string, limit int) ([]CommitSummary, error)
+}
+
+// Verify at compile time that *Client satisfies Service.
+var _ Service = (*Client)(nil)
 
 // ProjectNode represents the subset of GitLab projects used by the UI.
 type ProjectNode struct {
@@ -121,6 +144,10 @@ type PipelineSummary struct {
 	WebURL    string
 	UpdatedAt time.Time
 	Stages    []PipelineStage
+	Source    string
+	Duration  float64
+	Coverage  float64
+	User      string
 }
 
 // PipelineStage captures a GitLab CI stage and its aggregated status.
@@ -131,11 +158,128 @@ type PipelineStage struct {
 
 // PipelineJob represents a single job in a pipeline.
 type PipelineJob struct {
+	ID                int
+	Name              string
+	Stage             string
+	Status            string
+	WebURL            string
+	Duration          float64
+	StartedAt         time.Time
+	FinishedAt        time.Time
+	FailureReason     string
+	AllowFailure      bool
+	RunnerDescription string
+	ArtifactsCount    int
+	Artifacts         []JobArtifact
+	ArtifactsExpireAt time.Time
+}
+
+// PipelineVariable represents a CI/CD variable associated with a pipeline.
+type PipelineVariable struct {
+	Key          string
+	Value        string
+	VariableType string
+}
+
+// MergeRequestSummary represents a merge request in a project.
+type MergeRequestSummary struct {
+	IID          int
+	Title        string
+	State        string
+	Author       string
+	SourceBranch string
+	TargetBranch string
+	PipelineID   int
+	WebURL       string
+	UpdatedAt    time.Time
+}
+
+// MRListOptions describe pagination and filter parameters for merge request listings.
+type MRListOptions struct {
+	State   string
+	Page    int
+	PerPage int
+}
+
+// MRPage contains a slice of merge requests along with pagination metadata.
+type MRPage struct {
+	MergeRequests []MergeRequestSummary
+	Page          int
+	PrevPage      int
+	NextPage      int
+	TotalPages    int
+}
+
+// PipelineBridge represents a bridge (child pipeline trigger) job.
+type PipelineBridge struct {
+	ID                 int
+	Name               string
+	Stage              string
+	Status             string
+	Ref                string
+	AllowFailure       bool
+	Duration           float64
+	DownstreamPipeline *PipelineBridgeDownstream
+}
+
+// PipelineBridgeDownstream is the downstream pipeline triggered by a bridge.
+type PipelineBridgeDownstream struct {
 	ID     int
-	Name   string
-	Stage  string
 	Status string
 	WebURL string
+}
+
+// TestReport contains a pipeline's test report summary.
+type TestReport struct {
+	TotalTime    float64
+	TotalCount   int
+	SuccessCount int
+	FailedCount  int
+	SkippedCount int
+	ErrorCount   int
+	Suites       []TestSuite
+}
+
+// TestSuite contains results for a test suite.
+type TestSuite struct {
+	Name         string
+	TotalTime    float64
+	TotalCount   int
+	SuccessCount int
+	FailedCount  int
+	SkippedCount int
+	ErrorCount   int
+	Cases        []TestCase
+}
+
+// TestCase represents a single test case result.
+type TestCase struct {
+	Status        string
+	Name          string
+	Classname     string
+	File          string
+	ExecutionTime float64
+	SystemOutput  string
+	StackTrace    string
+}
+
+// JobArtifact represents a single artifact file associated with a job.
+type JobArtifact struct {
+	FileType   string
+	Filename   string
+	Size       int
+	FileFormat string
+}
+
+// CommitSummary is a lightweight view of a Git commit for display in the
+// detail pane. Only the fields needed for the "recent commits" section are
+// included — full diffs and file lists are intentionally omitted to keep
+// the API response small and the UI snappy.
+type CommitSummary struct {
+	ShortID   string
+	Title     string
+	Author    string
+	CreatedAt time.Time
 }
 
 // ErrNoPipelines indicates no pipeline runs were returned by GitLab.
@@ -200,363 +344,6 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 	return pageInfo, nil
 }
 
-// ListTree returns the immediate children of the path for the given project.
-func (c *Client) ListTree(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error) {
-	treeOpts := &gl.ListTreeOptions{
-		ListOptions: gl.ListOptions{
-			PerPage: 200,
-			Page:    1,
-		},
-		Ref:       gl.Ptr(opts.Ref),
-		Path:      gl.Ptr(opts.Path),
-		Recursive: gl.Ptr(false),
-	}
-	nodes, _, err := c.api.Repositories.ListTree(projectID, treeOpts, gl.WithContext(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("list tree: %w", err)
-	}
-	out := make([]TreeNode, len(nodes))
-	for i, node := range nodes {
-		out[i] = TreeNode{
-			Path: node.Path,
-			Name: node.Name,
-			Type: node.Type,
-			Mode: node.Mode,
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].IsDir() && !out[j].IsDir() {
-			return true
-		}
-		if !out[i].IsDir() && out[j].IsDir() {
-			return false
-		}
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-	})
-	return out, nil
-}
-
-// GetFileContent fetches the contents of a GitLab repository file at the given ref.
-func (c *Client) GetFileContent(ctx context.Context, projectID int, path, ref string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("file path required")
-	}
-
-	// Validate path for traversal attempts
-	if strings.Contains(path, "..") || strings.HasPrefix(path, "/") {
-		return "", fmt.Errorf("invalid file path: path traversal not allowed")
-	}
-
-	// Additional security: decode URL encoding and check for unicode tricks
-	decodedPath, err := url.PathUnescape(path)
-	if err != nil {
-		return "", fmt.Errorf("invalid file path encoding: %w", err)
-	}
-
-	// Normalize and verify path stays within bounds
-	cleanPath := filepath.Clean(decodedPath)
-	if strings.Contains(cleanPath, "..") || filepath.IsAbs(cleanPath) {
-		return "", fmt.Errorf("invalid file path: normalization detected traversal attempt")
-	}
-
-	file, _, err := c.api.RepositoryFiles.GetFile(projectID, path, &gl.GetFileOptions{
-		Ref: gl.Ptr(ref),
-	}, gl.WithContext(ctx))
-	if err != nil {
-		return "", fmt.Errorf("get file: %w", err)
-	}
-
-	// Check file size before decoding (size is in bytes)
-	const maxFileSize = 10 * 1024 * 1024 // 10 MB
-	if file.Size > maxFileSize {
-		return "", fmt.Errorf("file too large: %d bytes (max %d bytes)", file.Size, maxFileSize)
-	}
-
-	data, err := base64.StdEncoding.DecodeString(file.Content)
-	if err != nil {
-		return "", fmt.Errorf("decode file: %w", err)
-	}
-	return string(data), nil
-}
-
-// LatestPipeline returns the most recent pipeline for the given project/ref.
-func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) (PipelineSummary, error) {
-	opts := &gl.ListProjectPipelinesOptions{
-		ListOptions: gl.ListOptions{
-			PerPage: 1,
-			Page:    1,
-		},
-		OrderBy: gl.Ptr("updated_at"),
-		Sort:    gl.Ptr("desc"),
-	}
-	if strings.TrimSpace(ref) != "" {
-		opts.Ref = gl.Ptr(ref)
-	}
-	pipelines, _, err := c.api.Pipelines.ListProjectPipelines(projectID, opts, gl.WithContext(ctx))
-	if err != nil {
-		return PipelineSummary{}, fmt.Errorf("list pipelines: %w", err)
-	}
-	if len(pipelines) == 0 {
-		return PipelineSummary{}, ErrNoPipelines
-	}
-	p := pipelines[0]
-	stages, err := c.collectPipelineStages(ctx, projectID, p.ID)
-	if err != nil {
-		return PipelineSummary{}, fmt.Errorf("collect pipeline stages: %w", err)
-	}
-	summary := PipelineSummary{
-		ID:     p.ID,
-		Status: string(p.Status),
-		Ref:    p.Ref,
-		SHA:    p.SHA,
-		WebURL: p.WebURL,
-		Stages: stages,
-	}
-	if p.UpdatedAt != nil {
-		summary.UpdatedAt = *p.UpdatedAt
-	} else if p.CreatedAt != nil {
-		summary.UpdatedAt = *p.CreatedAt
-	}
-	return summary, nil
-}
-
-// ListPipelines returns a page of pipelines for a project ordered by most recently updated.
-func (c *Client) ListPipelines(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error) {
-	if opts.PerPage <= 0 {
-		opts.PerPage = 25
-	}
-	if opts.Page <= 0 {
-		opts.Page = 1
-	}
-	apiOpts := &gl.ListProjectPipelinesOptions{
-		ListOptions: gl.ListOptions{
-			PerPage: opts.PerPage,
-			Page:    opts.Page,
-		},
-		OrderBy: gl.Ptr("updated_at"),
-		Sort:    gl.Ptr("desc"),
-	}
-	pipelines, resp, err := c.api.Pipelines.ListProjectPipelines(projectID, apiOpts, gl.WithContext(ctx))
-	if err != nil {
-		return PipelinePage{}, fmt.Errorf("list pipelines: %w", err)
-	}
-	summaries := make([]PipelineSummary, 0, len(pipelines))
-	for _, p := range pipelines {
-		summary := PipelineSummary{
-			ID:     p.ID,
-			Status: string(p.Status),
-			Ref:    p.Ref,
-			SHA:    p.SHA,
-			WebURL: p.WebURL,
-		}
-		if p.UpdatedAt != nil {
-			summary.UpdatedAt = *p.UpdatedAt
-		} else if p.CreatedAt != nil {
-			summary.UpdatedAt = *p.CreatedAt
-		}
-		summaries = append(summaries, summary)
-	}
-	if len(summaries) == 0 {
-		if opts.Page <= 1 {
-			return PipelinePage{}, ErrNoPipelines
-		}
-		if resp == nil {
-			return PipelinePage{
-				Pipelines:  []PipelineSummary{},
-				Page:       opts.Page,
-				PrevPage:   0,
-				NextPage:   0,
-				TotalPages: 0,
-			}, nil
-		}
-		return PipelinePage{
-			Pipelines:  summaries,
-			Page:       opts.Page,
-			PrevPage:   resp.PreviousPage,
-			NextPage:   resp.NextPage,
-			TotalPages: resp.TotalPages,
-		}, nil
-	}
-	if resp == nil {
-		return PipelinePage{
-			Pipelines:  summaries,
-			Page:       opts.Page,
-			PrevPage:   0,
-			NextPage:   0,
-			TotalPages: 0,
-		}, nil
-	}
-	return PipelinePage{
-		Pipelines:  summaries,
-		Page:       opts.Page,
-		PrevPage:   resp.PreviousPage,
-		NextPage:   resp.NextPage,
-		TotalPages: resp.TotalPages,
-	}, nil
-}
-
-// RetryPipeline retries failed jobs in a pipeline, falling back to a fresh run when needed.
-func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error) {
-	pipeline, _, err := c.api.Pipelines.RetryPipelineBuild(projectID, pipelineID, gl.WithContext(ctx))
-	if err != nil {
-		if ref == "" || !gl.HasStatusCode(err, 400) {
-			return PipelineSummary{}, fmt.Errorf("retry pipeline: %w", err)
-		}
-		created, _, createErr := c.api.Pipelines.CreatePipeline(projectID, &gl.CreatePipelineOptions{
-			Ref: gl.Ptr(ref),
-		}, gl.WithContext(ctx))
-		if createErr != nil {
-			return PipelineSummary{}, fmt.Errorf("retry pipeline: %v; run pipeline: %w", err, createErr)
-		}
-		return pipelineSummary(created), nil
-	}
-	return pipelineSummary(pipeline), nil
-}
-
-// RetryJob retries a single job run.
-func (c *Client) RetryJob(ctx context.Context, projectID, jobID int) (PipelineJob, error) {
-	if jobID == 0 {
-		return PipelineJob{}, fmt.Errorf("retry job: missing job id")
-	}
-	job, _, err := c.api.Jobs.RetryJob(projectID, jobID, gl.WithContext(ctx))
-	if err != nil {
-		return PipelineJob{}, fmt.Errorf("retry job: %w", err)
-	}
-	if job == nil {
-		return PipelineJob{}, nil
-	}
-	return PipelineJob{
-		ID:     job.ID,
-		Name:   job.Name,
-		Stage:  job.Stage,
-		Status: job.Status,
-		WebURL: job.WebURL,
-	}, nil
-}
-
-func pipelineSummary(pipeline *gl.Pipeline) PipelineSummary {
-	if pipeline == nil {
-		return PipelineSummary{}
-	}
-	summary := PipelineSummary{
-		ID:     pipeline.ID,
-		Status: pipeline.Status,
-		Ref:    pipeline.Ref,
-		SHA:    pipeline.SHA,
-		WebURL: pipeline.WebURL,
-	}
-	if pipeline.UpdatedAt != nil {
-		summary.UpdatedAt = *pipeline.UpdatedAt
-	} else if pipeline.CreatedAt != nil {
-		summary.UpdatedAt = *pipeline.CreatedAt
-	}
-	return summary
-}
-
-// PipelineStages returns stage summaries for a pipeline.
-func (c *Client) PipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error) {
-	return c.collectPipelineStages(ctx, projectID, pipelineID)
-}
-
-// ListPipelineJobs returns all jobs for a pipeline.
-func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error) {
-	opts := &gl.ListJobsOptions{
-		ListOptions: gl.ListOptions{
-			PerPage: 100,
-			Page:    1,
-		},
-	}
-	var jobs []PipelineJob
-	page := 1
-	for {
-		opts.Page = page
-		items, resp, err := c.api.Jobs.ListPipelineJobs(projectID, pipelineID, opts, gl.WithContext(ctx))
-		if err != nil {
-			return nil, fmt.Errorf("list pipeline jobs: %w", err)
-		}
-		for _, job := range items {
-			jobs = append(jobs, PipelineJob{
-				ID:     job.ID,
-				Name:   job.Name,
-				Stage:  job.Stage,
-				Status: string(job.Status),
-				WebURL: job.WebURL,
-			})
-		}
-		if resp == nil || resp.NextPage == 0 {
-			break
-		}
-		page = resp.NextPage
-	}
-	if len(jobs) == 0 {
-		return nil, ErrNoJobs
-	}
-	return jobs, nil
-}
-
-// GetJobTrace returns the log output for a job.
-func (c *Client) GetJobTrace(ctx context.Context, projectID, jobID int) (string, error) {
-	trace, _, err := c.api.Jobs.GetTraceFile(projectID, jobID, gl.WithContext(ctx))
-	if err != nil {
-		return "", fmt.Errorf("get job trace: %w", err)
-	}
-	if trace == nil {
-		return "", fmt.Errorf("no trace data available")
-	}
-	data, err := io.ReadAll(trace)
-	if err != nil {
-		return "", fmt.Errorf("read job trace: %w", err)
-	}
-	return string(data), nil
-}
-
-func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error) {
-	opts := &gl.ListJobsOptions{
-		ListOptions: gl.ListOptions{
-			PerPage: 100,
-			Page:    1,
-		},
-	}
-	stageStatus := make(map[string]string)
-	stageOrder := make([]string, 0)
-	seenStage := make(map[string]bool)
-	page := 1
-	for {
-		opts.Page = page
-		jobs, resp, err := c.api.Jobs.ListPipelineJobs(projectID, pipelineID, opts, gl.WithContext(ctx))
-		if err != nil {
-			return nil, fmt.Errorf("list pipeline jobs: %w", err)
-		}
-		for _, job := range jobs {
-			stageName := strings.TrimSpace(job.Stage)
-			if stageName == "" {
-				stageName = "(unknown stage)"
-			}
-			if !seenStage[stageName] {
-				seenStage[stageName] = true
-				stageOrder = append(stageOrder, stageName)
-			}
-			stageStatus[stageName] = mergeStageStatus(stageStatus[stageName], string(job.Status))
-		}
-		if resp == nil || resp.NextPage == 0 {
-			break
-		}
-		page = resp.NextPage
-	}
-	stages := make([]PipelineStage, 0, len(stageOrder))
-	for _, stage := range stageOrder {
-		status := stageStatus[stage]
-		if status == "" {
-			status = defaultStageStatus
-		}
-		stages = append(stages, PipelineStage{
-			Name:   stage,
-			Status: status,
-		})
-	}
-	return stages, nil
-}
-
 func ensureAPIBaseURL(host string) string {
 	host = strings.TrimSuffix(host, "/")
 	if strings.HasSuffix(host, "/api/v4") {
@@ -565,46 +352,23 @@ func ensureAPIBaseURL(host string) string {
 	return host + "/api/v4"
 }
 
-const defaultStageStatus = "unknown"
-
-var stageStatusPriority = map[string]int{
-	"failed":               0,
-	"canceled":             1,
-	"manual":               2,
-	"running":              3,
-	"pending":              4,
-	"waiting_for_resource": 4,
-	"scheduled":            4,
-	"created":              5,
-	"success":              6,
-	"skipped":              7,
-	"default":              8,
-	"unknown":              9,
-}
-
-func mergeStageStatus(current, candidate string) string {
-	candidate = normalizeStageStatus(candidate)
-	if current == "" {
-		return candidate
+// paginate collects all pages from a GitLab list endpoint. The fetch function
+// receives a 1-based page number and returns a slice of items plus the raw
+// *gl.Response (which carries NextPage). paginate keeps calling until there are
+// no more pages.
+func paginate[T any](ctx context.Context, fetch func(page int) ([]T, *gl.Response, error)) ([]T, error) {
+	var all []T
+	page := 1
+	for {
+		items, resp, err := fetch(page)
+		if err != nil {
+			return all, err
+		}
+		all = append(all, items...)
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		page = resp.NextPage
 	}
-	current = normalizeStageStatus(current)
-	if rank(candidate) < rank(current) {
-		return candidate
-	}
-	return current
-}
-
-func normalizeStageStatus(status string) string {
-	status = strings.TrimSpace(strings.ToLower(status))
-	if status == "" {
-		return defaultStageStatus
-	}
-	return status
-}
-
-func rank(status string) int {
-	if r, ok := stageStatusPriority[status]; ok {
-		return r
-	}
-	return stageStatusPriority["unknown"]
+	return all, nil
 }

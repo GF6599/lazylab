@@ -428,9 +428,9 @@ func TestPipelineStage_StatusPriority(t *testing.T) {
 // TestGetFileContent_PathTraversal tests that path traversal attempts are blocked
 func TestGetFileContent_PathTraversal(t *testing.T) {
 	tests := []struct {
-		name     string
-		path     string
-		wantErr  string
+		name    string
+		path    string
+		wantErr string
 	}{
 		{
 			name:    "simple dot-dot",
