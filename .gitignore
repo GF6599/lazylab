@@ -1,2 +1,5 @@
 /build/
 /lazylab
+justfile
+.claude
+CLAUDE.md
