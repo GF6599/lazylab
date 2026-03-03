@@ -1,4 +1,15 @@
-// Package ui contains the Bubble Tea models, views, and styles for the TUI.
+// Package ui implements the Bubble Tea TUI for browsing GitLab projects,
+// pipelines, merge requests, and repository files.
+//
+// The UI is a mode-based state machine built on the Elm architecture. A single
+// [Model] value owns all state and transitions between modes (projects,
+// explorer, pipelines, multi-panel) via key events. All I/O is performed
+// through [tea.Cmd] functions that return typed messages; the [Model.Update]
+// method routes each message to the appropriate handler which produces the
+// next state and optional follow-up commands.
+//
+// Rendering is pure: [Model.View] reads state and returns a string. No side
+// effects occur during rendering, which makes the UI predictable and testable.
 package ui
 
 import (
@@ -21,15 +32,19 @@ import (
 	"lazylab/internal/gitlab"
 )
 
-// Mode represents the current UI state of the application.
+// Mode represents which top-level screen the user is viewing. Each mode has
+// its own key handler, view function, and subset of Model state that it
+// "owns". Transitioning between modes resets the destination mode's state
+// (e.g., opening pipelines clears previous pipeline data) to avoid showing
+// stale content from a prior visit.
 type Mode int
 
 const (
-	modeProjects Mode = iota
-	modeExplorer
-	modeProjectActions
-	modePipelines
-	modeMultiPanel // New lazygit-style multi-panel layout
+	modeProjects       Mode = iota // Paginated project list with search
+	modeExplorer                   // Three-pane file browser (parent / current / preview)
+	modeProjectActions             // Modal overlay to choose "pipelines" or "browse files"
+	modePipelines                  // Pipeline list with stages/jobs and log preview
+	modeMultiPanel                 // Lazygit-style layout: projects + pipelines + detail side-by-side
 )
 
 const (
@@ -53,23 +68,46 @@ var projectActionOptions = []string{
 	"Browse files",
 }
 
-// Options configures the model at creation time.
+// projectTab selects the active tab in the projects panel.
+type projectTab int
+
+const (
+	projectTabFavorites projectTab = iota
+	projectTabAll
+)
+
+var projectTabLabels = []string{"★ Favorites", "All"}
+
+// Options configures the model at creation time. Zero values are replaced with
+// sensible defaults in [NewModel]:
+//
+//   - ProjectsPerPage defaults to 30.
+//   - APITimeout defaults to 15s (used for project listing, tree, file fetches).
+//   - PipelineTimeout defaults to 20s (used for stages, jobs, logs, retries).
+//   - Host is the GitLab instance URL, used as the cache key for on-disk
+//     project/favorites storage. An empty Host is valid (defaults apply).
+//   - Logger may be nil; when set it receives structured debug/error output
+//     without ever including the API token.
 type Options struct {
 	ProjectsPerPage int
 	Logger          Logger
 	Host            string
-	APITimeout      time.Duration // Timeout for simple API calls (projects, tree, file)
-	PipelineTimeout time.Duration // Timeout for pipeline operations (stages, jobs, logs)
+	APITimeout      time.Duration
+	PipelineTimeout time.Duration
 }
 
-// Logger is the subset of slog.Logger we care about.
+// Logger abstracts structured logging so callers can inject slog.Logger (or a
+// test spy) without coupling the UI package to a concrete implementation.
+// In tests, a nil Logger is safe — all call sites check before logging.
 type Logger interface {
 	Debug(msg string, args ...any)
 	Error(msg string, args ...any)
 	Info(msg string, args ...any)
 }
 
-// projectItem wraps a GitLab project for use with bubbles/list
+// projectItem satisfies bubbles/list.Item so projects can be rendered and
+// filtered by the list widget. FilterValue returns the full path (org/repo)
+// which drives the built-in fuzzy filter.
 type projectItem struct {
 	project gitlab.ProjectNode
 	status  string // Pipeline status for this project
@@ -79,9 +117,13 @@ func (i projectItem) FilterValue() string {
 	return i.project.PathWithNamespace
 }
 
-// projectDelegate renders project items in the list
+// projectDelegate implements bubbles/list.ItemDelegate for custom single-line
+// project rendering. It holds references (not copies) to the shared
+// pipelineStatus and favorites maps so that status icons update in-place
+// without rebuilding the delegate on every tick.
 type projectDelegate struct {
 	pipelineStatus map[int]pipelineState
+	favorites      map[int]bool
 }
 
 func (d projectDelegate) Height() int { return 1 }
@@ -100,12 +142,26 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 
 	// Add pipeline status icon if available
 	statusIcon := ""
-	if state, ok := d.pipelineStatus[proj.project.ID]; ok && state.hasInfo {
-		statusIcon = pipelineStatusIcon(state.info.Status) + " "
+	if state, ok := d.pipelineStatus[proj.project.ID]; ok {
+		switch {
+		case state.hasInfo:
+			statusIcon = pipelineStatusIcon(state.info.Status) + " "
+		case state.empty:
+			statusIcon = iconNoPipeline + " "
+		case state.loading:
+			statusIcon = iconLoading + " "
+		case state.err != nil:
+			statusIcon = iconUnknown + " "
+		}
+	}
+
+	favIcon := ""
+	if d.favorites[proj.project.ID] {
+		favIcon = "★ "
 	}
 
 	width := m.Width()
-	line := clampLine(fmt.Sprintf("%s %s%s", cursor, statusIcon, proj.project.PathWithNamespace), width)
+	line := clampLine(fmt.Sprintf("%s %s%s%s", cursor, favIcon, statusIcon, proj.project.PathWithNamespace), width)
 	fmt.Fprint(w, style.Render(line))
 }
 
@@ -175,7 +231,7 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 
 	cursor, style := listCursorStyle(index, m.Index())
 
-	statusBadge := pipelineStatusBadgeWithWidth(pItem.summary.Status, 12)
+	icon := pipelineStatusStyle(pItem.summary.Status).Render(pipelineStatusIcon(pItem.summary.Status))
 	timestamp := unknownStatus
 	if !pItem.summary.UpdatedAt.IsZero() {
 		timestamp = pItem.summary.UpdatedAt.Local().Format(timestampFormat)
@@ -185,7 +241,7 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 		ref = "unknown-ref"
 	}
 
-	line := fmt.Sprintf("%s %s #%d %s %s", cursor, statusBadge, pItem.summary.ID, timestamp, ref)
+	line := fmt.Sprintf("%s %s #%d %s %s", cursor, icon, pItem.summary.ID, timestamp, ref)
 	width := m.Width()
 	fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
 }
@@ -231,7 +287,21 @@ func (d treeEntryDelegate) Render(w io.Writer, m list.Model, index int, item lis
 	fmt.Fprint(w, style.Render(line))
 }
 
-// Model shows a list of projects and metadata for the selected entry.
+// Model is the root Bubble Tea model. It is a value type following Bubble Tea
+// conventions: Update returns a new Model by value, and View is a pure read.
+//
+// Internally it acts as a state machine whose current [Mode] determines which
+// key handler, view function, and subset of state are active. The mode-specific
+// state structs (explorerState, pipelineViewState, mrViewState, etc.) are only
+// meaningful when Model.mode matches; transition functions (openExplorer,
+// openPipelineView, etc.) reinitialize them from scratch.
+//
+// Shared mutable state (pipelineStatus map, favorites map) is referenced by
+// both the Model and its list delegates. This is intentional: the delegate
+// reads the same map instance so pipeline status icons refresh without
+// reconstructing the delegate on every tick. The trade-off is that callers
+// must not replace these maps after construction — only mutate them in place
+// or call SetDelegate with the new map.
 type Model struct {
 	ctx               context.Context // Parent context for cancellation
 	client            gitlab.Service
@@ -265,11 +335,18 @@ type Model struct {
 	projectList    list.Model
 	showHelp       bool
 	recentProjects []int // IDs of recently visited projects
+	favorites      map[int]bool
+	favStore       *favoritesStore
+	projectTab     projectTab
 
-	// visibleProjects cache
+	// visibleProjects cache — avoids recomputing the filtered/paged project
+	// slice on every View call. Invalidated by search query changes, page
+	// navigation, tab switches, and project list reloads. The cache key is
+	// the triple (query, page, tab); a mismatch triggers recomputation.
 	visibleCache      []gitlab.ProjectNode
-	visibleCacheQuery string // Last search query used
-	visibleCachePage  int    // Last page used (when not searching)
+	visibleCacheQuery string
+	visibleCachePage  int
+	visibleCacheTab   projectTab
 
 	// Pipeline fetch debouncing
 	pipelinePendingFetch  *gitlab.ProjectNode // Project awaiting fetch
@@ -337,44 +414,48 @@ type actionMenuState struct {
 }
 
 type pipelineViewState struct {
-	project              gitlab.ProjectNode
-	pipelines            []gitlab.PipelineSummary
-	pipelineList         list.Model // Bubbles list for pipeline display
-	selected             int
-	loading              bool
-	err                  error
-	page                 int
-	totalPages           int
-	perPage              int
-	stages               AsyncCache[int, []gitlab.PipelineStage]
-	stageSelected        int
-	stageTable           table.Model          // Table for displaying stages
-	jobRows              []gitlab.PipelineJob // Maps table cursor index → job
-	jobs                 AsyncCache[int, []gitlab.PipelineJob]
-	logs                 AsyncCache[int, string]
-	logPreview           previewState
-	logViewport          viewport.Model
-	logJobID             int
-	pendingLogJobID      int
-	logAutoFollow        bool
-	focus                pipelineFocus
-	confirmRetry         bool
-	confirmRetryID       int
-	confirmRetryRef      string
-	confirmRetryIsJob    bool
-	confirmRetryJobID    int
-	confirmRetryJobName  string
-	confirmRetryJobStage string
-	retrying             bool
-	retryErr             error
-	pendingSelectID      int
-	paginator            paginator.Model
-	bridges              AsyncCache[int, []gitlab.PipelineBridge]
-	testReport           *gitlab.TestReport
-	testReportLoading    bool
-	testReportErr        error
-	testReportPipelineID int
-	detailTab            pipelineDetailTab
+	project               gitlab.ProjectNode
+	pipelines             []gitlab.PipelineSummary
+	pipelineList          list.Model // Bubbles list for pipeline display
+	selected              int
+	loading               bool
+	err                   error
+	page                  int
+	totalPages            int
+	perPage               int
+	stages                AsyncCache[int, []gitlab.PipelineStage]
+	stageSelected         int
+	stageTable            table.Model          // Table for displaying stages
+	jobRows               []gitlab.PipelineJob // Maps table cursor index → job
+	stageJobRows          []stageJobRow        // Rich row model with matrix grouping
+	matrixExpanded        map[string]bool      // Expand/collapse state per matrix group key
+	jobs                  AsyncCache[int, []gitlab.PipelineJob]
+	logs                  AsyncCache[int, string]
+	logPreview            previewState
+	logViewport           viewport.Model
+	logJobID              int
+	pendingLogJobID       int
+	logAutoFollow         bool
+	focus                 pipelineFocus
+	confirmRetry          bool
+	confirmRetryID        int
+	confirmRetryRef       string
+	confirmRetryIsJob     bool
+	confirmRetryJobID     int
+	confirmRetryJobName   string
+	confirmRetryJobStage  string
+	confirmRetryProjectID int // Non-zero for bridge child jobs (downstream project)
+	retrying              bool
+	retryErr              error
+	pendingSelectID       int
+	paginator             paginator.Model
+	bridges               AsyncCache[int, []gitlab.PipelineBridge]
+	childJobs             AsyncCache[int, []gitlab.PipelineJob]
+	testReport            *gitlab.TestReport
+	testReportLoading     bool
+	testReportErr         error
+	testReportPipelineID  int
+	detailTab             pipelineDetailTab
 }
 
 type pipelineState struct {
@@ -395,7 +476,13 @@ const (
 	pipelineFocusStages
 )
 
-// NewModel returns a ready-to-run Bubble Tea model.
+// NewModel returns a ready-to-run Bubble Tea model. It applies defaults to
+// zero-valued [Options] fields, initializes Bubble Tea sub-components (spinner,
+// help, paginator, project list), and sets up on-disk caches for projects and
+// favorites. Cache initialization errors are logged but non-fatal — the app
+// falls back to API-only mode.
+//
+// The returned Model starts in modeMultiPanel and begins loading on [Model.Init].
 func NewModel(client gitlab.Service, opts Options) Model {
 	if opts.ProjectsPerPage <= 0 {
 		opts.ProjectsPerPage = 30
@@ -428,14 +515,15 @@ func NewModel(client gitlab.Service, opts Options) Model {
 	p := paginator.New()
 	p.Type = paginator.Dots
 	p.PerPage = opts.ProjectsPerPage
-	p.ActiveDot = lipgloss.NewStyle().Foreground(rosePineRose).Render("•")
+	p.ActiveDot = lipgloss.NewStyle().Foreground(rosePineFoam).Render("•")
 	p.InactiveDot = lipgloss.NewStyle().Foreground(rosePineMuted).Render("•")
 
 	// Initialize pipeline status map (shared with delegate)
 	pipelineStatus := make(map[int]pipelineState)
+	favorites := make(map[int]bool)
 
 	// Initialize project list
-	delegate := projectDelegate{pipelineStatus: pipelineStatus}
+	delegate := projectDelegate{pipelineStatus: pipelineStatus, favorites: favorites}
 	projectList := newBareList(nil, delegate, 0, 0)
 	projectList.Styles.Title = titleStyle
 
@@ -458,6 +546,8 @@ func NewModel(client gitlab.Service, opts Options) Model {
 		spinner:               s,
 		paginator:             p,
 		projectList:           projectList,
+		favorites:             favorites,
+		projectTab:            projectTabFavorites,
 		recentProjects:        make([]int, 0, 10),
 		previewHighlightCache: make(map[string]previewHighlightEntry),
 		previewHighlightOrder: make([]string, 0, maxPreviewHighlightEntries),
@@ -469,10 +559,18 @@ func NewModel(client gitlab.Service, opts Options) Model {
 	} else if opts.Logger != nil {
 		opts.Logger.Error("init cache", "err", err)
 	}
+	if store, err := newFavoritesStore(opts.Host); err == nil {
+		m.favStore = store
+	} else if opts.Logger != nil {
+		opts.Logger.Error("init favorites store", "err", err)
+	}
 	return m
 }
 
-// Init is invoked by Bubble Tea when the program starts.
+// Init kicks off initial data loading. If an on-disk project cache exists, it
+// is loaded first for instant startup; otherwise a foreground API fetch begins.
+// Favorites are loaded in parallel. The spinner tick is always started so the
+// loading indicator animates immediately.
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.cache != nil {
@@ -480,11 +578,24 @@ func (m Model) Init() tea.Cmd {
 	} else {
 		cmds = append(cmds, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, 1, false))
 	}
+	if m.favStore != nil {
+		cmds = append(cmds, loadFavoritesCmd(m.favStore))
+	}
 	cmds = append(cmds, m.spinner.Tick)
 	return tea.Batch(cmds...)
 }
 
-// Update reacts to Bubble Tea messages and returns the new model state.
+// Update is the central message router. It handles three categories of messages:
+//
+//  1. System messages (WindowSizeMsg) — resize all sub-components.
+//  2. Key messages — dispatched to the mode-specific key handler. Help toggle
+//     and error clearing are handled globally before mode dispatch.
+//  3. Async result messages — each typed message is routed to its handler
+//     (e.g., projectsLoadedMsg -> handleProjectsLoaded). Handlers update state
+//     and may return follow-up commands for cascading fetches.
+//
+// The spinner is only ticked when something is actively loading, to avoid
+// unnecessary redraws in idle state.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Only update spinner when actually loading something
 	var spinnerCmd tea.Cmd
@@ -589,18 +700,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSearchDebounceTickMsg(msg)
 	case mrsLoadedMsg:
 		return m.handleMRsLoaded(msg)
+	case mrDiscussionsLoadedMsg:
+		return m.handleMRDiscussionsLoaded(msg)
+	case mrDiffsLoadedMsg:
+		return m.handleMRDiffsLoaded(msg)
 	case pipelineCanceledMsg:
 		return m.handlePipelineCanceled(msg)
 	case jobCanceledMsg:
 		return m.handleJobCanceled(msg)
 	case jobPlayedMsg:
 		return m.handleJobPlayed(msg)
+	case childPipelineJobsLoadedMsg:
+		return m.handleChildPipelineJobsLoaded(msg)
 	case bridgesLoadedMsg:
 		return m.handleBridgesLoaded(msg)
 	case testReportLoadedMsg:
 		return m.handleTestReportLoaded(msg)
 	case commitsLoadedMsg:
 		return m.handleCommitsLoaded(msg)
+	case favoritesLoadedMsg:
+		if msg.err != nil {
+			if m.opts.Logger != nil {
+				m.opts.Logger.Error("load favorites", "err", msg.err)
+			}
+		} else {
+			m.favorites = msg.favorites
+			m.projectList.SetDelegate(projectDelegate{
+				pipelineStatus: m.pipelineStatus,
+				favorites:      m.favorites,
+			})
+			m.invalidateVisibleCache()
+			m.ensureSelectionBounds()
+			m.updateProjectList()
+
+			// Favorites may have changed the visible set; reload sidebar data
+			// and batch-prefetch pipeline status for the new visible projects.
+			if m.mode == modeMultiPanel && len(m.allProjects) > 0 {
+				var cmds []tea.Cmd
+				if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				if cmd := (&m).autoLoadSelectedProjectData(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+				if len(cmds) > 0 {
+					return m, tea.Batch(cmds...)
+				}
+			}
+		}
+		return m, nil
+	case favoritesSavedMsg:
+		if msg.err != nil && m.opts.Logger != nil {
+			m.opts.Logger.Error("save favorites", "err", msg.err)
+		}
+		return m, nil
 	}
 	return m, nil
 }

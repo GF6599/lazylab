@@ -1,4 +1,16 @@
-// Package ui contains the Bubble Tea models, views, and styles for the TUI.
+// This file contains all message handlers — methods that process the typed
+// messages produced by commands in project_list_cmds.go. Each handler
+// updates Model state and optionally returns follow-up commands for
+// cascading fetches (e.g., loading stages after pipelines arrive).
+//
+// Common patterns across handlers:
+//   - Guard clause: discard the message if the mode or project ID no longer
+//     matches (the user may have navigated away while the fetch was in flight).
+//   - Selection persistence: after reloading a list, try to restore the cursor
+//     to the same item by matching on ID/IID to avoid jarring jumps.
+//   - Cascade: when parent data arrives (pipelines), automatically fetch
+//     child data (stages, jobs) for the selected item.
+
 package ui
 
 import (
@@ -14,6 +26,10 @@ import (
 	"lazylab/internal/gitlab"
 )
 
+// handleCacheLoaded processes the on-disk project cache result. On a cache hit,
+// all pages are marked ready immediately and the pipeline refresh ticker starts.
+// On a miss (or error), it falls back to a foreground API fetch. In multi-panel
+// mode it also triggers sidebar data loading for the initially selected project.
 func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		if m.opts.Logger != nil {
@@ -58,11 +74,17 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	m.ensureSelectionBounds()
 	m.updateProjectList()
 	// Batch prefetch pipeline status for all visible projects and start ticker
-	prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
-	if prefetchCmd != nil {
-		return m, tea.Batch(prefetchCmd, pipelineTickCmd())
+	cmds := []tea.Cmd{pipelineTickCmd()}
+	if prefetchCmd := (&m).queueBatchPrefetchPipelineStatus(); prefetchCmd != nil {
+		cmds = append(cmds, prefetchCmd)
 	}
-	return m, pipelineTickCmd()
+	// Auto-load sidebar data for initially selected project in multi-panel mode
+	if m.mode == modeMultiPanel {
+		if cmd := (&m).autoLoadSelectedProjectData(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // handleTreeLoaded processes a fetched directory listing. It serves two purposes:
@@ -202,6 +224,11 @@ func (m Model) handleFileLoaded(msg fileLoadedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleProjectsLoaded processes a fetched page of projects. Background loads
+// (triggered by lazy pagination) append to allProjects and save to cache.
+// Foreground loads (first page or forced refresh) replace the entire project
+// list, reset pagination, start the pipeline ticker, and batch-prefetch
+// pipeline statuses for the visible page.
 func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	if msg.err != nil {
@@ -221,26 +248,11 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 
 	if msg.background {
 		m.appendPage(msg.page)
+		m.backgroundLoading = false
 		m.updateProjectList()
-		if m.totalPages > 0 {
-			m.status = fmt.Sprintf("Caching %d/%d pages", m.pagesLoaded, m.totalPages)
-		}
+		m.status = fmt.Sprintf("Loaded page %d", msg.page.Page)
 		if m.cache != nil && len(m.allProjects) > 0 {
 			cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
-		}
-		if m.pagesLoaded >= m.totalPages && m.totalPages > 0 {
-			m.backgroundLoading = false
-			m.status = "All projects cached"
-			if len(cmds) == 0 {
-				return m, nil
-			}
-			return m, tea.Batch(cmds...)
-		}
-		if msg.page.NextPage > 0 {
-			cmds = append(cmds, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, msg.page.NextPage, true))
-		} else {
-			m.backgroundLoading = false
-			m.status = "All projects cached"
 		}
 		if len(cmds) == 0 {
 			return m, nil
@@ -273,12 +285,7 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	} else {
 		m.status = fmt.Sprintf("Loaded %d projects", len(m.allProjects))
 	}
-	if msg.page.NextPage > 0 {
-		m.backgroundLoading = true
-		cmds = append(cmds, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, msg.page.NextPage, true))
-	} else {
-		m.backgroundLoading = false
-	}
+	m.backgroundLoading = false
 	m.ensureSelectionBounds()
 	m.updateProjectList()
 	// Batch prefetch pipeline status for all visible projects and start ticker on first page
@@ -291,12 +298,22 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	if m.cache != nil && len(m.allProjects) > 0 {
 		cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
 	}
+	// Auto-load sidebar data for initially selected project in multi-panel mode
+	if m.mode == modeMultiPanel {
+		if cmd := (&m).autoLoadSelectedProjectData(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	if len(cmds) == 0 {
 		return m, nil
 	}
 	return m, tea.Batch(cmds...)
 }
 
+// handlePipelineStatus updates the cached pipeline status for a single project.
+// ErrNoPipelines is treated as empty (not an error) so the UI can show a
+// distinct "no pipeline" icon. If the affected project is currently selected,
+// the detail pane cache is invalidated to trigger a re-render.
 func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) {
 	selectedID := 0
 	if m.mode == modeProjects || m.mode == modeMultiPanel {
@@ -337,6 +354,13 @@ func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
+// handlePipelinesLoaded updates the pipeline list for the viewed project.
+// Pipelines are sorted by UpdatedAt descending (newest first), then by ID as
+// a tiebreaker. After sorting, it attempts to preserve the user's cursor
+// position by matching on pipeline ID — first checking pendingSelectID (set
+// after a retry), then the previously selected ID. This prevents the cursor
+// from jumping during auto-refresh. Finally, it cascades into fetching stages
+// and jobs for the (possibly new) selected pipeline.
 func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd) {
 	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
@@ -451,16 +475,14 @@ func (m Model) handlePipelineStagesLoaded(msg pipelineStagesLoadedMsg) (tea.Mode
 	// Update stage table with new data
 	m.updateStageTable()
 
-	// Fetch bridges for this pipeline if not already cached
+	// Fetch bridges for this pipeline (always re-fetch to pick up status changes)
 	var cmds []tea.Cmd
 	if cmd := m.queuePipelineLogPreview(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	if _, bridgeCached := m.pipelineView.bridges.Get(msg.pipelineID); !bridgeCached {
-		if !m.pipelineView.bridges.IsLoading(msg.pipelineID) {
-			m.pipelineView.bridges.SetLoading(msg.pipelineID)
-			cmds = append(cmds, fetchBridgesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, msg.pipelineID))
-		}
+	if !m.pipelineView.bridges.IsLoading(msg.pipelineID) {
+		m.pipelineView.bridges.SetLoading(msg.pipelineID)
+		cmds = append(cmds, fetchBridgesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, msg.pipelineID))
 	}
 	if len(cmds) == 0 {
 		return m, nil
@@ -488,6 +510,11 @@ func (m Model) handlePipelineJobsLoaded(msg pipelineJobsLoadedMsg) (tea.Model, t
 	return m, m.queuePipelineLogPreview()
 }
 
+// handlePipelineLogLoaded stores a fetched job log trace and updates the log
+// preview viewport. Logs are truncated to maxLogSizeBytes to prevent OOM, and
+// old entries are evicted via LRU. The viewport only updates when logAutoFollow
+// is true — if the user has manually scrolled, the scroll position is
+// preserved and the content is silently cached for the next auto-follow toggle.
 func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea.Cmd) {
 	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
@@ -530,6 +557,9 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 	return m, nil
 }
 
+// handlePipelineRetried processes the result of retrying an entire pipeline.
+// On success it sets pendingSelectID so the cursor follows the new (or same)
+// pipeline after reload, then triggers a full pipeline view reload from page 1.
 func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd) {
 	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
@@ -557,6 +587,10 @@ func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd
 	return m.reloadPipelineView()
 }
 
+// handlePipelineJobRetried processes a single job retry result. Unlike pipeline
+// retry, it does not reload the full pipeline list — it only refreshes stages,
+// jobs, bridges, and the log for the affected pipeline to show the updated
+// job status.
 func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, tea.Cmd) {
 	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
@@ -585,6 +619,12 @@ func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, t
 	if cmd := m.queuePipelineJobsRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	if cmd := m.queueBridgesRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queueExpandedChildJobsRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if cmd := m.queuePipelineLogRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -594,6 +634,15 @@ func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, t
 	return m, tea.Batch(cmds...)
 }
 
+// handlePipelineTick is called every pipelineRefreshInterval (5s). Its behavior
+// depends on the current mode:
+//   - modeProjects: refreshes the selected project's pipeline status badge.
+//   - modePipelines: refreshes the entire pipeline view (list + stages + jobs + log).
+//   - modeMultiPanel: does both — batch-refreshes visible project badges and
+//     refreshes the active pipeline view if one is open.
+//
+// The caller (Update) always re-enqueues the tick after handling, forming a
+// self-sustaining refresh loop.
 func (m Model) handlePipelineTick() (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeProjects:
@@ -605,7 +654,8 @@ func (m Model) handlePipelineTick() (tea.Model, tea.Cmd) {
 	case modeMultiPanel:
 		// In multi-panel mode, refresh both project pipeline badges and pipeline view data
 		var cmds []tea.Cmd
-		if cmd := (&m).queuePipelineFetchForSelection(false); cmd != nil {
+		// Batch-refresh pipeline status icons for all visible projects
+		if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		if m.pipelineView.project.ID != 0 {
@@ -641,6 +691,10 @@ func (m Model) handlePipelineDebounceTickMsg(msg pipelineDebounceTickMsg) (tea.M
 	return m, (&m).queuePipelineFetch(project, true)
 }
 
+// handleBatchPipelineStatus processes the results from batchFetchPipelineStatusCmd,
+// updating the pipelineStatus map for each project in a single pass. If the
+// currently selected project was among the results, the detail pane cache is
+// invalidated so the updated status icon renders immediately.
 func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model, tea.Cmd) {
 	if m.pipelineStatus == nil {
 		m.pipelineStatus = make(map[int]pipelineState)
@@ -686,10 +740,56 @@ func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model,
 	return m, nil
 }
 
+func (m Model) handleMRDiscussionsLoaded(msg mrDiscussionsLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.mrView.discussions.SetErr(msg.mrIID, msg.err)
+		return m, nil
+	}
+	m.mrView.discussions.Set(msg.mrIID, msg.discussions)
+	if m.mrView.detailTab == mrDetailTabComments {
+		mr := m.mrView.selectedMR()
+		if mr != nil && mr.IID == msg.mrIID {
+			content := renderMRCommentsText(msg.discussions, m.mrViewportWidth())
+			m.setMRViewportContent(content)
+			m.mrView.mrViewport.GotoTop()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleMRDiffsLoaded(msg mrDiffsLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.mrView.diffs.SetErr(msg.mrIID, msg.err)
+		return m, nil
+	}
+	m.mrView.diffs.Set(msg.mrIID, msg.diffs)
+	if m.mrView.detailTab == mrDetailTabDiff {
+		mr := m.mrView.selectedMR()
+		if mr != nil && mr.IID == msg.mrIID {
+			content := renderMRDiffText(msg.diffs, m.mrViewportWidth())
+			m.setMRViewportContent(content)
+			m.mrView.mrViewport.GotoTop()
+		}
+	}
+	return m, nil
+}
+
 func (m Model) handleMRsLoaded(msg mrsLoadedMsg) (tea.Model, tea.Cmd) {
 	if m.mrView.project.ID != msg.projectID {
 		return m, nil
 	}
+	// Stash previously selected IID before overwriting the list
+	prevIID := 0
+	if m.mrView.selected >= 0 && m.mrView.selected < len(m.mrView.mrs) {
+		prevIID = m.mrView.mrs[m.mrView.selected].IID
+	}
+
 	m.mrView.loading = false
 	if msg.err != nil {
 		m.mrView.err = msg.err
@@ -698,7 +798,19 @@ func (m Model) handleMRsLoaded(msg mrsLoadedMsg) (tea.Model, tea.Cmd) {
 	m.mrView.err = nil
 	m.mrView.mrs = msg.mrs
 	m.mrView.page = msg.page
-	m.mrView.total = msg.total
+	m.mrView.prevPage = msg.prevPage
+	m.mrView.nextPage = msg.nextPage
+	m.mrView.totalPages = msg.totalPages
+
+	// Preserve selection by matching on IID
+	if prevIID != 0 {
+		for i, mr := range m.mrView.mrs {
+			if mr.IID == prevIID {
+				m.mrView.selected = i
+				return m, nil
+			}
+		}
+	}
 	if m.mrView.selected >= len(m.mrView.mrs) {
 		m.mrView.selected = max(0, len(m.mrView.mrs)-1)
 	}
@@ -733,6 +845,12 @@ func (m Model) handleJobCanceled(msg jobCanceledMsg) (tea.Model, tea.Cmd) {
 	if cmd := m.queuePipelineJobsRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	if cmd := m.queueBridgesRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queueExpandedChildJobsRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if len(cmds) == 0 {
 		return m, nil
 	}
@@ -759,10 +877,29 @@ func (m Model) handleJobPlayed(msg jobPlayedMsg) (tea.Model, tea.Cmd) {
 	if cmd := m.queuePipelineJobsRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	if cmd := m.queueBridgesRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queueExpandedChildJobsRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if len(cmds) == 0 {
 		return m, nil
 	}
 	return m, tea.Batch(cmds...)
+}
+
+func (m Model) handleChildPipelineJobsLoaded(msg childPipelineJobsLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modePipelines && m.mode != modeMultiPanel {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.pipelineView.childJobs.SetErr(msg.childPipelineID, msg.err)
+		return m, nil
+	}
+	m.pipelineView.childJobs.Set(msg.childPipelineID, msg.jobs)
+	m.updateStageTable()
+	return m, m.queuePipelineLogPreview()
 }
 
 func (m Model) handleBridgesLoaded(msg bridgesLoadedMsg) (tea.Model, tea.Cmd) {
@@ -774,6 +911,12 @@ func (m Model) handleBridgesLoaded(msg bridgesLoadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.pipelineView.bridges.Set(msg.pipelineID, msg.bridges)
+	// Rebuild stage table so bridge rows appear immediately
+	m.updateStageTable()
+	// Re-fetch child jobs for any expanded bridges so their statuses update
+	if cmd := m.queueExpandedChildJobsRefresh(); cmd != nil {
+		return m, cmd
+	}
 	return m, nil
 }
 

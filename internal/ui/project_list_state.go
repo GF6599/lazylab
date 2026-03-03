@@ -1,4 +1,3 @@
-// Package ui contains the Bubble Tea models, views, and styles for the TUI.
 package ui
 
 import (
@@ -17,6 +16,9 @@ import (
 	"lazylab/internal/gitlab"
 )
 
+// openProjectActions transitions to the action menu modal for a project.
+// The modal offers "View pipelines" or "Browse files" — it does not fetch
+// any data, so it returns no command.
 func (m Model) openProjectActions(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	m.mode = modeProjectActions
 
@@ -45,6 +47,11 @@ func (m *Model) closeActionMenu() {
 	m.updateProjectListSize()
 }
 
+// openExplorer transitions to the three-pane file browser. It resets all
+// explorer state (stack, preview, bubbles lists) and starts a root tree
+// fetch for the project's default branch. The preview viewport is initialized
+// here with proper dimensions — all subsequent preview resets must preserve
+// this viewport instance to avoid zero-sized rendering (see queueExplorerPreview).
 func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	ref := project.DefaultBranch
 	if ref == "" {
@@ -72,6 +79,10 @@ func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, ref, "")
 }
 
+// openPipelineView transitions to the pipeline list for a project. All
+// pipeline caches (stages, jobs, logs, bridges, child jobs) are freshly
+// initialized, and log auto-follow is enabled. Returns a command to fetch
+// the first page of pipelines.
 func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	m.mode = modePipelines
 
@@ -96,8 +107,8 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		Bold(false).
 		Foreground(rosePineSubtle)
 	s.Selected = s.Selected.
-		Foreground(rosePineBase).
-		Background(rosePineRose).
+		Foreground(rosePineText).
+		Background(rosePineHighlightMed).
 		Bold(false)
 	s.Cell = s.Cell.
 		Foreground(rosePineText)
@@ -126,6 +137,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		logAutoFollow: true,
 		focus:         pipelineFocusPipelines,
 		bridges:       NewAsyncCache[int, []gitlab.PipelineBridge](),
+		childJobs:     NewAsyncCache[int, []gitlab.PipelineJob](),
 	}
 	m.status = fmt.Sprintf("Pipelines for %s", project.PathWithNamespace)
 	return m, fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, m.pipelineView.page, m.pipelineView.perPage)
@@ -141,6 +153,7 @@ func (m *Model) clearRetryConfirm() {
 	m.pipelineView.confirmRetryJobID = 0
 	m.pipelineView.confirmRetryJobName = ""
 	m.pipelineView.confirmRetryJobStage = ""
+	m.pipelineView.confirmRetryProjectID = 0
 }
 
 // clearAllRetryState resets all retry-related fields including the confirmation
@@ -164,8 +177,11 @@ func (pv *pipelineViewState) resetCaches() {
 	pv.stages.Clear()
 	pv.stageSelected = 0
 	pv.jobRows = nil
+	pv.stageJobRows = nil
 	pv.jobs.Clear()
 	pv.logs.Clear()
+	pv.childJobs.Clear()
+	// Note: matrixExpanded is intentionally preserved across refreshes
 }
 
 func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
@@ -282,7 +298,10 @@ func (m *Model) closeExplorer(status string) {
 	}
 }
 
-func (m *Model) movePage(delta int) {
+func (m *Model) movePage(delta int) tea.Cmd {
+	if m.projectTab == projectTabFavorites {
+		return nil
+	}
 	target := m.page + delta
 	if target < 1 {
 		target = 1
@@ -291,17 +310,19 @@ func (m *Model) movePage(delta int) {
 		target = m.totalPages
 	}
 	if target == m.page {
-		return
+		return nil
 	}
 	m.page = target
 	m.paginator.Page = m.page - 1 // Paginator is 0-indexed
 	if !m.pagesReady[m.page] {
-		m.status = fmt.Sprintf("Page %d is still caching (%d/%d)", m.page, m.pagesLoaded, m.totalPages)
-	} else {
-		m.status = fmt.Sprintf("Viewing page %d", m.page)
+		m.backgroundLoading = true
+		m.status = fmt.Sprintf("Loading page %d...", m.page)
+		return fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, m.page, true)
 	}
+	m.status = fmt.Sprintf("Viewing page %d", m.page)
 	m.ensureSelectionBounds()
 	m.updateProjectList()
+	return nil
 }
 
 func (m *Model) copyCloneCommand() {
@@ -418,6 +439,11 @@ func (m *Model) ensureSelectionBounds() {
 	}
 }
 
+// queueBatchPrefetchPipelineStatus enqueues a single [batchFetchPipelineStatusCmd]
+// for all visible projects whose pipeline status is missing or stale (older than
+// pipelineRefreshInterval). Projects already loading are skipped. Each project
+// is marked as loading before the command fires to prevent duplicate fetches
+// from overlapping ticks.
 func (m *Model) queueBatchPrefetchPipelineStatus() tea.Cmd {
 	visible := m.visibleProjects()
 	if len(visible) == 0 {
@@ -476,6 +502,10 @@ func (m *Model) queuePipelineFetch(project gitlab.ProjectNode, force bool) tea.C
 	return fetchPipelineCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, ref)
 }
 
+// queuePipelineViewRefresh refreshes all pipeline data for the currently viewed
+// pipeline: the pipeline list, stages, jobs, bridges, expanded child jobs, and
+// the active log. Called on every auto-refresh tick (5s) to keep the UI live.
+// Each sub-fetch is independently guarded against duplicate in-flight requests.
 func (m *Model) queuePipelineViewRefresh() tea.Cmd {
 	if m.pipelineView.project.ID == 0 {
 		return nil
@@ -497,6 +527,12 @@ func (m *Model) queuePipelineViewRefresh() tea.Cmd {
 		cmds = append(cmds, cmd)
 	}
 	if cmd := m.queuePipelineJobsRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queueBridgesRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queueExpandedChildJobsRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if cmd := m.queuePipelineLogRefresh(); cmd != nil {
@@ -587,6 +623,55 @@ func (m *Model) queuePipelineJobsRefresh() tea.Cmd {
 	return fetchPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
+// queueBridgesRefresh re-fetches bridges unconditionally (ignores cache).
+// Called during auto-refresh ticks so bridge/downstream status updates appear.
+func (m *Model) queueBridgesRefresh() tea.Cmd {
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.bridges.LoadingMap())
+	if !ok {
+		return nil
+	}
+	m.pipelineView.bridges.SetLoading(pipelineID)
+	return fetchBridgesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
+}
+
+// queueExpandedChildJobsRefresh re-fetches child jobs for all expanded bridges
+// of the selected pipeline. Only fetches for bridges whose group key is in
+// matrixExpanded, and guards against duplicate requests via IsLoading.
+func (m *Model) queueExpandedChildJobsRefresh() tea.Cmd {
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return nil
+	}
+	bridges, ok := m.pipelineView.bridges.Get(pipeline.ID)
+	if !ok || len(bridges) == 0 {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, b := range bridges {
+		if b.DownstreamPipeline == nil {
+			continue
+		}
+		groupKey := fmt.Sprintf("bridge:%d", b.ID)
+		if !m.pipelineView.matrixExpanded[groupKey] {
+			continue
+		}
+		dsID := b.DownstreamPipeline.ID
+		if m.pipelineView.childJobs.IsLoading(dsID) {
+			continue
+		}
+		projectID := b.DownstreamPipeline.ProjectID
+		if projectID == 0 {
+			projectID = m.pipelineView.project.ID
+		}
+		m.pipelineView.childJobs.SetLoading(dsID)
+		cmds = append(cmds, fetchChildPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, dsID))
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
 func (m *Model) selectedPipelineStages() []gitlab.PipelineStage {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
@@ -611,6 +696,49 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 	}
 	if _, ok := m.pipelineView.jobs.Get(pipeline.ID); !ok {
 		return m.queuePipelineJobsForSelection()
+	}
+	// Bridge rows don't have job traces — show bridge info instead
+	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridge {
+		content := bridgePreviewContent(row.Bridge, row.IsLast)
+		m.pipelineView.logPreview = previewState{
+			path:    row.Bridge.Name,
+			content: content,
+			raw:     content,
+			loading: false,
+		}
+		m.setLogViewportContent(content)
+		m.pipelineView.logJobID = 0
+		m.pipelineView.logViewport.GotoTop()
+		return nil
+	}
+	// Bridge child rows have real jobs but may belong to a different project
+	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.Job != nil {
+		projectID := row.ChildProjectID
+		if projectID == 0 {
+			projectID = m.pipelineView.project.ID
+		}
+		job := row.Job
+		if content, ok := m.pipelineView.logs.Get(job.ID); ok {
+			prevJobID := m.pipelineView.logJobID
+			m.pipelineView.logPreview = previewState{
+				path: job.Name, content: content, raw: content, loading: false,
+			}
+			m.setLogViewportContent(content)
+			m.pipelineView.logJobID = job.ID
+			if m.pipelineView.logAutoFollow {
+				m.pipelineView.logViewport.GotoBottom()
+			} else if prevJobID != job.ID {
+				m.pipelineView.logViewport.GotoTop()
+			}
+			return nil
+		}
+		if m.pipelineView.logs.IsLoading(job.ID) {
+			return nil
+		}
+		m.pipelineView.logs.SetLoading(job.ID)
+		m.pipelineView.logPreview = previewState{path: job.Name, loading: true}
+		m.pipelineView.logJobID = job.ID
+		return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, job.ID)
 	}
 	job := m.selectedPipelineJob()
 	if job == nil {
@@ -652,6 +780,26 @@ func (m *Model) queuePipelineLogRefresh() tea.Cmd {
 	}
 	if _, ok := m.pipelineView.jobs.Get(pipeline.ID); !ok {
 		return m.queuePipelineJobsForSelection()
+	}
+	// Bridge rows don't have job traces — nothing to refresh
+	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridge {
+		return nil
+	}
+	// Bridge child rows use the child project ID for log fetch
+	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.Job != nil {
+		projectID := row.ChildProjectID
+		if projectID == 0 {
+			projectID = m.pipelineView.project.ID
+		}
+		job := row.Job
+		if m.pipelineView.logs.IsLoading(job.ID) {
+			return nil
+		}
+		m.pipelineView.logs.SetLoading(job.ID)
+		if job.ID != m.pipelineView.logJobID {
+			m.pipelineView.pendingLogJobID = job.ID
+		}
+		return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, job.ID)
 	}
 	job := m.selectedPipelineJob()
 	if job == nil {
@@ -706,15 +854,43 @@ func (m *Model) resetPipelineLogPreview() {
 	m.pipelineView.logAutoFollow = true
 }
 
+// visibleProjects returns the project list for the current view state. The
+// result is memoized: repeated calls with the same (tab, search query, page)
+// triple return the cached slice without recomputing. Call invalidateVisibleCache
+// when any of these inputs change.
+//
+// For the favorites tab, projects are filtered from allProjects (no pagination).
+// For the "all" tab, search applies a fuzzy filter across all projects;
+// without search, pagination slices allProjects by page.
 func (m *Model) visibleProjects() []gitlab.ProjectNode {
-	// Check if cache is valid
-	if m.search.query != "" {
-		// Search mode: cache valid if query matches
-		if m.search.query == m.visibleCacheQuery && m.visibleCache != nil {
+	// Determine the base set based on active tab
+	if m.projectTab == projectTabFavorites {
+		// Favorites tab: filter allProjects to favorites only
+		if m.visibleCache != nil && m.visibleCacheTab == projectTabFavorites && m.visibleCacheQuery == m.search.query {
 			return m.visibleCache
 		}
+		filtered := make([]gitlab.ProjectNode, 0)
+		for _, p := range m.allProjects {
+			if !m.favorites[p.ID] {
+				continue
+			}
+			if m.search.query != "" && !fuzzyMatch(p.PathWithNamespace, m.search.query) && !fuzzyMatch(p.Name, m.search.query) {
+				continue
+			}
+			filtered = append(filtered, p)
+		}
+		m.visibleCache = filtered
+		m.visibleCacheQuery = m.search.query
+		m.visibleCachePage = -1
+		m.visibleCacheTab = projectTabFavorites
+		return filtered
+	}
 
-		// Recompute and cache
+	// All tab: existing behavior
+	if m.search.query != "" {
+		if m.search.query == m.visibleCacheQuery && m.visibleCache != nil && m.visibleCacheTab == projectTabAll {
+			return m.visibleCache
+		}
 		filtered := make([]gitlab.ProjectNode, 0, len(m.allProjects))
 		for _, p := range m.allProjects {
 			if fuzzyMatch(p.PathWithNamespace, m.search.query) || fuzzyMatch(p.Name, m.search.query) {
@@ -723,20 +899,20 @@ func (m *Model) visibleProjects() []gitlab.ProjectNode {
 		}
 		m.visibleCache = filtered
 		m.visibleCacheQuery = m.search.query
-		m.visibleCachePage = -1 // Invalid in search mode
+		m.visibleCachePage = -1
+		m.visibleCacheTab = projectTabAll
 		return filtered
 	}
 
-	// Pagination mode: cache valid if page matches
-	if m.page == m.visibleCachePage && m.visibleCache != nil && m.visibleCacheQuery == "" {
+	if m.page == m.visibleCachePage && m.visibleCache != nil && m.visibleCacheQuery == "" && m.visibleCacheTab == projectTabAll {
 		return m.visibleCache
 	}
 
-	// Recompute and cache
 	pageData := m.pageSlice(m.page)
 	m.visibleCache = pageData
 	m.visibleCachePage = m.page
 	m.visibleCacheQuery = ""
+	m.visibleCacheTab = projectTabAll
 	return pageData
 }
 
@@ -745,6 +921,7 @@ func (m *Model) invalidateVisibleCache() {
 	m.visibleCache = nil
 	m.visibleCacheQuery = ""
 	m.visibleCachePage = -1
+	m.visibleCacheTab = projectTabAll + 1 // Force mismatch
 }
 
 // evictOldPipelineStatusCache removes the least recently accessed pipeline status
@@ -860,7 +1037,21 @@ func (m *Model) updateProjectList() {
 func (m *Model) appendPage(page gitlab.ProjectPage) {
 	m.pagesReady[page.Page] = true
 	m.pagesLoaded = len(m.pagesReady)
-	m.allProjects = append(m.allProjects, page.Projects...)
+
+	// Insert projects at the correct offset so pageSlice works regardless of
+	// the order in which pages arrive (important for lazy pagination).
+	perPage := m.opts.ProjectsPerPage
+	if perPage <= 0 {
+		perPage = 30
+	}
+	insertAt := (page.Page - 1) * perPage
+	needed := insertAt + len(page.Projects)
+	if needed > len(m.allProjects) {
+		// Grow the slice with zero-value placeholders
+		m.allProjects = append(m.allProjects, make([]gitlab.ProjectNode, needed-len(m.allProjects))...)
+	}
+	copy(m.allProjects[insertAt:], page.Projects)
+
 	m.invalidateVisibleCache()
 	if m.totalPages <= 0 {
 		m.totalPages = page.TotalPages
@@ -960,54 +1151,162 @@ func (m *Model) selectedEntry() *gitlab.TreeNode {
 	return &dir.entries[dir.selected]
 }
 
-// updateStageTable builds a job-per-row table grouped by stage.
-// Each row maps to one job; the stage column is shown only on the
-// first job of each stage group so the table reads cleanly.
+// updateStageTable rebuilds the job/stage table from cached stages, jobs, and
+// bridges for the selected pipeline. The table uses a one-job-per-row layout
+// with matrix jobs collapsed into expandable group headers.
+//
+// Bridge-only stages (stages with no regular jobs, only bridge/trigger jobs)
+// are injected synthetically because PipelineStages is built from
+// ListPipelineJobs which excludes bridges.
+//
+// The stageJobRows slice and the parallel jobRows slice are kept in sync so
+// that the table cursor index maps directly to a PipelineJob for log preview
+// and retry operations. Bridge rows synthesize a PipelineJob from bridge
+// fields as a fallback.
 func (m *Model) updateStageTable() {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
 		m.pipelineView.stageTable.SetRows([]table.Row{})
 		m.pipelineView.jobRows = nil
+		m.pipelineView.stageJobRows = nil
 		return
 	}
 
 	stages, _ := m.pipelineView.stages.Get(pipeline.ID)
 	jobs, _ := m.pipelineView.jobs.Get(pipeline.ID)
+	bridges, _ := m.pipelineView.bridges.Get(pipeline.ID)
 
-	if len(stages) == 0 || len(jobs) == 0 {
+	// Inject stages that only have bridge jobs (no regular jobs).
+	// PipelineStages is built from ListPipelineJobs which excludes bridges,
+	// so bridge-only stages would otherwise be invisible.
+	if len(bridges) > 0 {
+		stageSet := make(map[string]bool, len(stages))
+		for _, s := range stages {
+			stageSet[s.Name] = true
+		}
+		for _, b := range bridges {
+			if !stageSet[b.Stage] {
+				stageSet[b.Stage] = true
+				stages = append(stages, gitlab.PipelineStage{
+					Name:   b.Stage,
+					Status: b.Status,
+				})
+			}
+		}
+	}
+
+	if len(stages) == 0 || (len(jobs) == 0 && len(bridges) == 0) {
 		m.pipelineView.stageTable.SetRows([]table.Row{})
 		m.pipelineView.jobRows = nil
+		m.pipelineView.stageJobRows = nil
 		return
 	}
 
-	// Build ordered job list grouped by stage order
-	var rows []table.Row
+	if m.pipelineView.matrixExpanded == nil {
+		m.pipelineView.matrixExpanded = make(map[string]bool)
+	}
+
+	// Build child jobs map for expanded bridges
+	var childJobsMap map[int][]gitlab.PipelineJob
+	for _, b := range bridges {
+		if b.DownstreamPipeline == nil {
+			continue
+		}
+		groupKey := fmt.Sprintf("bridge:%d", b.ID)
+		if !m.pipelineView.matrixExpanded[groupKey] {
+			continue
+		}
+		dsID := b.DownstreamPipeline.ID
+		if cJobs, ok := m.pipelineView.childJobs.Get(dsID); ok {
+			if childJobsMap == nil {
+				childJobsMap = make(map[int][]gitlab.PipelineJob)
+			}
+			childJobsMap[dsID] = cJobs
+		}
+	}
+
+	richRows := buildStageJobRows(stages, jobs, bridges, m.pipelineView.matrixExpanded, childJobsMap)
+	m.pipelineView.stageJobRows = richRows
+
+	var tableRows []table.Row
 	var jobRows []gitlab.PipelineJob
-	for _, stage := range stages {
-		first := true
-		for _, job := range jobs {
-			if job.Stage != stage.Name {
-				continue
+	lastStage := ""
+
+	for _, row := range richRows {
+		stageCol := ""
+		if row.Stage != lastStage {
+			stageCol = row.Stage
+			lastStage = row.Stage
+		}
+
+		status := row.Status
+		if status == "" {
+			status = unknownStatus
+		}
+		statusLabel := pipelineStatusIcon(status) + " " + strings.ToUpper(status)
+
+		switch row.Kind {
+		case rowKindJob:
+			tableRows = append(tableRows, table.Row{row.Job.Name, stageCol, statusLabel})
+			jobRows = append(jobRows, *row.Job)
+		case rowKindMatrixGroup:
+			name := fmt.Sprintf("%s %s [%d]", iconTreeExpanded, row.BaseName, len(row.Jobs))
+			tableRows = append(tableRows, table.Row{name, stageCol, statusLabel})
+			// Map group header to first sub-job for log preview fallback
+			jobRows = append(jobRows, row.Jobs[0])
+		case rowKindMatrixChild:
+			prefix := "├─"
+			if row.IsLast {
+				prefix = "└─"
 			}
-			stageCol := ""
-			if first {
-				stageCol = stage.Name
-				first = false
+			name := fmt.Sprintf("  %s %s", prefix, row.Vars)
+			// Children never show a stage column
+			tableRows = append(tableRows, table.Row{name, "", statusLabel})
+			jobRows = append(jobRows, *row.Job)
+		case rowKindBridgeChild:
+			prefix := "├─"
+			if row.IsLast {
+				prefix = "└─"
 			}
-			status := strings.ToLower(job.Status)
-			if status == "" {
-				status = unknownStatus
+			name := fmt.Sprintf("  %s %s", prefix, row.Job.Name)
+			tableRows = append(tableRows, table.Row{name, "", statusLabel})
+			jobRows = append(jobRows, *row.Job)
+		case rowKindBridge:
+			b := row.Bridge
+			if row.IsLast && b.DownstreamPipeline != nil {
+				// Expanded placeholder row (child jobs not yet loaded)
+				name := fmt.Sprintf("  └─ child #%d", b.DownstreamPipeline.ID)
+				tableRows = append(tableRows, table.Row{name, "", statusLabel})
+			} else {
+				// Bridge header row
+				icon := iconTreeCollapsed
+				if m.pipelineView.matrixExpanded[row.GroupKey] {
+					icon = iconTreeExpanded
+				}
+				suffix := ""
+				if b.DownstreamPipeline != nil {
+					suffix = fmt.Sprintf(" → #%d", b.DownstreamPipeline.ID)
+				}
+				name := fmt.Sprintf("%s %s%s", icon, b.Name, suffix)
+				tableRows = append(tableRows, table.Row{name, stageCol, statusLabel})
 			}
-			statusLabel := pipelineStatusIcon(status) + " " + strings.ToUpper(status)
-			rows = append(rows, table.Row{job.Name, stageCol, statusLabel})
-			jobRows = append(jobRows, job)
+			// Synthesize a PipelineJob from the bridge so log/retry still works
+			jobRows = append(jobRows, gitlab.PipelineJob{
+				ID:     b.ID,
+				Name:   b.Name,
+				Stage:  b.Stage,
+				Status: b.Status,
+			})
 		}
 	}
 
 	m.pipelineView.jobRows = jobRows
-	m.pipelineView.stageTable.SetRows(rows)
+	m.pipelineView.stageTable.SetRows(tableRows)
 
-	if m.pipelineView.stageSelected >= 0 && m.pipelineView.stageSelected < len(rows) {
+	if m.pipelineView.stageSelected >= len(tableRows) {
+		m.pipelineView.stageSelected = max(0, len(tableRows)-1)
+	}
+	if m.pipelineView.stageSelected >= 0 && m.pipelineView.stageSelected < len(tableRows) {
 		m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
 	}
 }
@@ -1039,6 +1338,10 @@ func (m *Model) updateViewportSizes() {
 			if m.pipelineView.logViewport.Width != width || m.pipelineView.logViewport.Height != height {
 				m.pipelineView.logViewport.Width = width
 				m.pipelineView.logViewport.Height = height
+			}
+			if m.mrView.mrViewport.Width != width || m.mrView.mrViewport.Height != height {
+				m.mrView.mrViewport.Width = width
+				m.mrView.mrViewport.Height = height
 			}
 		}
 	}

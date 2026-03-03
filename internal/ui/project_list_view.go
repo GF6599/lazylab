@@ -11,7 +11,9 @@ import (
 	"lazylab/internal/gitlab"
 )
 
-// View renders the UI to the terminal.
+// View is the top-level Bubble Tea render entry point. It dispatches to the
+// active mode's renderer and composites modal overlays (help, retry confirm)
+// on top of the base view when needed.
 func (m Model) View() string {
 	width := m.width
 	if width <= 0 {
@@ -62,7 +64,8 @@ func (m Model) View() string {
 	return mainView + "\n" + m.renderHelpBar()
 }
 
-// renderHelpView shows the full help overlay
+// renderHelpView shows a full-screen help overlay with mode-aware key bindings
+// arranged in a 3-column grid. Replaces (not overlays) the entire view.
 func (m Model) renderHelpView(width int) string {
 	var keys []key.Binding
 	switch m.mode {
@@ -97,7 +100,7 @@ func (m Model) renderHelpView(width int) string {
 	return content
 }
 
-// renderHelpBar shows the condensed help at the bottom
+// renderHelpBar returns a single-line hint bar for the bottom of legacy mode views.
 func (m Model) renderHelpBar() string {
 	return m.help.ShortHelpView(m.keys.ShortHelp())
 }
@@ -134,6 +137,8 @@ func projectPaneLayout(width, height int) (int, int, int, bool) {
 	return listInner, detailInner, contentHeight, true
 }
 
+// paneHeaderStyle returns the header style for a pane, using a distinct
+// color for the focused pane so users can tell which pane has input focus.
 func paneHeaderStyle(focused bool) lipgloss.Style {
 	if focused {
 		return explorerFocusHeaderStyle
@@ -141,6 +146,8 @@ func paneHeaderStyle(focused bool) lipgloss.Style {
 	return explorerHeaderStyle
 }
 
+// renderPane wraps content in a bordered box, normalizing it to exact
+// width x height so all panes align when joined horizontally.
 func renderPane(content string, width, height int, focused bool) string {
 	lines := normalizeColumn(content, width, height)
 	style := paneBorderStyle
@@ -157,6 +164,9 @@ func renderPaneGap(width, height int) string {
 	return lipgloss.NewStyle().Width(width).Height(height).Render("")
 }
 
+// renderProjectsView renders the two-pane project view: a scrollable project
+// list on the left (45% width) and a detail pane on the right showing metadata,
+// pipeline status, and recent commits for the selected project.
 func renderProjectsView(m Model, width int) string {
 	listInner, detailInner, contentHeight, ok := projectPaneLayout(width, m.height)
 	if !ok {
@@ -168,6 +178,10 @@ func renderProjectsView(m Model, width int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPane, gap, detailPane)
 }
 
+// renderListPane builds the project list pane content: header with page/search
+// info, the bubbles list component, and bottom status lines (errors, loading
+// indicators, paginator, search bar). Bottom lines are pinned via
+// renderWithBottomLines so they stay visible regardless of list length.
 func renderListPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	title := paneHeaderStyle(focused).Render(clampLine(renderListTitle(m), width))
@@ -207,6 +221,10 @@ func renderListPane(m Model, width, height int, focused bool) string {
 	return renderWithBottomLines(content, bottomLines, height)
 }
 
+// renderDetailPane renders project metadata (name, visibility, links),
+// latest pipeline status with stage breakdown, and recent commits.
+// Takes a pointer receiver because it reads from async caches that may
+// be populated by background commands.
 func renderDetailPane(m *Model, width, height int) string {
 	b := &strings.Builder{}
 	b.WriteString(detailHeaderStyle.Render(clampLine("Details", width)))
@@ -281,6 +299,10 @@ func renderDetailPane(m *Model, width, height int) string {
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
+// renderPipelineListPane renders the left pane of the pipeline view: a
+// scrollable list of pipelines for the current project with page navigation.
+// Status indicators (loading, retry errors) appear above the list, and a
+// key hint bar is pinned at the bottom.
 func renderPipelineListPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	page := max(1, m.pipelineView.page)
@@ -338,6 +360,9 @@ func renderPipelineListPane(m Model, width, height int, focused bool) string {
 	return renderWithBottomHint(content, hint, height)
 }
 
+// renderPipelineStagesPane renders the middle pane: stages and jobs for the
+// selected pipeline, displayed as a navigable table. Shows pipeline ref and
+// ID as context, and loads stage/job data asynchronously.
 func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	pipeline := m.selectedPipeline()
@@ -401,6 +426,9 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 	return finalize()
 }
 
+// renderPipelineLogPane renders the right pane: job log output in a scrollable
+// viewport. The header shows [LIVE] when auto-following new output or [PAUSED]
+// when the user has scrolled away from the bottom.
 func renderPipelineLogPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	title := "Log Preview"
@@ -442,6 +470,9 @@ func renderPipelineLogPane(m Model, width, height int, focused bool) string {
 	return b.String()
 }
 
+// renderPipelineSection builds the pipeline summary shown in the project detail
+// pane: status, SHA, timestamp, web URL, and per-stage breakdown. Reflects
+// the tri-state loading model (loading/error/ready) from pipelineStatus cache.
 func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) string {
 	state, ok := m.pipelineStatus[project.ID]
 	refLabel := pipelineRefLabel(project, state)
@@ -532,6 +563,9 @@ func explorerPaneLayout(width, height int) (parentInner, currentInner, previewIn
 	return parentInner, currentInner, previewInner, contentHeight, true
 }
 
+// renderExplorerView renders the three-pane file explorer (ranger/yazi style):
+// parent directory on the left, current directory in the center, and file
+// preview on the right. Pane widths follow explorerPaneLayout percentages.
 func renderExplorerView(m Model, width int) string {
 	parentInner, currentInner, previewInner, contentHeight, ok := explorerPaneLayout(width, m.height)
 	if !ok {
@@ -544,6 +578,8 @@ func renderExplorerView(m Model, width int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
 
+// renderProjectActionModal renders the "View pipelines / Browse files" chooser
+// as a centered bordered box, intended to be composited via overlayCentered.
 func renderProjectActionModal(m Model, width int) string {
 	if width <= 0 {
 		width = 80
@@ -566,7 +602,7 @@ func renderProjectActionModal(m Model, width int) string {
 	b.WriteString("\n")
 	b.WriteString(explorerHintStyle.Render(clampLine("Enter to select · Esc to cancel", innerWidth)))
 	modal := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(rosePineSubtle).
 		Padding(1, 2).
 		Width(innerWidth).
@@ -602,6 +638,9 @@ func pipelinePaneLayout(width, height int) (pipelineInner, stagesInner, logInner
 	return pipelineInner, stagesInner, logInner, contentHeight, true
 }
 
+// renderPipelineView assembles the three-pane pipeline layout: pipeline list,
+// stages/jobs table, and log preview. Focus state determines which pane has
+// highlighted borders and receives keyboard input.
 func renderPipelineView(m Model, width int) string {
 	pipelineInner, stagesInner, logInner, contentHeight, ok := pipelinePaneLayout(width, m.height)
 	if !ok {
@@ -616,6 +655,9 @@ func renderPipelineView(m Model, width int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
 
+// renderPipelineRetryConfirmModal renders the confirmation dialog before
+// retrying a pipeline or individual job. Shows different context (job name,
+// stage, downstream project) depending on whether it is a job or pipeline retry.
 func renderPipelineRetryConfirmModal(m Model, width int) string {
 	if width <= 0 {
 		width = 80
@@ -625,9 +667,14 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 		innerWidth = max(12, width-6)
 	}
 	b := &strings.Builder{}
+	isDownstream := m.pipelineView.confirmRetryProjectID != 0
 	title := fmt.Sprintf("Retry Pipeline · %s", m.pipelineView.project.PathWithNamespace)
 	if m.pipelineView.confirmRetryIsJob {
-		title = fmt.Sprintf("Retry Job · %s", m.pipelineView.project.PathWithNamespace)
+		if isDownstream {
+			title = fmt.Sprintf("Retry Downstream Job · %s", m.pipelineView.project.PathWithNamespace)
+		} else {
+			title = fmt.Sprintf("Retry Job · %s", m.pipelineView.project.PathWithNamespace)
+		}
 	}
 	b.WriteString(detailHeaderStyle.Render(clampLine(title, innerWidth)))
 	b.WriteString("\n")
@@ -650,8 +697,16 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 			b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Pipeline: #%d", m.pipelineView.confirmRetryID), innerWidth)))
 			b.WriteString("\n")
 		}
+		if isDownstream {
+			b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Project: %d (downstream)", m.pipelineView.confirmRetryProjectID), innerWidth)))
+			b.WriteString("\n")
+		}
 		b.WriteString("\n")
-		b.WriteString(explorerHintStyle.Render(clampLine("This will retry the selected job only.", innerWidth)))
+		hint := "This will retry the selected job only."
+		if isDownstream {
+			hint = "This will retry the downstream pipeline job."
+		}
+		b.WriteString(explorerHintStyle.Render(clampLine(hint, innerWidth)))
 		b.WriteString("\n\n")
 		b.WriteString(explorerHintStyle.Render(clampLine("Enter to retry job · Esc to cancel", innerWidth)))
 	} else {
@@ -671,7 +726,7 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 		b.WriteString(explorerHintStyle.Render(clampLine("Enter to retry pipeline · Esc to cancel", innerWidth)))
 	}
 	modal := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(rosePineSubtle).
 		Padding(1, 2).
 		Width(innerWidth).

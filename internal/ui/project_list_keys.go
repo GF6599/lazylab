@@ -1,4 +1,10 @@
-// Package ui contains the Bubble Tea models, views, and styles for the TUI.
+// Key handlers for each UI mode.
+//
+// Each handler returns (tea.Model, tea.Cmd) per Bubble Tea convention. State
+// mutations happen on the value-receiver copy of Model, and any async work
+// (API calls, debounce ticks) is returned as a tea.Cmd for the runtime to
+// execute. Handlers are kept mode-specific so the top-level Update can
+// dispatch by mode without growing unbounded.
 package ui
 
 import (
@@ -10,7 +16,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// handleProjectSearchKey handles key events while the search input is active.
+// handleProjectSearchKey handles key events while the search input is focused.
+// Esc clears the search and restores the full project list; Enter commits the
+// query. All other keys are forwarded to the textinput component, with a
+// debounce timer that triggers incremental filtering after a short pause.
 func (m Model) handleProjectSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg.Type {
@@ -53,6 +62,10 @@ func (m Model) handleProjectSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// handleProjectKey handles navigation and actions in the project list mode.
+// Selection changes trigger a debounced pipeline status fetch so the detail
+// pane stays current without overwhelming the API during fast scrolling.
+// Page changes (h/l) batch a page-load command with pipeline prefetch.
 func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	prevID, prevOK := m.currentSelectedProjectID()
 	key := msg.String()
@@ -111,13 +124,13 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selected = len(visible) - 1
 		}
 	case "l", "right":
-		m.movePage(1)
-		// Batch prefetch pipeline status for new page
-		return m, (&m).queueBatchPrefetchPipelineStatus()
+		pageCmd := m.movePage(1)
+		prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
+		return m, tea.Batch(pageCmd, prefetchCmd)
 	case "h", "left":
-		m.movePage(-1)
-		// Batch prefetch pipeline status for new page
-		return m, (&m).queueBatchPrefetchPipelineStatus()
+		pageCmd := m.movePage(-1)
+		prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
+		return m, tea.Batch(pageCmd, prefetchCmd)
 	case "r", "ctrl+r":
 		m.loading = true
 		m.err = nil
@@ -144,6 +157,8 @@ func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleProjectActionKey handles the project action modal (pipelines vs files).
+// Enter opens the selected action; Esc/left returns to the project list.
 func (m Model) handleProjectActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
@@ -170,6 +185,10 @@ func (m Model) handleProjectActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleExplorerKey handles the ranger-style file explorer. J/K scroll the
+// preview pane independently of directory navigation. Enter/right descends
+// into directories; left/backspace ascends. Each navigation change triggers
+// an async preview fetch for the newly selected entry.
 func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	cur := m.currentDirState()
@@ -243,6 +262,10 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handlePipelineViewKey handles the dual-focus pipeline view. Left/right
+// switches focus between the pipeline list and stages pane. J/K scrolls
+// the log preview. Navigation within each pane triggers async loading of
+// stages, jobs, and log traces. R opens the retry confirmation modal.
 func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.pipelineView.confirmRetry {
 		return m.handlePipelineRetryConfirmKey(msg)
@@ -261,6 +284,29 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right", "l":
 		m.pipelineView.focus = pipelineFocusStages
 		return m, m.queuePipelineLogPreview()
+	case "enter":
+		if m.pipelineView.focus == pipelineFocusStages {
+			row := m.selectedStageJobRow()
+			if row != nil && row.Kind == rowKindBridge && !row.IsLast {
+				if m.pipelineView.matrixExpanded == nil {
+					m.pipelineView.matrixExpanded = make(map[string]bool)
+				}
+				expanding := !m.pipelineView.matrixExpanded[row.GroupKey]
+				m.pipelineView.matrixExpanded[row.GroupKey] = expanding
+				m.updateStageTable()
+				// Fetch child pipeline jobs when expanding
+				if expanding && row.Bridge != nil && row.Bridge.DownstreamPipeline != nil {
+					ds := row.Bridge.DownstreamPipeline
+					if ds.ProjectID != 0 && !m.pipelineView.childJobs.IsLoading(ds.ID) {
+						if _, cached := m.pipelineView.childJobs.Get(ds.ID); !cached {
+							m.pipelineView.childJobs.SetLoading(ds.ID)
+							return m, fetchChildPipelineJobsCmd(m.ctx, m.client, m.opts.PipelineTimeout, ds.ProjectID, ds.ID)
+						}
+					}
+				}
+				return m, nil
+			}
+		}
 	case "]":
 		if m.pipelineView.focus == pipelineFocusPipelines {
 			if cmd := m.changePipelinePage(1); cmd != nil {
@@ -294,7 +340,9 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handlePipelineNavigation handles half-page and jump-to-end navigation in
-// the pipeline view (ctrl+d, ctrl+u, <, >).
+// the pipeline view (ctrl+d, ctrl+u, <, >). Moves both the list/table cursor
+// and the log viewport simultaneously so the log preview stays in sync with
+// the selected item.
 func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
 	step := listPageStep(m.height)
 	switch key {
@@ -445,6 +493,9 @@ func (m Model) handlePipelineRetryRequest() (tea.Model, tea.Cmd) {
 		m.pipelineView.confirmRetryJobID = job.ID
 		m.pipelineView.confirmRetryJobName = job.Name
 		m.pipelineView.confirmRetryJobStage = job.Stage
+		if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.ChildProjectID != 0 {
+			m.pipelineView.confirmRetryProjectID = row.ChildProjectID
+		}
 		return m, nil
 	}
 	m.pipelineView.confirmRetry = true
@@ -475,6 +526,7 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		ref := strings.TrimSpace(m.pipelineView.confirmRetryRef)
 		jobID := m.pipelineView.confirmRetryJobID
 		jobName := m.pipelineView.confirmRetryJobName
+		retryProjectID := m.pipelineView.confirmRetryProjectID
 		(&m).clearRetryConfirm()
 		if m.pipelineView.project.ID == 0 || m.pipelineView.retrying {
 			return m, nil
@@ -495,7 +547,11 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 				jobLabel = fmt.Sprintf("%s (#%d)", jobName, jobID)
 			}
 			m.status = fmt.Sprintf("Retrying job %s", jobLabel)
-			return m, retryJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID, jobID)
+			projectID := m.pipelineView.project.ID
+			if retryProjectID != 0 {
+				projectID = retryProjectID
+			}
+			return m, retryJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, pipelineID, jobID)
 		}
 		if pipelineID == 0 {
 			return m, nil

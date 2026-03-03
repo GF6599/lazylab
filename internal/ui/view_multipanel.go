@@ -1,3 +1,13 @@
+// view_multipanel.go is the top-level View function for the multi-panel mode.
+//
+// It composes the full screen from four sidebar panels (stacked vertically on
+// the left), a detail pane (right), and an info bar (bottom). Each panel's
+// content is rendered independently by a dispatcher that routes to the
+// appropriate content renderer based on PanelID.
+//
+// The detail pane is context-sensitive: its content depends on which sidebar
+// panel the user is in (or came from, when the detail pane itself is focused).
+// detailContextPanel resolves this so renderers don't need to check focus state.
 package ui
 
 import (
@@ -7,7 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// renderMultiPanelView renders the lazygit-style multi-panel layout.
+// renderMultiPanelView composes the full screen: sidebar | gap | detail + info bar.
 func renderMultiPanelView(m *Model, width, height int) string {
 	layout := computeLayout(width, height, m.focus)
 	if !layout.OK {
@@ -71,6 +81,9 @@ func renderProjectsPanelContent(m *Model, width, height int) string {
 	}
 	visible := m.visibleProjects()
 	if len(visible) == 0 && !m.loading {
+		if m.projectTab == projectTabFavorites {
+			return explorerHintStyle.Render(clampLine(" No favorites yet (press f)", width))
+		}
 		return explorerHintStyle.Render(clampLine(" No projects found", width))
 	}
 
@@ -139,8 +152,9 @@ func renderRightArea(m *Model, layout layoutResult) string {
 	return renderBorderedPane(detailContent, layout.DetailWidth+borderCharsH, layout.DetailHeight, detailFocused, detailTitle, detailTabs, detailActiveTab, "")
 }
 
-// detailContextPanel returns the sidebar panel that determines detail content.
-// When the Detail pane itself is focused, we use PrevActive to know what to render.
+// detailContextPanel resolves which sidebar panel determines what the detail
+// pane renders. When the detail pane is focused, the user got there via l/right
+// from a sidebar panel, so PrevActive tells us the context.
 func detailContextPanel(m *Model) PanelID {
 	if m.focus.Active == PanelDetail {
 		return m.focus.PrevActive
@@ -148,7 +162,7 @@ func detailContextPanel(m *Model) PanelID {
 	return m.focus.Active
 }
 
-// renderDetailContent renders contextual content based on the focused sidebar panel.
+// renderDetailContent dispatches to the correct renderer based on context panel.
 func renderDetailContent(m *Model, width, height int) string {
 	switch detailContextPanel(m) {
 	case PanelProjects:
@@ -336,8 +350,20 @@ func renderArtifactsContent(m *Model, width, height int) string {
 	return b.String()
 }
 
-// renderMRDetailContent renders MR detail in the right pane.
+// renderMRDetailContent renders MR detail in the right pane, dispatching by tab.
 func renderMRDetailContent(m *Model, width, height int) string {
+	switch m.mrView.detailTab {
+	case mrDetailTabComments:
+		return renderMRCommentsPane(m, width, height)
+	case mrDetailTabDiff:
+		return renderMRDiffPane(m, width, height)
+	default:
+		return renderMRInfoContent(m, width, height)
+	}
+}
+
+// renderMRInfoContent renders basic MR metadata (the original Info tab).
+func renderMRInfoContent(m *Model, width, height int) string {
 	if len(m.mrView.mrs) == 0 || m.mrView.selected >= len(m.mrView.mrs) {
 		return explorerHintStyle.Render(clampLine(" Select a merge request", width))
 	}
@@ -353,6 +379,69 @@ func renderMRDetailContent(m *Model, width, height int) string {
 		writeDetailKV(b, "URL", truncate(mr.WebURL, width-10), width)
 	}
 	return b.String()
+}
+
+// renderMRCommentsPane renders the MR comments/discussions tab.
+func renderMRCommentsPane(m *Model, width, height int) string {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return explorerHintStyle.Render(clampLine(" Select a merge request", width))
+	}
+	if m.mrView.discussions.IsLoading(mr.IID) {
+		return explorerHintStyle.Render(clampLine(" Loading discussions...", width))
+	}
+	if err := m.mrView.discussions.Err(mr.IID); err != nil {
+		return explorerErrorStyle.Render(clampLine(" "+err.Error(), width))
+	}
+	discussions, ok := m.mrView.discussions.Get(mr.IID)
+	if !ok {
+		return explorerHintStyle.Render(clampLine(" Press 't' to load comments", width))
+	}
+	if len(discussions) == 0 {
+		return explorerHintStyle.Render(clampLine(" No discussions", width))
+	}
+	// Sync viewport dimensions and re-render content if width changed
+	if m.mrView.mrViewport.Width != width || m.mrView.mrViewport.Height != height {
+		widthChanged := m.mrView.mrViewport.Width != width
+		m.mrView.mrViewport.Width = width
+		m.mrView.mrViewport.Height = height
+		if widthChanged {
+			content := renderMRCommentsText(discussions, width)
+			m.setMRViewportContent(content)
+		}
+	}
+	return m.mrView.mrViewport.View()
+}
+
+// renderMRDiffPane renders the MR diff tab.
+func renderMRDiffPane(m *Model, width, height int) string {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return explorerHintStyle.Render(clampLine(" Select a merge request", width))
+	}
+	if m.mrView.diffs.IsLoading(mr.IID) {
+		return explorerHintStyle.Render(clampLine(" Loading diffs...", width))
+	}
+	if err := m.mrView.diffs.Err(mr.IID); err != nil {
+		return explorerErrorStyle.Render(clampLine(" "+err.Error(), width))
+	}
+	diffs, ok := m.mrView.diffs.Get(mr.IID)
+	if !ok {
+		return explorerHintStyle.Render(clampLine(" Press 't' to load diff", width))
+	}
+	if len(diffs) == 0 {
+		return explorerHintStyle.Render(clampLine(" No changes", width))
+	}
+	if m.mrView.mrViewport.Width != width || m.mrView.mrViewport.Height != height {
+		widthChanged := m.mrView.mrViewport.Width != width
+		m.mrView.mrViewport.Width = width
+		m.mrView.mrViewport.Height = height
+		if widthChanged {
+			content := renderMRDiffText(diffs, width)
+			m.setMRViewportContent(content)
+		}
+	}
+	return m.mrView.mrViewport.View()
 }
 
 // detailPaneTitle returns the title for the detail pane based on context.
@@ -389,7 +478,12 @@ func detailPaneTitle(m *Model) string {
 			return tab
 		}
 	case PanelMRs:
-		return "Merge Request"
+		tab := mrDetailTabLabels[m.mrView.detailTab]
+		mr := m.mrView.selectedMR()
+		if mr != nil {
+			return fmt.Sprintf("%s · !%d", tab, mr.IID)
+		}
+		return tab
 	default:
 		return "Detail"
 	}
@@ -400,6 +494,8 @@ func detailPaneTabs(m *Model) ([]string, int) {
 	switch detailContextPanel(m) {
 	case PanelPipelines, PanelStages:
 		return pipelineDetailTabLabels, int(m.pipelineView.detailTab)
+	case PanelMRs:
+		return mrDetailTabLabels, int(m.mrView.detailTab)
 	default:
 		return nil, 0
 	}
@@ -408,6 +504,8 @@ func detailPaneTabs(m *Model) ([]string, int) {
 // panelTabs returns the tab labels and active tab for a sidebar panel.
 func panelTabs(panel PanelID, m *Model) ([]string, int) {
 	switch panel {
+	case PanelProjects:
+		return projectTabLabels, int(m.projectTab)
 	case PanelPipelines:
 		page := max(1, m.pipelineView.page)
 		total := max(1, m.pipelineView.totalPages)

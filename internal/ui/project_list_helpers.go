@@ -123,6 +123,7 @@ func (m *Model) isLoading() bool {
 	return false
 }
 
+// truncate shortens s to max runes, appending "..." if truncated.
 func truncate(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
@@ -168,29 +169,6 @@ func pipelineStatusStyle(status string) lipgloss.Style {
 	default:
 		return pipelineUnknown
 	}
-}
-
-func pipelineStatusLabel(status string) string {
-	label := strings.ToUpper(strings.TrimSpace(status))
-	if label == "" {
-		return "UNKNOWN"
-	}
-	return label
-}
-
-func pipelineStatusBadge(status string) string {
-	return pipelineStatusBadgeWithWidth(status, 0)
-}
-
-func pipelineStatusBadgeWithWidth(status string, labelWidth int) string {
-	label := pipelineStatusLabel(status)
-	if labelWidth > 0 {
-		pad := labelWidth - ansi.StringWidth(label)
-		if pad > 0 {
-			label += strings.Repeat(" ", pad)
-		}
-	}
-	return pipelineStatusStyle(status).Render(fmt.Sprintf("[%s]", label))
 }
 
 func renderPipelineEntryLine(line string, selected, focused bool) string {
@@ -296,6 +274,10 @@ type previewHighlightEntry struct {
 	highlighted bool
 }
 
+// glamourRendererCache pools glamour.TermRenderer instances by terminal width.
+// Glamour renderers are expensive to create (they compile markdown styles) but
+// safe to reuse, so we cache one per distinct width. The cache is global and
+// mutex-protected because terminal resize events can trigger concurrent access.
 var glamourRendererCache = struct {
 	mu      sync.Mutex
 	byWidth map[int]*glamour.TermRenderer
@@ -303,6 +285,11 @@ var glamourRendererCache = struct {
 	byWidth: make(map[int]*glamour.TermRenderer),
 }
 
+// highlightPreview applies glamour syntax highlighting to file content and
+// caches the result. The cache is a bounded LRU (maxPreviewHighlightEntries)
+// keyed by path+width+content-hash, so re-selecting an already-viewed file
+// avoids re-rendering. Entries larger than maxPreviewHighlightBytes are not
+// cached to avoid memory pressure from large files.
 func (m *Model) highlightPreview(path, content string, width int) (string, bool, error) {
 	if content == "" {
 		return "", false, nil
@@ -352,6 +339,9 @@ func (m *Model) storePreviewHighlight(key string, entry previewHighlightEntry) {
 	}
 }
 
+// highlightWithGlamour wraps content in a fenced code block with language
+// detection and renders it through glamour. The fence delimiter is extended
+// if the content itself contains triple-backticks to avoid parsing ambiguity.
 func highlightWithGlamour(path, content string, width int) (string, error) {
 	lang := languageFromPath(path)
 	fence := "```"
@@ -413,6 +403,9 @@ func languageFromPath(path string) string {
 	return ext
 }
 
+// wrapPreviewLine hard-wraps a single line at width boundaries, respecting
+// multi-byte character widths. Used for unhighlighted preview content where
+// glamour's built-in wrapping is not available.
 func wrapPreviewLine(line string, width int) []string {
 	if width <= 0 {
 		return []string{line}
@@ -451,6 +444,11 @@ func wrapPreviewLine(line string, width int) []string {
 	return segments
 }
 
+// fuzzyMatch performs a case-insensitive subsequence match: every rune in
+// pattern must appear in target in order, but not necessarily contiguously.
+// For example, "llb" matches "lazylab". This is intentionally simple (no
+// scoring or gap penalties) because the project list is small enough that
+// subsequence filtering is sufficient.
 func fuzzyMatch(target, pattern string) bool {
 	targetRunes := []rune(strings.ToLower(target))
 	patternRunes := []rune(strings.ToLower(pattern))
@@ -475,6 +473,8 @@ func fuzzyMatch(target, pattern string) bool {
 	return true
 }
 
+// listPageStep calculates how many items to skip for half-page scrolling,
+// based on the visible terminal height minus chrome.
 func listPageStep(height int) int {
 	visible := height - headerFooterLines
 	if visible < 1 {
@@ -487,6 +487,8 @@ func listPageStep(height int) int {
 	return step
 }
 
+// renderWithBottomHint pins a single hint line at the bottom of a pane,
+// truncating content from the middle if it exceeds the available height.
 func renderWithBottomHint(content, hint string, height int) string {
 	if hint == "" {
 		return content
@@ -494,6 +496,9 @@ func renderWithBottomHint(content, hint string, height int) string {
 	return renderWithBottomLines(content, []string{hint}, height)
 }
 
+// renderWithBottomLines pins multiple status/hint lines at the bottom of a
+// pane. Content above is truncated to fit; empty lines fill any remaining
+// gap so the hints are always flush with the pane bottom.
 func renderWithBottomLines(content string, hints []string, height int) string {
 	filtered := make([]string, 0, len(hints))
 	for _, hint := range hints {
@@ -531,6 +536,8 @@ func renderWithBottomLines(content string, hints []string, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// displayRef returns the git ref shown in the explorer header, defaulting
+// to "main" when no explicit ref was provided.
 func displayRef(ex explorerState) string {
 	if ex.ref == "" {
 		return "main"
@@ -559,6 +566,9 @@ func (m *Model) findDirIndex(path string) int {
 	return -1
 }
 
+// normalizeColumn pads or truncates content to exactly width x height cells.
+// This ensures all panes in a horizontal join have identical dimensions,
+// preventing lipgloss.JoinHorizontal from producing ragged layouts.
 func normalizeColumn(content string, width, height int) []string {
 	if width < 1 {
 		width = 1
@@ -578,6 +588,7 @@ func normalizeColumn(content string, width, height int) []string {
 	return result
 }
 
+// fitLine truncates or right-pads a line to exactly width visible characters.
 func fitLine(line string, width int) string {
 	if width <= 0 {
 		return ""
@@ -592,6 +603,8 @@ func fitLine(line string, width int) string {
 	return line
 }
 
+// clampLine truncates a styled line to fit within width, appending "..." if
+// needed. Uses lipgloss.Width to account for wide/combining characters.
 func clampLine(line string, width int) string {
 	if width <= 0 {
 		return line
@@ -623,6 +636,8 @@ func clampLines(text string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// clampLineANSI truncates a line that may contain ANSI escape sequences,
+// preserving escape codes while respecting visible character width.
 func clampLineANSI(line string, width int) string {
 	if width <= 0 {
 		return line
@@ -636,6 +651,11 @@ func clampLineANSI(line string, width int) string {
 	return ansi.Truncate(line, width, "…")
 }
 
+// overlayCentered composites a modal (overlay) on top of an existing rendered
+// view (base), centering it both horizontally and vertically. Uses ANSI-aware
+// string slicing so that base content styling is preserved around the overlay
+// edges. This is how confirmation dialogs and action menus appear "on top of"
+// the underlying view without re-rendering it.
 func overlayCentered(base, overlay string, width int) string {
 	base = strings.TrimSuffix(base, "\n")
 	overlay = strings.TrimSuffix(overlay, "\n")

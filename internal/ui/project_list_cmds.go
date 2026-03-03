@@ -1,3 +1,12 @@
+// This file defines all Bubble Tea commands (tea.Cmd) and the message types
+// they produce. Commands are pure functions that perform async I/O (API calls,
+// cache reads) in a goroutine and return a single typed message. The message
+// is then routed by Model.Update to the appropriate handler in
+// project_list_messages.go.
+//
+// Every command that makes an API call creates a child context with a timeout
+// derived from parentCtx, ensuring graceful cancellation on quit.
+
 package ui
 
 import (
@@ -105,6 +114,33 @@ type searchDebounceTickMsg struct {
 	timestamp time.Time
 }
 
+type favoritesLoadedMsg struct {
+	favorites map[int]bool
+	err       error
+}
+
+type favoritesSavedMsg struct {
+	err error
+}
+
+func loadFavoritesCmd(store *favoritesStore) tea.Cmd {
+	return func() tea.Msg {
+		favorites, err := store.Load()
+		return favoritesLoadedMsg{favorites: favorites, err: err}
+	}
+}
+
+func saveFavoritesCmd(store *favoritesStore, favorites map[int]bool) tea.Cmd {
+	return func() tea.Msg {
+		// Copy map to avoid races
+		cp := make(map[int]bool, len(favorites))
+		for k, v := range favorites {
+			cp[k] = v
+		}
+		return favoritesSavedMsg{err: store.Save(cp)}
+	}
+}
+
 type batchPipelineStatusMsg struct {
 	results map[int]pipelineStatusResult // projectID -> result
 }
@@ -146,6 +182,18 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 	}
 }
 
+// batchFetchPipelineStatusCmd fetches the latest pipeline status for multiple
+// projects concurrently. All goroutines share a single context with the given
+// timeout, so a slow API server won't block indefinitely.
+//
+// Concurrency is unbounded — each project gets its own goroutine. This is
+// acceptable because the caller (queueBatchPrefetchPipelineStatus) limits the
+// batch to the currently visible page (~30 projects). Results are collected
+// through a buffered channel sized to len(projects), guaranteeing no goroutine
+// blocks on send.
+//
+// ErrNoPipelines is mapped to empty=true rather than treated as an error, so
+// the UI can distinguish "no pipeline exists" from "API call failed".
 func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projects []gitlab.ProjectNode) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
@@ -165,7 +213,7 @@ func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Servic
 		// Fetch pipeline status for each project concurrently
 		for _, project := range projects {
 			go func(projectID int) {
-				pipeline, err := client.LatestPipeline(ctx, projectID, pipelineAllRefsRef)
+				pipeline, err := client.LatestPipeline(ctx, projectID, "")
 				if err != nil {
 					if errors.Is(err, gitlab.ErrNoPipelines) {
 						resultCh <- fetchResult{projectID: projectID, empty: true}
@@ -213,6 +261,9 @@ func fetchFileCmd(parentCtx context.Context, client gitlab.Service, timeout time
 	}
 }
 
+// fetchPipelineCmd fetches the latest pipeline for a single project. The
+// sentinel value pipelineAllRefsRef ("__all__") is mapped to an empty ref
+// string for the API call, requesting the latest pipeline across all branches.
 func fetchPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, ref string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
@@ -275,6 +326,10 @@ func fetchPipelineLogCmd(parentCtx context.Context, client gitlab.Service, timeo
 	}
 }
 
+// retryPipelineCmd retries an entire pipeline. The GitLab API may return a new
+// pipeline ID (if it creates a fresh run) or the same ID (if it retries
+// failed jobs in-place). The handler uses pendingSelectID to track the cursor
+// to the resulting pipeline after reload.
 func retryPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID int, ref string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
@@ -293,12 +348,19 @@ func retryJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.
 	}
 }
 
+// pipelineTickCmd starts the recurring auto-refresh timer. Each tick triggers
+// handlePipelineTick which re-enqueues the tick, forming a self-sustaining
+// loop that runs for the lifetime of the program.
 func pipelineTickCmd() tea.Cmd {
 	return tea.Tick(pipelineRefreshInterval, func(time.Time) tea.Msg {
 		return pipelineTickMsg{}
 	})
 }
 
+// pipelineDebounceTickCmd sleeps for delay then fires a debounce tick. The
+// timestamp acts as a generation counter — the handler ignores stale ticks
+// whose timestamp does not match the current timer, avoiding redundant API
+// calls when the user scrolls through projects quickly.
 func pipelineDebounceTickCmd(projectID int, timestamp time.Time, delay time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		time.Sleep(delay)
@@ -313,14 +375,14 @@ func searchDebounceTickCmd(query string, timestamp time.Time) tea.Cmd {
 	}
 }
 
-// --- New cmd functions for multi-panel mode ---
-
 type mrsLoadedMsg struct {
-	projectID int
-	mrs       []gitlab.MergeRequestSummary
-	page      int
-	total     int
-	err       error
+	projectID  int
+	mrs        []gitlab.MergeRequestSummary
+	page       int
+	prevPage   int
+	nextPage   int
+	totalPages int
+	err        error
 }
 
 type pipelineCanceledMsg struct {
@@ -355,10 +417,12 @@ func fetchMRsCmd(parentCtx context.Context, client gitlab.Service, timeout time.
 			return mrsLoadedMsg{projectID: projectID, err: err}
 		}
 		return mrsLoadedMsg{
-			projectID: projectID,
-			mrs:       mrPage.MergeRequests,
-			page:      mrPage.Page,
-			total:     mrPage.TotalPages,
+			projectID:  projectID,
+			mrs:        mrPage.MergeRequests,
+			page:       mrPage.Page,
+			prevPage:   mrPage.PrevPage,
+			nextPage:   mrPage.NextPage,
+			totalPages: mrPage.TotalPages,
 		}
 	}
 }
@@ -410,6 +474,21 @@ func fetchCommitsCmd(parentCtx context.Context, client gitlab.Service, timeout t
 	}
 }
 
+type childPipelineJobsLoadedMsg struct {
+	childPipelineID int
+	jobs            []gitlab.PipelineJob
+	err             error
+}
+
+func fetchChildPipelineJobsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, childProjectID, childPipelineID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		jobs, err := client.ListPipelineJobs(ctx, childProjectID, childPipelineID)
+		return childPipelineJobsLoadedMsg{childPipelineID: childPipelineID, jobs: jobs, err: err}
+	}
+}
+
 type bridgesLoadedMsg struct {
 	projectID  int
 	pipelineID int
@@ -430,6 +509,38 @@ func fetchBridgesCmd(parentCtx context.Context, client gitlab.Service, timeout t
 		defer cancel()
 		bridges, err := client.ListPipelineBridges(ctx, projectID, pipelineID)
 		return bridgesLoadedMsg{projectID: projectID, pipelineID: pipelineID, bridges: bridges, err: err}
+	}
+}
+
+type mrDiscussionsLoadedMsg struct {
+	projectID   int
+	mrIID       int
+	discussions []gitlab.MRDiscussion
+	err         error
+}
+
+type mrDiffsLoadedMsg struct {
+	projectID int
+	mrIID     int
+	diffs     []gitlab.MRDiffFile
+	err       error
+}
+
+func fetchMRDiscussionsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, mrIID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		discussions, err := client.ListMergeRequestDiscussions(ctx, projectID, mrIID)
+		return mrDiscussionsLoadedMsg{projectID: projectID, mrIID: mrIID, discussions: discussions, err: err}
+	}
+}
+
+func fetchMRDiffsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, mrIID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		diffs, err := client.ListMergeRequestDiffs(ctx, projectID, mrIID)
+		return mrDiffsLoadedMsg{projectID: projectID, mrIID: mrIID, diffs: diffs, err: err}
 	}
 }
 
