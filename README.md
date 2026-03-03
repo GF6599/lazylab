@@ -1,6 +1,6 @@
 # Lazylab
 
-Lazylab is a Bubble Tea–powered terminal UI for browsing your GitLab projects without leaving the keyboard.
+Lazylab is a Bubble Tea-powered terminal UI for browsing GitLab projects, pipelines, merge requests, and repository files without leaving the keyboard. It features a lazygit-inspired multi-panel layout, real-time pipeline monitoring with auto-refresh, and persistent caching for instant startup.
 
 ## Requirements
 
@@ -27,46 +27,154 @@ You can also point to a config file (`--config ./lazylab.yaml`) that Viper can p
 
 Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emitted to stderr in text format for easy piping or redirection.
 
+## Features
+
+- **Multi-panel layout**: Lazygit-style accordion sidebar with Projects, Pipelines, Stages, and Merge Requests panels, plus a detail pane on the right
+- **Pipeline monitoring**: Real-time pipeline status with auto-refresh every 5 seconds, stage/job drill-down, and log preview with auto-follow
+- **Merge Requests panel**: Browse open/merged MRs with discussions, diffs, and info tabs in the detail pane
+- **Matrix job grouping**: CI matrix jobs are collapsed into expandable groups in the stages view
+- **Favorites**: Mark projects with `f` for quick access via the Favorites tab; persisted across sessions
+- **Explorer mode**: Yazi/ranger-inspired file browser with syntax-highlighted preview pane
+- **Project search**: Fuzzy search across all projects with `/`
+- **Persistent cache**: Project list cached under `~/.cache/lazylab/` for instant startup
+- **Layout modes**: Toggle between default (30/70) and wide (50/50) sidebar-to-detail split with `+`; cycle accordion sizing with `=`
+
 ## Controls
 
-- Global:
-  - Arrow keys / `j` `k`: move selection
-  - `Ctrl+D` / `Ctrl+U`: page down/up (half screen)
-  - `<` / `>`: jump to start/end
-  - `Ctrl+R`: refresh the cached project list from GitLab
-  - `Ctrl+O`: copy the selected project's SSH `git clone` command
-  - `q` / `Ctrl+C`: quit
-- Project list:
-  - `Enter`: open the project action menu (browse files or view pipelines)
-- Project actions:
-  - `Enter`: open the highlighted action
-  - `Esc`: return to the project list
-- Explorer mode (yazi/ranger style):
-  - `Enter` / `Right` / `l`: open a directory or preview a file
-  - `Left` / `h` / `Backspace`: move up one directory (from root returns to the project list)
-  - `J` / `K`: scroll the preview pane
-  - `r`: reload the current directory
-  - `Esc`: exit the explorer
-- Pipeline view:
-  - `Left` / `h` / `Esc`: back to project actions
-  - `Right` / `l`: focus stages (logs preview on the right)
-  - `J` / `K`: scroll the log preview
-  - `R`: retry the selected pipeline (starts a new run if needed)
-  - `r`: reload the pipeline view
-  - Auto-refreshes every 5 seconds; log preview auto-follows only when you are at the bottom
-<!-- keep future controls commented until implemented -->
-<!-- - `Tab`, `p`, `f`: toggle between Pipelines and Files views -->
-<!-- - `Left`/`Right`: move focus between project and content panes -->
-<!---->
-<!-- The left pane lists your GitLab projects, the middle pane alternates between pipelines and repository trees, and the right pane shows pipeline metadata or file previews. -->
+### Global
+
+| Key | Action |
+|-----|--------|
+| `q` / `Ctrl+C` | Quit |
+| `Tab` / `Shift+Tab` | Cycle sidebar panels forward/backward |
+| `1`-`4` | Jump to sidebar panel (Projects, Pipelines, Stages, MRs) |
+| `+` / `-` | Toggle layout mode (default 30/70 vs wide 50/50) |
+| `=` | Cycle screen mode (Normal, Half, Full) |
+| `Right` | Focus detail pane |
+| `Left` / `h` / `Esc` | Return from detail pane to sidebar |
+
+### Projects Panel
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` / Arrow keys | Move selection |
+| `Ctrl+D` / `Ctrl+U` | Page down/up |
+| `<` / `>` | Jump to start/end |
+| `Enter` / `l` | Drill into pipelines for selected project |
+| `e` | Open explorer (file browser) overlay |
+| `/` | Search projects |
+| `f` | Toggle favorite |
+| `t` | Switch between Favorites and All tabs |
+| `[` / `]` | Previous/next page |
+| `Ctrl+R` | Force refresh project list |
+| `Ctrl+O` | Copy SSH clone command |
+
+### Pipelines Panel
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate pipelines |
+| `Enter` / `l` | Drill into stages/jobs |
+| `h` / `Esc` | Back to projects |
+| `R` | Retry selected pipeline |
+| `C` | Cancel selected pipeline |
+| `r` | Reload pipeline list |
+| `[` / `]` | Previous/next pipeline page |
+| `Ctrl+O` | Copy pipeline URL |
+
+### Stages Panel
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate jobs |
+| `h` / `Esc` | Back to pipelines |
+| `Enter` / `Space` | Toggle matrix group expand/collapse |
+| `R` | Retry selected job |
+| `P` | Play manual job |
+| `C` | Cancel selected job |
+| `Ctrl+O` | Copy job URL |
+
+### MRs Panel
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate merge requests |
+| `h` / `Esc` | Back to projects |
+| `Ctrl+O` | Copy MR URL |
+
+### Detail Pane
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Scroll viewport |
+| `J` / `K` / `Ctrl+D` / `Ctrl+U` | Half-page scroll |
+| `<` / `>` | Jump to top/bottom |
+| `t` | Cycle detail tab (Log/Tests/Artifacts for pipelines; Info/Comments/Diff for MRs) |
+| `R` | Retry pipeline or job (depending on context) |
+
+### Explorer Mode
+
+| Key | Action |
+|-----|--------|
+| `Enter` / `Right` / `l` | Open directory or preview file |
+| `Left` / `h` / `Backspace` | Navigate up (from root returns to projects) |
+| `J` / `K` | Scroll preview pane |
+| `r` | Reload current directory |
+| `Esc` | Exit explorer |
 
 ## Architecture
 
-- `pkg/config`: loads host/token settings from the environment
-- `internal/gitlab`: lightweight wrapper around GitLab client-go for projects, pipelines, trees, and file blobs
-- `internal/ui`: Bubble Tea model, view logic, caching, and lipgloss styling (includes the project list, explorer, and pipeline/log views)
+- `pkg/config`: Loads host/token settings from environment, config file, and CLI flags (Viper-based precedence)
+- `internal/gitlab`: Lightweight wrapper around GitLab client-go for projects, pipelines, jobs, merge requests, trees, and file blobs
+- `internal/ui`: Bubble Tea model with multi-panel layout, view logic, caching, and lipgloss styling
 - `cmd/lazylab`: CLI entrypoint
 
-Project listings are cached between runs under `~/.cache/lazylab/` (keyed per host) so subsequent launches open instantly. Use `Ctrl+R` or delete the cache file if you need to force a refresh.
+### Caching
 
-The explorer is inspired by TUI file managers like yazi/ranger: once inside a project you can walk directories, preview files, and navigate back without leaving the keyboard. The pipeline view auto-refreshes and keeps the log preview pinned to the newest output when you are already at the end.
+- **Project list**: Cached under `~/.cache/lazylab/projects_<host>.json` for instant startup. Use `Ctrl+R` to force refresh.
+- **Favorites**: Persisted under `~/.cache/lazylab/favorites_<host>.json`.
+- **Pipeline status**: In-memory LRU cache (last 100 projects) with 5-second refresh interval.
+
+## Development
+
+### Testing
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests with coverage
+go test ./... -coverprofile=coverage.out
+go tool cover -func=coverage.out | grep total
+
+# Run tests for a single package
+go test ./pkg/config
+go test ./internal/ui
+go test ./internal/gitlab
+```
+
+### Building
+
+```bash
+# Build for current platform
+go build ./cmd/lazylab
+
+# Build for all platforms
+just build
+
+# Clean build artifacts
+just clean
+```
+
+### Code Quality
+
+```bash
+# Format code
+go fmt ./...
+
+# Run static analysis
+go vet ./...
+
+# Keep dependencies tidy
+go mod tidy
+```

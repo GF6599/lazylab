@@ -1,4 +1,11 @@
-// Package config loads and validates configuration for lazylab.
+// Package config resolves lazylab's runtime configuration from multiple
+// sources with a strict precedence order: CLI flags beat environment
+// variables, which beat config file values, which beat compiled defaults.
+//
+// The only required value is a GitLab personal access token (api scope).
+// Everything else has sensible defaults targeting gitlab.com. Config files
+// are optional and can be YAML, TOML, or JSON — Viper auto-detects the
+// format from the file extension.
 package config
 
 import (
@@ -15,6 +22,8 @@ var validLogLevels = map[string]bool{
 	"debug": true, "info": true, "warn": true, "error": true,
 }
 
+// maxProjectsPerPage mirrors the GitLab API's hard ceiling; requesting more
+// would silently return fewer results without any error signal.
 const maxProjectsPerPage = 100
 
 const (
@@ -34,17 +43,24 @@ const (
 	defaultLogLevel        = "info"
 )
 
-// Config is the fully-resolved runtime configuration for the TUI.
+// Config holds the fully-resolved runtime settings after all sources have
+// been merged and validated. All fields are guaranteed non-zero after a
+// successful call to [Load], except ConfigFile which is empty when no
+// config file was used.
 type Config struct {
 	Host            string
 	Token           string
 	ProjectsPerPage int
 	LogLevel        string
-	ConfigFile      string
+	// ConfigFile records which file was loaded, if any. Empty when
+	// configuration came entirely from flags, env vars, and defaults.
+	ConfigFile string
 }
 
-// RegisterFlags wires the shared flags onto the provided FlagSet so callers
-// can parse CLI overrides before calling Load.
+// RegisterFlags defines the CLI flags on fs without parsing them. Call this
+// before fs.Parse, then pass the parsed FlagSet to [Load]. Flags use empty
+// defaults so that [Load] can distinguish "not set" from "set to the default
+// value" and apply the correct precedence.
 func RegisterFlags(fs *pflag.FlagSet) {
 	fs.String(FlagHost, "", "GitLab host, defaults to https://gitlab.com")
 	fs.String(FlagToken, "", "GitLab personal access token (api scope)")
@@ -53,8 +69,15 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.String(FlagLogLevel, "", "Log level: debug, info, warn, error")
 }
 
-// Load renders the final configuration using defaults, optional config file,
-// environment variables, and explicit CLI flags in that precedence order.
+// Load merges configuration from defaults, an optional config file,
+// environment variables (prefix GITLAB_), and CLI flags — in that precedence
+// order — then validates the result. It returns an error if the token is
+// missing, the host URL is malformed, or projects-per-page exceeds the
+// GitLab API maximum of 100.
+//
+// The config file path is resolved from --config, then $LAZYLAB_CONFIG, then
+// $GITLAB_TUI_CONFIG. The dual env var support exists for backward
+// compatibility with an earlier project name.
 func Load(fs *pflag.FlagSet) (Config, error) {
 	var cfg Config
 
@@ -113,6 +136,8 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	return cfg, nil
 }
 
+// overrideFromFlags applies only explicitly-set CLI flags, leaving Viper's
+// merged values intact for anything the user didn't pass on the command line.
 func overrideFromFlags(fs *pflag.FlagSet, cfg *Config) {
 	if fs.Changed(FlagHost) {
 		cfg.Host, _ = fs.GetString(FlagHost)
@@ -138,6 +163,8 @@ func mustString(val string, err error) string {
 	return val
 }
 
+// validateHostURL rejects URLs without a scheme or hostname early, before
+// the GitLab client attempts a request to a nonsensical endpoint.
 func validateHostURL(host string) error {
 	u, err := url.Parse(host)
 	if err != nil {

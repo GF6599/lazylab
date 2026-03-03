@@ -38,6 +38,7 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 }
 
 func TestLoadFromConfigFile(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
 	samplePath := filepath.Join("testdata", "sample.yaml")
 	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
 	RegisterFlags(fs)
