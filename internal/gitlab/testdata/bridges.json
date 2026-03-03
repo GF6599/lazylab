@@ -1,0 +1,26 @@
+[
+  {
+    "id": 2001,
+    "name": "trigger-child",
+    "stage": "deploy",
+    "status": "success",
+    "ref": "main",
+    "allow_failure": false,
+    "duration": 45.0,
+    "downstream_pipeline": {
+      "id": 200,
+      "status": "success",
+      "web_url": "https://gitlab.com/team/child/-/pipelines/200"
+    }
+  },
+  {
+    "id": 2002,
+    "name": "trigger-other",
+    "stage": "deploy",
+    "status": "pending",
+    "ref": "main",
+    "allow_failure": true,
+    "duration": 0.0,
+    "downstream_pipeline": null
+  }
+]

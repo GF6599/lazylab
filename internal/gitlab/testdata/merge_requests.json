@@ -1,0 +1,28 @@
+[
+  {
+    "iid": 42,
+    "title": "Add feature X",
+    "state": "opened",
+    "author": {
+      "id": 1,
+      "name": "Jane Dev"
+    },
+    "source_branch": "feature-x",
+    "target_branch": "main",
+    "web_url": "https://gitlab.com/team/app/-/merge_requests/42",
+    "updated_at": "2025-01-15T12:00:00Z"
+  },
+  {
+    "iid": 41,
+    "title": "Fix bug Y",
+    "state": "merged",
+    "author": {
+      "id": 2,
+      "name": "John Fix"
+    },
+    "source_branch": "fix-y",
+    "target_branch": "main",
+    "web_url": "https://gitlab.com/team/app/-/merge_requests/41",
+    "updated_at": "2025-01-14T08:00:00Z"
+  }
+]

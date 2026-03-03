@@ -1,0 +1,30 @@
+[
+  {
+    "id": "a1b2c3",
+    "name": "src",
+    "type": "tree",
+    "path": "src",
+    "mode": "040000"
+  },
+  {
+    "id": "d4e5f6",
+    "name": "README.md",
+    "type": "blob",
+    "path": "README.md",
+    "mode": "100644"
+  },
+  {
+    "id": "g7h8i9",
+    "name": "go.mod",
+    "type": "blob",
+    "path": "go.mod",
+    "mode": "100644"
+  },
+  {
+    "id": "j0k1l2",
+    "name": "docs",
+    "type": "tree",
+    "path": "docs",
+    "mode": "040000"
+  }
+]
