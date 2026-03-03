@@ -3,12 +3,19 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
+
+var validLogLevels = map[string]bool{
+	"debug": true, "info": true, "warn": true, "error": true,
+}
+
+const maxProjectsPerPage = 100
 
 const (
 	// FlagHost selects the GitLab base URL.
@@ -84,11 +91,20 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	if cfg.Host == "" {
 		cfg.Host = defaultHost
 	}
+	if err := validateHostURL(cfg.Host); err != nil {
+		return cfg, err
+	}
 	if cfg.ProjectsPerPage <= 0 {
 		cfg.ProjectsPerPage = defaultProjectsPerPage
 	}
+	if cfg.ProjectsPerPage > maxProjectsPerPage {
+		return cfg, fmt.Errorf("projects-per-page must be between 1 and %d, got %d", maxProjectsPerPage, cfg.ProjectsPerPage)
+	}
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = defaultLogLevel
+	}
+	if !validLogLevels[cfg.LogLevel] {
+		return cfg, fmt.Errorf("invalid log level %q, must be one of: debug, info, warn, error", cfg.LogLevel)
 	}
 	if cfg.Token == "" {
 		return cfg, fmt.Errorf("gitlab token is required via --%s or $GITLAB_TOKEN", FlagToken)
@@ -120,4 +136,18 @@ func mustString(val string, err error) string {
 		return ""
 	}
 	return val
+}
+
+func validateHostURL(host string) error {
+	u, err := url.Parse(host)
+	if err != nil {
+		return fmt.Errorf("invalid host URL %q: %w", host, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("host URL must use http or https scheme, got %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("host URL must include a hostname")
+	}
+	return nil
 }

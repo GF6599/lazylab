@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
@@ -98,5 +99,76 @@ func TestFlagOverrides(t *testing.T) {
 	}
 	if cfg.Token != "flag-token" {
 		t.Fatalf("flag token not applied: %s", cfg.Token)
+	}
+}
+
+func TestLoad_MissingToken(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	_ = fs.Parse(nil)
+
+	_, err := Load(fs)
+	if err == nil {
+		t.Fatal("expected error for missing token")
+	}
+	if !strings.Contains(err.Error(), "token is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoad_InvalidHost(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "tok")
+	tests := []struct {
+		name string
+		host string
+		want string
+	}{
+		{"no scheme", "gitlab.com", "http or https"},
+		{"ftp scheme", "ftp://gitlab.com", "http or https"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+			RegisterFlags(fs)
+			_ = fs.Parse([]string{"--host", tt.host})
+			_, err := Load(fs)
+			if err == nil {
+				t.Fatal("expected error for invalid host")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error %q should contain %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_ProjectsPerPageRange(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "tok")
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	_ = fs.Parse([]string{"--projects-per-page", "200"})
+
+	_, err := Load(fs)
+	if err == nil {
+		t.Fatal("expected error for per-page > 100")
+	}
+	if !strings.Contains(err.Error(), "between 1 and 100") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoad_InvalidLogLevel(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "tok")
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	_ = fs.Parse([]string{"--log-level", "verbose"})
+
+	_, err := Load(fs)
+	if err == nil {
+		t.Fatal("expected error for invalid log level")
+	}
+	if !strings.Contains(err.Error(), "invalid log level") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
