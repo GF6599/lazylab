@@ -940,6 +940,7 @@ func TestVisibleProjects_FavoritesTab(t *testing.T) {
 		page:       1,
 		projectTab: projectTabFavorites,
 		favorites:  map[int]bool{1: true, 3: true},
+		favOrder:   []int{1, 3},
 	}
 	filtered := m.visibleProjects()
 	if len(filtered) != 2 {

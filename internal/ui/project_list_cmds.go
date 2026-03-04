@@ -115,8 +115,8 @@ type searchDebounceTickMsg struct {
 }
 
 type favoritesLoadedMsg struct {
-	favorites map[int]bool
-	err       error
+	favOrder []int
+	err      error
 }
 
 type favoritesSavedMsg struct {
@@ -125,18 +125,16 @@ type favoritesSavedMsg struct {
 
 func loadFavoritesCmd(store *favoritesStore) tea.Cmd {
 	return func() tea.Msg {
-		favorites, err := store.Load()
-		return favoritesLoadedMsg{favorites: favorites, err: err}
+		order, err := store.Load()
+		return favoritesLoadedMsg{favOrder: order, err: err}
 	}
 }
 
-func saveFavoritesCmd(store *favoritesStore, favorites map[int]bool) tea.Cmd {
+func saveFavoritesCmd(store *favoritesStore, favOrder []int) tea.Cmd {
 	return func() tea.Msg {
-		// Copy map to avoid races
-		cp := make(map[int]bool, len(favorites))
-		for k, v := range favorites {
-			cp[k] = v
-		}
+		// Copy slice to avoid races
+		cp := make([]int, len(favOrder))
+		copy(cp, favOrder)
 		return favoritesSavedMsg{err: store.Save(cp)}
 	}
 }

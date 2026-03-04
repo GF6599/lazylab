@@ -335,6 +335,7 @@ type Model struct {
 	showHelp       bool
 	recentProjects []int // IDs of recently visited projects
 	favorites      map[int]bool
+	favOrder       []int // User-defined ordering of favorite project IDs
 	favStore       *favoritesStore
 	projectTab     projectTab
 
@@ -731,7 +732,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.opts.Logger.Error("load favorites", "err", msg.err)
 			}
 		} else {
-			m.favorites = msg.favorites
+			m.favOrder = msg.favOrder
+			// Rebuild the map from the ordered slice
+			m.favorites = make(map[int]bool, len(m.favOrder))
+			for _, id := range m.favOrder {
+				m.favorites[id] = true
+			}
 			m.projectList.SetDelegate(projectDelegate{
 				pipelineStatus: m.pipelineStatus,
 				favorites:      m.favorites,

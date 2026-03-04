@@ -205,9 +205,17 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ok {
 			if m.favorites[project.ID] {
 				delete(m.favorites, project.ID)
+				// Remove from favOrder
+				for i, id := range m.favOrder {
+					if id == project.ID {
+						m.favOrder = append(m.favOrder[:i], m.favOrder[i+1:]...)
+						break
+					}
+				}
 				m.status = fmt.Sprintf("Unfavorited %s", project.PathWithNamespace)
 			} else {
 				m.favorites[project.ID] = true
+				m.favOrder = append(m.favOrder, project.ID)
 				m.status = fmt.Sprintf("Favorited %s", project.PathWithNamespace)
 			}
 			m.projectList.SetDelegate(projectDelegate{
@@ -219,7 +227,7 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ensureSelectionBounds()
 			var saveCmd tea.Cmd
 			if m.favStore != nil {
-				saveCmd = saveFavoritesCmd(m.favStore, m.favorites)
+				saveCmd = saveFavoritesCmd(m.favStore, m.favOrder)
 			}
 			return m, saveCmd
 		}
@@ -244,6 +252,14 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		return m, nil
+	case "{":
+		if m.projectTab == projectTabFavorites {
+			return m.moveFavorite(-1)
+		}
+	case "}":
+		if m.projectTab == projectTabFavorites {
+			return m.moveFavorite(1)
+		}
 	case "ctrl+o":
 		m.copyCloneCommand()
 	}
@@ -1221,4 +1237,56 @@ func (m Model) playManualJob() (tea.Model, tea.Cmd) {
 	}
 	m.status = fmt.Sprintf("Playing job %s (#%d)...", job.Name, job.ID)
 	return m, playJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, job.ID)
+}
+
+// moveFavorite swaps the currently selected favorite with an adjacent entry
+// in favOrder. delta is -1 (move up) or +1 (move down). The selection follows
+// the moved item so the user can keep pressing the key to "drag" it.
+func (m Model) moveFavorite(delta int) (tea.Model, tea.Cmd) {
+	visible := m.visibleProjects()
+	if len(visible) == 0 {
+		return m, nil
+	}
+	sel := m.projectList.Index()
+	if sel < 0 || sel >= len(visible) {
+		return m, nil
+	}
+	projectID := visible[sel].ID
+
+	// Find position in favOrder
+	idx := -1
+	for i, id := range m.favOrder {
+		if id == projectID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return m, nil
+	}
+
+	newIdx := idx + delta
+	if newIdx < 0 || newIdx >= len(m.favOrder) {
+		return m, nil
+	}
+
+	// Swap in favOrder
+	m.favOrder[idx], m.favOrder[newIdx] = m.favOrder[newIdx], m.favOrder[idx]
+
+	// Invalidate cache and rebuild list so the new order is visible
+	m.invalidateVisibleCache()
+	m.updateProjectList()
+
+	// Follow the moved item
+	newSel := sel + delta
+	if newSel >= 0 && newSel < len(m.visibleProjects()) {
+		m.projectList.Select(newSel)
+		m.selected = newSel
+	}
+
+	var saveCmd tea.Cmd
+	if m.favStore != nil {
+		saveCmd = saveFavoritesCmd(m.favStore, m.favOrder)
+	}
+	return m, saveCmd
 }

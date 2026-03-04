@@ -836,9 +836,15 @@ func (m *Model) visibleProjects() []gitlab.ProjectNode {
 		if m.visibleCache != nil && m.visibleCacheTab == projectTabFavorites && m.visibleCacheQuery == m.search.query {
 			return m.visibleCache
 		}
-		filtered := make([]gitlab.ProjectNode, 0)
+		// Build ID→project index for quick lookup
+		byID := make(map[int]gitlab.ProjectNode, len(m.allProjects))
 		for _, p := range m.allProjects {
-			if !m.favorites[p.ID] {
+			byID[p.ID] = p
+		}
+		filtered := make([]gitlab.ProjectNode, 0, len(m.favOrder))
+		for _, id := range m.favOrder {
+			p, ok := byID[id]
+			if !ok {
 				continue
 			}
 			if m.search.query != "" && !fuzzyMatch(p.PathWithNamespace, m.search.query) && !fuzzyMatch(p.Name, m.search.query) {

@@ -6,8 +6,9 @@
 // compatibility. Writes use the same atomic temp+rename pattern as cache.go
 // to prevent corruption.
 //
-// The in-memory representation is a map[int]bool for O(1) lookup during
-// rendering; on disk it's stored as a sorted int slice for stability.
+// The on-disk slice preserves user-defined ordering so favorites can be
+// reordered in the TUI and the order persists across sessions. Callers
+// derive a map[int]bool from the slice for O(1) membership lookup.
 
 package ui
 
@@ -16,10 +17,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 )
 
-const favoritesVersion = 1
+const favoritesVersion = 2
 
 // favoritesStore manages read/write access to the per-host favorites file.
 type favoritesStore struct {
@@ -27,8 +27,8 @@ type favoritesStore struct {
 	host string
 }
 
-// favoritesFile is the versioned JSON envelope. ProjectIDs are sorted on write
-// for deterministic output (easier to diff/debug).
+// favoritesFile is the versioned JSON envelope. ProjectIDs preserve
+// user-defined ordering (no sorting on write).
 type favoritesFile struct {
 	Version    int    `json:"version"`
 	Host       string `json:"host"`
@@ -53,12 +53,13 @@ func newFavoritesStore(host string) (*favoritesStore, error) {
 	}, nil
 }
 
-// Load reads favorites from disk. Returns an empty map (not an error) when
+// Load reads favorites from disk. Returns an empty slice (not an error) when
 // the file doesn't exist, so first-run callers don't need special handling.
-func (s *favoritesStore) Load() (map[int]bool, error) {
+// The returned slice preserves on-disk ordering (user-defined).
+func (s *favoritesStore) Load() ([]int, error) {
 	data, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
-		return make(map[int]bool), nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read favorites: %w", err)
@@ -68,28 +69,19 @@ func (s *favoritesStore) Load() (map[int]bool, error) {
 		return nil, fmt.Errorf("decode favorites: %w", err)
 	}
 	if file.Version != favoritesVersion {
-		return nil, fmt.Errorf("favorites version mismatch: %d", file.Version)
+		// Stale version (e.g. v1 sorted-only format) — treat as cache miss
+		return nil, nil
 	}
-	result := make(map[int]bool, len(file.ProjectIDs))
-	for _, id := range file.ProjectIDs {
-		result[id] = true
-	}
-	return result, nil
+	return file.ProjectIDs, nil
 }
 
-// Save writes favorites atomically using temp+rename. IDs are sorted before
-// writing for deterministic output.
-func (s *favoritesStore) Save(ids map[int]bool) error {
-	sorted := make([]int, 0, len(ids))
-	for id := range ids {
-		sorted = append(sorted, id)
-	}
-	sort.Ints(sorted)
-
+// Save writes favorites atomically using temp+rename. The slice order is
+// preserved as-is (user-defined ordering).
+func (s *favoritesStore) Save(ids []int) error {
 	payload := favoritesFile{
 		Version:    favoritesVersion,
 		Host:       s.host,
-		ProjectIDs: sorted,
+		ProjectIDs: ids,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
