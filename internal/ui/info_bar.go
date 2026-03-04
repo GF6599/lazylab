@@ -7,6 +7,7 @@
 //
 // When the terminal is too narrow, the center section is truncated first to
 // preserve the status message and project context.
+
 package ui
 
 import (
@@ -116,7 +117,7 @@ func panelFooter(panel PanelID, m *Model) string {
 		}
 		return fmt.Sprintf("%d of %d", m.pipelineView.stageSelected+1, jobCount)
 	case PanelMRs:
-		if m.mrView.mrs == nil || len(m.mrView.mrs) == 0 {
+		if len(m.mrView.mrs) == 0 {
 			return ""
 		}
 		return fmt.Sprintf("%d of %d", m.mrView.selected+1, len(m.mrView.mrs))

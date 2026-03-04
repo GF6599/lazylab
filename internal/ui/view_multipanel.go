@@ -8,6 +8,7 @@
 // The detail pane is context-sensitive: its content depends on which sidebar
 // panel the user is in (or came from, when the detail pane itself is focused).
 // detailContextPanel resolves this so renderers don't need to check focus state.
+
 package ui
 
 import (
@@ -168,13 +169,13 @@ func detailContextPanel(m *Model) PanelID {
 func renderDetailContent(m *Model, width, height int) string {
 	switch detailContextPanel(m) {
 	case PanelProjects:
-		return (&*m).cachedDetailPane(width, height)
+		return m.cachedDetailPane(width, height)
 	case PanelPipelines, PanelStages:
 		return renderPipelineDetailContent(m, width, height)
 	case PanelMRs:
 		return renderMRDetailContent(m, width, height)
 	default:
-		return (&*m).cachedDetailPane(width, height)
+		return m.cachedDetailPane(width, height)
 	}
 }
 

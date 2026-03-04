@@ -9,6 +9,7 @@
 //
 // The regex patterns are intentionally broad (matching any gl*-prefixed token
 // with 6+ characters) to catch future GitLab token formats without code changes.
+
 package ui
 
 import (

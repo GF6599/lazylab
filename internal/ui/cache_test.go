@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -341,8 +342,8 @@ func TestNewProjectCache_DirectoryCreation(t *testing.T) {
 	perm := info.Mode().Perm()
 	t.Logf("Cache directory created with permissions: %o", perm)
 
-	// Verify the cache path contains "lazylab"
-	if !filepath.HasPrefix(cache.path, cacheDir) {
+	// Verify the cache path is under the cache directory
+	if !strings.HasPrefix(cache.path, cacheDir) {
 		t.Errorf("Cache path %s should be under directory %s", cache.path, cacheDir)
 	}
 }

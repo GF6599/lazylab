@@ -8,6 +8,7 @@
 //
 // The in-memory representation is a map[int]bool for O(1) lookup during
 // rendering; on disk it's stored as a sorted int slice for stability.
+
 package ui
 
 import (
@@ -104,16 +105,16 @@ func (s *favoritesStore) Save(ids map[int]bool) error {
 
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write favorites tmp: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close favorites tmp: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, s.path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("commit favorites: %w", err)
 	}
 	return nil

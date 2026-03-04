@@ -14,6 +14,7 @@
 // Tab types (pipelineDetailTab, mrDetailTab) control which content appears in
 // the Detail pane. They are separate from PanelID because the Detail pane is
 // a single panel whose content changes based on context.
+
 package ui
 
 // PanelID identifies a panel in the multi-panel layout.

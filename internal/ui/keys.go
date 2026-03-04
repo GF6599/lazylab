@@ -8,6 +8,7 @@
 // Mode-specific functions (projectsKeyMap, explorerKeyMap, pipelinesKeyMap)
 // return subsets for contextual help rendering — they don't create new
 // bindings, just select which ones to display.
+
 package ui
 
 import "github.com/charmbracelet/bubbles/key"

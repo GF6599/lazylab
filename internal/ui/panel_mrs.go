@@ -9,6 +9,7 @@
 // The comments renderer uses a tree-style layout (│, ├, └) to visually nest
 // reply threads, with resolved/unresolved badges on the first note of
 // resolvable discussions.
+
 package ui
 
 import (

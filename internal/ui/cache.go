@@ -9,6 +9,7 @@
 // temporary file in the same directory, then os.Rename swaps it in. This
 // prevents partial reads if the TUI is killed mid-write or another instance
 // is reading concurrently.
+
 package ui
 
 import (
@@ -124,17 +125,17 @@ func (c *projectCache) Save(projects []gitlab.ProjectNode) error {
 	// Write data and close
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write cache tmp: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close cache tmp: %w", err)
 	}
 
 	// Atomic rename
 	if err := os.Rename(tmpPath, c.path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("commit cache: %w", err)
 	}
 	return nil

@@ -14,6 +14,7 @@
 // renderBorderedPane draws custom Unicode borders with an embedded title, tabs,
 // and footer counter. It avoids lipgloss.Border because we need per-character
 // control over the top/bottom lines to embed interactive elements.
+
 package ui
 
 import (
