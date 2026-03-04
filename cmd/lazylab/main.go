@@ -59,7 +59,7 @@ func main() {
 	}
 	logger.Info("connecting to GitLab", "host", cfg.Host)
 
-	if err := program.Start(); err != nil {
+	if _, err := program.Run(); err != nil {
 		logger.Error("tui exited", "err", err)
 		os.Exit(1)
 	}

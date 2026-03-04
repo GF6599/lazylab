@@ -15,6 +15,7 @@
 // Side-loading pattern: when the user navigates to a new project,
 // autoLoadSelectedProjectData eagerly fetches pipelines, commits, and MRs
 // so that sidebar panels are pre-populated before the user tabs into them.
+
 package ui
 
 import (
@@ -483,11 +484,11 @@ func (m Model) handlePipelinesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "C":
 		return m.cancelPipelineAction()
 	case "J":
-		m.pipelineView.logViewport.HalfViewDown()
+		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		return m, nil
 	case "K":
-		m.pipelineView.logViewport.HalfViewUp()
+		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
 		return m, nil
 	case "t":
@@ -554,15 +555,15 @@ func (m Model) handleStagesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus.Active = PanelProjects
 		return m, nil
 	case "J":
-		m.pipelineView.logViewport.HalfViewDown()
+		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		return m, nil
 	case "K":
-		m.pipelineView.logViewport.HalfViewUp()
+		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
 		return m, nil
 	case "ctrl+d":
-		m.pipelineView.logViewport.HalfViewDown()
+		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		jobCount := len(m.pipelineView.jobRows)
 		step := listPageStep(m.height)
@@ -573,7 +574,7 @@ func (m Model) handleStagesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.queuePipelineLogPreview()
 		}
 	case "ctrl+u":
-		m.pipelineView.logViewport.HalfViewUp()
+		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
 		if m.pipelineView.stageSelected > 0 {
 			step := listPageStep(m.height)
@@ -685,10 +686,10 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus.Active = PanelProjects
 		return m, nil
 	case "J":
-		m.mrView.mrViewport.HalfViewDown()
+		m.mrView.mrViewport.HalfPageDown()
 		return m, nil
 	case "K":
-		m.mrView.mrViewport.HalfViewUp()
+		m.mrView.mrViewport.HalfPageUp()
 		return m, nil
 	case "t":
 		// Cycle MR sidebar tabs (Open → Merged → Closed)
@@ -735,10 +736,10 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			return m.moveDiscussionSelection(-1)
 		case "J", "ctrl+d":
-			m.mrView.mrViewport.HalfViewDown()
+			m.mrView.mrViewport.HalfPageDown()
 			return m, nil
 		case "K", "ctrl+u":
-			m.mrView.mrViewport.HalfViewUp()
+			m.mrView.mrViewport.HalfPageUp()
 			return m, nil
 		case "<", "g":
 			m.mrView.selectedDiscussion = 0
@@ -770,33 +771,33 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "down", "j":
 		if isMR {
-			m.mrView.mrViewport.LineDown(1)
+			m.mrView.mrViewport.ScrollDown(1)
 		} else {
-			m.pipelineView.logViewport.LineDown(1)
+			m.pipelineView.logViewport.ScrollDown(1)
 			m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		}
 		return m, nil
 	case "up", "k":
 		if isMR {
-			m.mrView.mrViewport.LineUp(1)
+			m.mrView.mrViewport.ScrollUp(1)
 		} else {
-			m.pipelineView.logViewport.LineUp(1)
+			m.pipelineView.logViewport.ScrollUp(1)
 			m.pipelineView.logAutoFollow = false
 		}
 		return m, nil
 	case "J", "ctrl+d":
 		if isMR {
-			m.mrView.mrViewport.HalfViewDown()
+			m.mrView.mrViewport.HalfPageDown()
 		} else {
-			m.pipelineView.logViewport.HalfViewDown()
+			m.pipelineView.logViewport.HalfPageDown()
 			m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		}
 		return m, nil
 	case "K", "ctrl+u":
 		if isMR {
-			m.mrView.mrViewport.HalfViewUp()
+			m.mrView.mrViewport.HalfPageUp()
 		} else {
-			m.pipelineView.logViewport.HalfViewUp()
+			m.pipelineView.logViewport.HalfPageUp()
 			m.pipelineView.logAutoFollow = false
 		}
 		return m, nil

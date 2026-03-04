@@ -5,6 +5,7 @@
 // (API calls, debounce ticks) is returned as a tea.Cmd for the runtime to
 // execute. Handlers are kept mode-specific so the top-level Update can
 // dispatch by mode without growing unbounded.
+
 package ui
 
 import (
@@ -203,13 +204,13 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeExplorer("Back to projects")
 		return m, nil
 	case "J":
-		m.explorer.preview.viewport.HalfViewDown()
+		m.explorer.preview.viewport.HalfPageDown()
 		return m, nil
 	case "K":
-		m.explorer.preview.viewport.HalfViewUp()
+		m.explorer.preview.viewport.HalfPageUp()
 		return m, nil
 	case "ctrl+d":
-		m.explorer.preview.viewport.HalfViewDown()
+		m.explorer.preview.viewport.HalfPageDown()
 		if cur.selected < len(cur.entries)-1 {
 			step := listPageStep(m.height)
 			cur.selected = min(cur.selected+step, len(cur.entries)-1)
@@ -217,7 +218,7 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "ctrl+u":
-		m.explorer.preview.viewport.HalfViewUp()
+		m.explorer.preview.viewport.HalfPageUp()
 		if cur.selected > 0 {
 			step := listPageStep(m.height)
 			cur.selected = max(cur.selected-step, 0)
@@ -320,11 +321,11 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "J":
-		m.pipelineView.logViewport.HalfViewDown()
+		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		return m, nil
 	case "K":
-		m.pipelineView.logViewport.HalfViewUp()
+		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
 		return m, nil
 	case "ctrl+d", "ctrl+u", "<", ">":
@@ -347,7 +348,7 @@ func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
 	step := listPageStep(m.height)
 	switch key {
 	case "ctrl+d":
-		m.pipelineView.logViewport.HalfViewDown()
+		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		if m.pipelineView.focus == pipelineFocusPipelines {
 			if m.pipelineView.selected < len(m.pipelineView.pipelines)-1 {
@@ -364,7 +365,7 @@ func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "ctrl+u":
-		m.pipelineView.logViewport.HalfViewUp()
+		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
 		if m.pipelineView.focus == pipelineFocusPipelines {
 			if m.pipelineView.selected > 0 {
