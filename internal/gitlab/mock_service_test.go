@@ -5,25 +5,27 @@ import "context"
 // MockService is a hand-written mock implementing all Service interface methods.
 // Each method delegates to its function field; unset fields return zero values.
 type MockService struct {
-	ListProjectsFn                func(ctx context.Context, opts ProjectListOptions) (ProjectPage, error)
-	ListTreeFn                    func(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error)
-	GetFileContentFn              func(ctx context.Context, projectID int, path, ref string) (string, error)
-	LatestPipelineFn              func(ctx context.Context, projectID int, ref string) (PipelineSummary, error)
-	ListPipelinesFn               func(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error)
-	PipelineStagesFn              func(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error)
-	ListPipelineJobsFn            func(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error)
-	GetJobTraceFn                 func(ctx context.Context, projectID, jobID int) (string, error)
-	RetryPipelineFn               func(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error)
-	RetryJobFn                    func(ctx context.Context, projectID, jobID int) (PipelineJob, error)
-	CancelPipelineFn              func(ctx context.Context, projectID, pipelineID int) error
-	CancelJobFn                   func(ctx context.Context, projectID, jobID int) error
-	PlayJobFn                     func(ctx context.Context, projectID, jobID int) (PipelineJob, error)
-	ListMergeRequestsFn           func(ctx context.Context, projectID int, opts MRListOptions) (MRPage, error)
-	ListMergeRequestDiscussionsFn func(ctx context.Context, projectID, mrIID int) ([]MRDiscussion, error)
-	ListMergeRequestDiffsFn       func(ctx context.Context, projectID, mrIID int) ([]MRDiffFile, error)
-	ListPipelineBridgesFn         func(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error)
-	GetPipelineTestReportFn       func(ctx context.Context, projectID, pipelineID int) (*TestReport, error)
-	ListProjectCommitsFn          func(ctx context.Context, projectID int, ref string, limit int) ([]CommitSummary, error)
+	ListProjectsFn                  func(ctx context.Context, opts ProjectListOptions) (ProjectPage, error)
+	ListTreeFn                      func(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error)
+	GetFileContentFn                func(ctx context.Context, projectID int, path, ref string) (string, error)
+	LatestPipelineFn                func(ctx context.Context, projectID int, ref string) (PipelineSummary, error)
+	ListPipelinesFn                 func(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error)
+	PipelineStagesFn                func(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error)
+	ListPipelineJobsFn              func(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error)
+	GetJobTraceFn                   func(ctx context.Context, projectID, jobID int) (string, error)
+	RetryPipelineFn                 func(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error)
+	RetryJobFn                      func(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+	CancelPipelineFn                func(ctx context.Context, projectID, pipelineID int) error
+	CancelJobFn                     func(ctx context.Context, projectID, jobID int) error
+	PlayJobFn                       func(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+	ListMergeRequestsFn             func(ctx context.Context, projectID int, opts MRListOptions) (MRPage, error)
+	ListMergeRequestDiscussionsFn   func(ctx context.Context, projectID, mrIID int) ([]MRDiscussion, error)
+	ListMergeRequestDiffsFn         func(ctx context.Context, projectID, mrIID int) ([]MRDiffFile, error)
+	ListPipelineBridgesFn           func(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error)
+	GetPipelineTestReportFn         func(ctx context.Context, projectID, pipelineID int) (*TestReport, error)
+	ListProjectCommitsFn            func(ctx context.Context, projectID int, ref string, limit int) ([]CommitSummary, error)
+	ResolveMergeRequestDiscussionFn func(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error
+	AddMergeRequestDiscussionNoteFn func(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
 }
 
 // Compile-time check: MockService implements Service.
@@ -160,4 +162,18 @@ func (m *MockService) ListProjectCommits(ctx context.Context, projectID int, ref
 		return m.ListProjectCommitsFn(ctx, projectID, ref, limit)
 	}
 	return nil, nil
+}
+
+func (m *MockService) ResolveMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error {
+	if m.ResolveMergeRequestDiscussionFn != nil {
+		return m.ResolveMergeRequestDiscussionFn(ctx, projectID, mrIID, discussionID, resolved)
+	}
+	return nil
+}
+
+func (m *MockService) AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error {
+	if m.AddMergeRequestDiscussionNoteFn != nil {
+		return m.AddMergeRequestDiscussionNoteFn(ctx, projectID, mrIID, discussionID, body)
+	}
+	return nil
 }

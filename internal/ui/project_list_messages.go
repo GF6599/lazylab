@@ -752,7 +752,7 @@ func (m Model) handleMRDiscussionsLoaded(msg mrDiscussionsLoadedMsg) (tea.Model,
 	if m.mrView.detailTab == mrDetailTabComments {
 		mr := m.mrView.selectedMR()
 		if mr != nil && mr.IID == msg.mrIID {
-			content := renderMRCommentsText(msg.discussions, m.mrViewportWidth())
+			content := renderMRCommentsText(msg.discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion)
 			m.setMRViewportContent(content)
 			m.mrView.mrViewport.GotoTop()
 		}
@@ -956,6 +956,45 @@ func (m Model) handleCommitsLoaded(msg commitsLoadedMsg) (tea.Model, tea.Cmd) {
 		(&m).invalidateDetailCache()
 	}
 	return m, nil
+}
+
+func (m Model) handleMRDiscussionResolved(msg mrDiscussionResolvedMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		// Revert optimistic update on failure
+		m.optimisticToggleResolved(msg.mrIID, msg.discussionID, !msg.resolved)
+		if discussions, ok := m.mrView.discussions.Get(msg.mrIID); ok {
+			content := renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion)
+			m.setMRViewportContent(content)
+		}
+		m.status = fmt.Sprintf("Failed to resolve discussion: %v", msg.err)
+		return m, nil
+	}
+	if msg.resolved {
+		m.status = "Discussion resolved"
+	} else {
+		m.status = "Discussion unresolved"
+	}
+	return m, nil
+}
+
+func (m Model) handleMRDiscussionReply(msg mrDiscussionReplyMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.mrView.reply.sending = false
+		m.mrView.reply.err = msg.err
+		m.status = fmt.Sprintf("Failed to send reply: %v", msg.err)
+		return m, nil
+	}
+	// Close modal and re-fetch discussions to show the new reply
+	m.mrView.reply = mrReplyState{}
+	m.status = "Reply sent"
+	m.mrView.discussions.SetLoading(msg.mrIID)
+	return m, fetchMRDiscussionsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, msg.mrIID)
 }
 
 func (m Model) handleSearchDebounceTickMsg(msg searchDebounceTickMsg) (tea.Model, tea.Cmd) {

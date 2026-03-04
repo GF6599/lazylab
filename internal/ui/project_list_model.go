@@ -638,6 +638,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				newModel, cmd := m.handleExplorerKey(msg)
 				return newModel, tea.Batch(spinnerCmd, cmd)
 			}
+			// Reply modal
+			if m.mrView.reply.active {
+				newModel, cmd := m.handleMRReplyKey(msg)
+				return newModel, tea.Batch(spinnerCmd, cmd)
+			}
 			// Retry confirmation modal
 			if m.pipelineView.confirmRetry {
 				newModel, cmd := m.handlePipelineRetryConfirmKey(msg)
@@ -704,6 +709,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMRDiscussionsLoaded(msg)
 	case mrDiffsLoadedMsg:
 		return m.handleMRDiffsLoaded(msg)
+	case mrDiscussionResolvedMsg:
+		return m.handleMRDiscussionResolved(msg)
+	case mrDiscussionReplyMsg:
+		return m.handleMRDiscussionReply(msg)
 	case pipelineCanceledMsg:
 		return m.handlePipelineCanceled(msg)
 	case jobCanceledMsg:

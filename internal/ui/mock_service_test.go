@@ -8,25 +8,27 @@ import (
 
 // mockService is a hand-written mock implementing gitlab.Service for UI tests.
 type mockService struct {
-	ListProjectsFn                func(ctx context.Context, opts gitlab.ProjectListOptions) (gitlab.ProjectPage, error)
-	ListTreeFn                    func(ctx context.Context, projectID int, opts gitlab.TreeListOptions) ([]gitlab.TreeNode, error)
-	GetFileContentFn              func(ctx context.Context, projectID int, path, ref string) (string, error)
-	LatestPipelineFn              func(ctx context.Context, projectID int, ref string) (gitlab.PipelineSummary, error)
-	ListPipelinesFn               func(ctx context.Context, projectID int, opts gitlab.PipelineListOptions) (gitlab.PipelinePage, error)
-	PipelineStagesFn              func(ctx context.Context, projectID, pipelineID int) ([]gitlab.PipelineStage, error)
-	ListPipelineJobsFn            func(ctx context.Context, projectID, pipelineID int) ([]gitlab.PipelineJob, error)
-	GetJobTraceFn                 func(ctx context.Context, projectID, jobID int) (string, error)
-	RetryPipelineFn               func(ctx context.Context, projectID, pipelineID int, ref string) (gitlab.PipelineSummary, error)
-	RetryJobFn                    func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
-	CancelPipelineFn              func(ctx context.Context, projectID, pipelineID int) error
-	CancelJobFn                   func(ctx context.Context, projectID, jobID int) error
-	PlayJobFn                     func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
-	ListMergeRequestsFn           func(ctx context.Context, projectID int, opts gitlab.MRListOptions) (gitlab.MRPage, error)
-	ListMergeRequestDiscussionsFn func(ctx context.Context, projectID, mrIID int) ([]gitlab.MRDiscussion, error)
-	ListMergeRequestDiffsFn       func(ctx context.Context, projectID, mrIID int) ([]gitlab.MRDiffFile, error)
-	ListPipelineBridgesFn         func(ctx context.Context, projectID, pipelineID int) ([]gitlab.PipelineBridge, error)
-	GetPipelineTestReportFn       func(ctx context.Context, projectID, pipelineID int) (*gitlab.TestReport, error)
-	ListProjectCommitsFn          func(ctx context.Context, projectID int, ref string, limit int) ([]gitlab.CommitSummary, error)
+	ListProjectsFn                  func(ctx context.Context, opts gitlab.ProjectListOptions) (gitlab.ProjectPage, error)
+	ListTreeFn                      func(ctx context.Context, projectID int, opts gitlab.TreeListOptions) ([]gitlab.TreeNode, error)
+	GetFileContentFn                func(ctx context.Context, projectID int, path, ref string) (string, error)
+	LatestPipelineFn                func(ctx context.Context, projectID int, ref string) (gitlab.PipelineSummary, error)
+	ListPipelinesFn                 func(ctx context.Context, projectID int, opts gitlab.PipelineListOptions) (gitlab.PipelinePage, error)
+	PipelineStagesFn                func(ctx context.Context, projectID, pipelineID int) ([]gitlab.PipelineStage, error)
+	ListPipelineJobsFn              func(ctx context.Context, projectID, pipelineID int) ([]gitlab.PipelineJob, error)
+	GetJobTraceFn                   func(ctx context.Context, projectID, jobID int) (string, error)
+	RetryPipelineFn                 func(ctx context.Context, projectID, pipelineID int, ref string) (gitlab.PipelineSummary, error)
+	RetryJobFn                      func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
+	CancelPipelineFn                func(ctx context.Context, projectID, pipelineID int) error
+	CancelJobFn                     func(ctx context.Context, projectID, jobID int) error
+	PlayJobFn                       func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
+	ListMergeRequestsFn             func(ctx context.Context, projectID int, opts gitlab.MRListOptions) (gitlab.MRPage, error)
+	ListMergeRequestDiscussionsFn   func(ctx context.Context, projectID, mrIID int) ([]gitlab.MRDiscussion, error)
+	ListMergeRequestDiffsFn         func(ctx context.Context, projectID, mrIID int) ([]gitlab.MRDiffFile, error)
+	ListPipelineBridgesFn           func(ctx context.Context, projectID, pipelineID int) ([]gitlab.PipelineBridge, error)
+	GetPipelineTestReportFn         func(ctx context.Context, projectID, pipelineID int) (*gitlab.TestReport, error)
+	ListProjectCommitsFn            func(ctx context.Context, projectID int, ref string, limit int) ([]gitlab.CommitSummary, error)
+	ResolveMergeRequestDiscussionFn func(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error
+	AddMergeRequestDiscussionNoteFn func(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
 }
 
 var _ gitlab.Service = (*mockService)(nil)
@@ -144,4 +146,16 @@ func (m *mockService) ListProjectCommits(ctx context.Context, projectID int, ref
 		return m.ListProjectCommitsFn(ctx, projectID, ref, limit)
 	}
 	return nil, nil
+}
+func (m *mockService) ResolveMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error {
+	if m.ResolveMergeRequestDiscussionFn != nil {
+		return m.ResolveMergeRequestDiscussionFn(ctx, projectID, mrIID, discussionID, resolved)
+	}
+	return nil
+}
+func (m *mockService) AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error {
+	if m.AddMergeRequestDiscussionNoteFn != nil {
+		return m.AddMergeRequestDiscussionNoteFn(ctx, projectID, mrIID, discussionID, body)
+	}
+	return nil
 }

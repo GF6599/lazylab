@@ -18,7 +18,9 @@ import (
 
 	"lazylab/internal/gitlab"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -64,10 +66,23 @@ type mrViewState struct {
 	totalPages int
 
 	// Detail pane state
-	detailTab   mrDetailTab
-	discussions AsyncCache[int, []gitlab.MRDiscussion]
-	diffs       AsyncCache[int, []gitlab.MRDiffFile]
-	mrViewport  viewport.Model
+	detailTab          mrDetailTab
+	discussions        AsyncCache[int, []gitlab.MRDiscussion]
+	diffs              AsyncCache[int, []gitlab.MRDiffFile]
+	mrViewport         viewport.Model
+	selectedDiscussion int // Index into filtered (non-system) discussions
+	reply              mrReplyState
+}
+
+// mrReplyState holds state for the reply-to-discussion modal.
+type mrReplyState struct {
+	active       bool
+	discussionID string
+	projectID    int
+	mrIID        int
+	input        textarea.Model
+	sending      bool
+	err          error
 }
 
 // selectedMR returns a pointer to the currently selected merge request,
@@ -126,12 +141,29 @@ func renderMRsPanel(m *Model, width, height int) string {
 	return joinLines(lines)
 }
 
+// filterUserDiscussions returns only discussions that contain at least one
+// non-system note (i.e., user-authored discussions).
+func filterUserDiscussions(discussions []gitlab.MRDiscussion) []gitlab.MRDiscussion {
+	var filtered []gitlab.MRDiscussion
+	for _, d := range discussions {
+		for _, n := range d.Notes {
+			if !n.System {
+				filtered = append(filtered, d)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
 // renderMRCommentsText builds a styled string of MR discussions for the
 // viewport. System-only discussions (automated notes) are filtered out.
 // Notes within a discussion are rendered with tree-line prefixes (│/├/└)
-// to show the reply structure. Width controls truncation; pass 0 to skip.
-func renderMRCommentsText(discussions []gitlab.MRDiscussion, width int) string {
-	if len(discussions) == 0 {
+// to show the reply structure. The selectedIdx highlights one discussion.
+// Width controls truncation; pass 0 to skip.
+func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx int) string {
+	filtered := filterUserDiscussions(discussions)
+	if len(filtered) == 0 {
 		return explorerHintStyle.Render("No discussions")
 	}
 
@@ -141,21 +173,8 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width int) string {
 	unresolvedStyle := diffDelStyle // Love (red)
 
 	var b strings.Builder
-	first := true
-	for _, d := range discussions {
-		// Filter out system-only discussions
-		hasUserNote := false
-		for _, n := range d.Notes {
-			if !n.System {
-				hasUserNote = true
-				break
-			}
-		}
-		if !hasUserNote {
-			continue
-		}
-
-		if !first {
+	for i, d := range filtered {
+		if i > 0 {
 			divW := 40
 			if width > 0 && width < divW {
 				divW = width
@@ -163,7 +182,12 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width int) string {
 			b.WriteString(detailDividerStyle.Render(strings.Repeat("─", divW)))
 			b.WriteString("\n\n")
 		}
-		first = false
+
+		// Selection indicator
+		selPrefix := "  "
+		if i == selectedIdx {
+			selPrefix = "▶ "
+		}
 
 		for j, note := range d.Notes {
 			if note.System {
@@ -171,7 +195,12 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width int) string {
 			}
 			author := authorStyle.Render(note.Author)
 			ts := timestampStyle.Render(formatTimeAgo(note.CreatedAt))
-			header := fmt.Sprintf("%s · %s", author, ts)
+			var header string
+			if j == 0 {
+				header = fmt.Sprintf("%s%s · %s", selPrefix, author, ts)
+			} else {
+				header = fmt.Sprintf("  %s · %s", author, ts)
+			}
 
 			// Show resolved badge on first note of resolvable discussions
 			if j == 0 && note.Resolvable {
@@ -197,7 +226,7 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width int) string {
 			}
 			bodyLines := strings.Split(note.Body, "\n")
 			for _, line := range bodyLines {
-				out := prefix + line
+				out := "  " + prefix + line
 				if width > 0 {
 					out = ansi.Truncate(out, width, "…")
 				}
@@ -271,6 +300,74 @@ func renderMRDiffText(diffs []gitlab.MRDiffFile, width int) string {
 		}
 	}
 	return b.String()
+}
+
+// renderMRReplyModal renders the reply textarea modal as a centered overlay.
+func renderMRReplyModal(m Model, width int) string {
+	innerWidth := width / 2
+	if innerWidth < 40 {
+		innerWidth = min(width-4, 60)
+	}
+	if innerWidth < 20 {
+		innerWidth = max(12, width-6)
+	}
+
+	b := &strings.Builder{}
+	b.WriteString(detailHeaderStyle.Render(clampLine("Reply to Discussion", innerWidth)))
+	b.WriteString("\n\n")
+
+	m.mrView.reply.input.SetWidth(innerWidth - 2)
+	b.WriteString(m.mrView.reply.input.View())
+	b.WriteString("\n\n")
+
+	if m.mrView.reply.err != nil {
+		b.WriteString(explorerErrorStyle.Render(clampLine(m.mrView.reply.err.Error(), innerWidth)))
+		b.WriteString("\n")
+	}
+	if m.mrView.reply.sending {
+		b.WriteString(explorerHintStyle.Render("Sending..."))
+		b.WriteString("\n")
+	}
+
+	b.WriteString(explorerHintStyle.Render(clampLine("Ctrl+S to send · Esc to cancel", innerWidth)))
+
+	modal := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(rosePineSubtle).
+		Padding(1, 2).
+		Width(innerWidth).
+		Render(strings.TrimSuffix(b.String(), "\n"))
+	return modal
+}
+
+// discussionStartLine returns the 0-based line number at which the given
+// filtered discussion index begins in the rendered comments text. This mirrors
+// the line-counting logic in renderMRCommentsText so the viewport can scroll
+// to keep the selected discussion visible.
+func discussionStartLine(discussions []gitlab.MRDiscussion, width, selectedIdx int) int {
+	filtered := filterUserDiscussions(discussions)
+	line := 0
+	for i, d := range filtered {
+		if i == selectedIdx {
+			return line
+		}
+		// Divider between discussions: styled line + blank line
+		if i > 0 {
+			line += 2 // divider + blank
+		}
+		// Count lines for each non-system note
+		for j, note := range d.Notes {
+			if note.System {
+				continue
+			}
+			_ = j
+			line++ // header line
+			bodyLines := strings.Split(note.Body, "\n")
+			line += len(bodyLines) // body lines (each with prefix)
+			line++                 // blank line after note
+		}
+	}
+	return line
 }
 
 // mrViewportWidth returns the MR viewport width, with a fallback of 80.

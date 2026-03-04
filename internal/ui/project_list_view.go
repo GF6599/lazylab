@@ -31,6 +31,12 @@ func (m Model) View() string {
 		if m.mode == modeMultiPanel && m.explorer.project.ID != 0 && len(m.explorer.stack) > 0 {
 			return renderExplorerView(m, width)
 		}
+		// Reply modal overlay
+		if m.mrView.reply.active {
+			base := renderMultiPanelView(&m, width, m.height)
+			modal := renderMRReplyModal(m, width)
+			return overlayCentered(base, modal, width)
+		}
 		// Retry confirmation modal overlay
 		if m.pipelineView.confirmRetry {
 			base := renderMultiPanelView(&m, width, m.height)

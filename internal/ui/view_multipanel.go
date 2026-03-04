@@ -406,7 +406,7 @@ func renderMRCommentsPane(m *Model, width, height int) string {
 		m.mrView.mrViewport.Width = width
 		m.mrView.mrViewport.Height = height
 		if widthChanged {
-			content := renderMRCommentsText(discussions, width)
+			content := renderMRCommentsText(discussions, width, m.mrView.selectedDiscussion)
 			m.setMRViewportContent(content)
 		}
 	}

@@ -535,6 +535,39 @@ func fetchMRDiscussionsCmd(parentCtx context.Context, client gitlab.Service, tim
 	}
 }
 
+type mrDiscussionResolvedMsg struct {
+	projectID    int
+	mrIID        int
+	discussionID string
+	resolved     bool
+	err          error
+}
+
+type mrDiscussionReplyMsg struct {
+	projectID    int
+	mrIID        int
+	discussionID string
+	err          error
+}
+
+func resolveMRDiscussionCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, mrIID int, discussionID string, resolved bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		err := client.ResolveMergeRequestDiscussion(ctx, projectID, mrIID, discussionID, resolved)
+		return mrDiscussionResolvedMsg{projectID: projectID, mrIID: mrIID, discussionID: discussionID, resolved: resolved, err: err}
+	}
+}
+
+func replyMRDiscussionCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, mrIID int, discussionID, body string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		err := client.AddMergeRequestDiscussionNote(ctx, projectID, mrIID, discussionID, body)
+		return mrDiscussionReplyMsg{projectID: projectID, mrIID: mrIID, discussionID: discussionID, err: err}
+	}
+}
+
 func fetchMRDiffsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, mrIID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)

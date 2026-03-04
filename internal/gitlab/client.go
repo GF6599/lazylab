@@ -88,6 +88,8 @@ type Service interface {
 	// ListProjectCommits returns recent commits for display in the detail pane.
 	// Pass an empty ref to use the project's default branch.
 	ListProjectCommits(ctx context.Context, projectID int, ref string, limit int) ([]CommitSummary, error)
+	ResolveMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error
+	AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
 }
 
 // Verify at compile time that *Client satisfies Service.

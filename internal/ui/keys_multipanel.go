@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -718,6 +719,46 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	isMR := m.focus.PrevActive == PanelMRs
+	isMRComments := isMR && m.mrView.detailTab == mrDetailTabComments
+
+	// MR comments tab: j/k navigates discussions, r resolves, enter replies
+	if isMRComments {
+		switch key {
+		case "left", "h":
+			m.focus.Active = m.focus.PrevActive
+			return m, nil
+		case "esc":
+			m.focus.Active = PanelProjects
+			return m, nil
+		case "down", "j":
+			return m.moveDiscussionSelection(1)
+		case "up", "k":
+			return m.moveDiscussionSelection(-1)
+		case "J", "ctrl+d":
+			m.mrView.mrViewport.HalfViewDown()
+			return m, nil
+		case "K", "ctrl+u":
+			m.mrView.mrViewport.HalfViewUp()
+			return m, nil
+		case "<", "g":
+			m.mrView.selectedDiscussion = 0
+			return m.refreshMRCommentsViewport()
+		case ">", "G":
+			return m.moveDiscussionToEnd()
+		case "r":
+			return m.toggleDiscussionResolved()
+		case "enter":
+			return m.openMRReplyModal()
+		case "t":
+			return m.cycleDetailTab()
+		case "T":
+			return m.cycleDetailTabReverse()
+		case "ctrl+o":
+			m.copyMRURL()
+			return m, nil
+		}
+		return m, nil
+	}
 
 	switch key {
 	case "left", "h":
@@ -801,6 +842,203 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// moveDiscussionSelection moves the selected discussion index by delta,
+// clamping to bounds, and re-renders the comments viewport.
+func (m Model) moveDiscussionSelection(delta int) (tea.Model, tea.Cmd) {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return m, nil
+	}
+	discussions, ok := m.mrView.discussions.Get(mr.IID)
+	if !ok {
+		return m, nil
+	}
+	filtered := filterUserDiscussions(discussions)
+	if len(filtered) == 0 {
+		return m, nil
+	}
+	newIdx := m.mrView.selectedDiscussion + delta
+	if newIdx < 0 {
+		newIdx = 0
+	}
+	if newIdx >= len(filtered) {
+		newIdx = len(filtered) - 1
+	}
+	if newIdx == m.mrView.selectedDiscussion {
+		return m, nil
+	}
+	m.mrView.selectedDiscussion = newIdx
+	return m.refreshMRCommentsViewport()
+}
+
+// moveDiscussionToEnd moves the selected discussion to the last one.
+func (m Model) moveDiscussionToEnd() (tea.Model, tea.Cmd) {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return m, nil
+	}
+	discussions, ok := m.mrView.discussions.Get(mr.IID)
+	if !ok {
+		return m, nil
+	}
+	filtered := filterUserDiscussions(discussions)
+	if len(filtered) == 0 {
+		return m, nil
+	}
+	m.mrView.selectedDiscussion = len(filtered) - 1
+	return m.refreshMRCommentsViewport()
+}
+
+// refreshMRCommentsViewport re-renders the comments text with current selection
+// and scrolls the viewport so the selected discussion is visible.
+func (m Model) refreshMRCommentsViewport() (tea.Model, tea.Cmd) {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return m, nil
+	}
+	discussions, ok := m.mrView.discussions.Get(mr.IID)
+	if !ok {
+		return m, nil
+	}
+	w := m.mrViewportWidth()
+	content := renderMRCommentsText(discussions, w, m.mrView.selectedDiscussion)
+	m.setMRViewportContent(content)
+
+	// Scroll so the selected discussion is visible
+	startLine := discussionStartLine(discussions, w, m.mrView.selectedDiscussion)
+	vpHeight := m.mrView.mrViewport.Height
+	yOffset := m.mrView.mrViewport.YOffset
+	if startLine < yOffset {
+		m.mrView.mrViewport.SetYOffset(startLine)
+	} else if startLine >= yOffset+vpHeight {
+		m.mrView.mrViewport.SetYOffset(startLine - vpHeight/2)
+	}
+	return m, nil
+}
+
+// toggleDiscussionResolved toggles resolve/unresolve on the selected discussion.
+func (m Model) toggleDiscussionResolved() (tea.Model, tea.Cmd) {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return m, nil
+	}
+	discussions, ok := m.mrView.discussions.Get(mr.IID)
+	if !ok {
+		return m, nil
+	}
+	filtered := filterUserDiscussions(discussions)
+	if m.mrView.selectedDiscussion >= len(filtered) {
+		return m, nil
+	}
+	disc := filtered[m.mrView.selectedDiscussion]
+	// Check if resolvable (first note's Resolvable flag)
+	if len(disc.Notes) == 0 || !disc.Notes[0].Resolvable {
+		m.status = "Discussion is not resolvable"
+		return m, nil
+	}
+	currentResolved := disc.Notes[0].Resolved
+	newResolved := !currentResolved
+
+	// Optimistic update: toggle resolved state in cache
+	m.optimisticToggleResolved(mr.IID, disc.ID, newResolved)
+
+	// Re-render with updated state
+	if updatedDiscs, ok2 := m.mrView.discussions.Get(mr.IID); ok2 {
+		content := renderMRCommentsText(updatedDiscs, m.mrViewportWidth(), m.mrView.selectedDiscussion)
+		m.setMRViewportContent(content)
+	}
+
+	if newResolved {
+		m.status = "Resolving discussion..."
+	} else {
+		m.status = "Unresolving discussion..."
+	}
+	return m, resolveMRDiscussionCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mr.IID, disc.ID, newResolved)
+}
+
+// optimisticToggleResolved updates the cached discussion's Resolved flags in-place.
+func (m *Model) optimisticToggleResolved(mrIID int, discussionID string, resolved bool) {
+	discussions, ok := m.mrView.discussions.Get(mrIID)
+	if !ok {
+		return
+	}
+	for i := range discussions {
+		if discussions[i].ID == discussionID {
+			for j := range discussions[i].Notes {
+				if discussions[i].Notes[j].Resolvable {
+					discussions[i].Notes[j].Resolved = resolved
+				}
+			}
+			break
+		}
+	}
+	m.mrView.discussions.Set(mrIID, discussions)
+}
+
+// openMRReplyModal opens the reply textarea modal for the selected discussion.
+func (m Model) openMRReplyModal() (tea.Model, tea.Cmd) {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return m, nil
+	}
+	discussions, ok := m.mrView.discussions.Get(mr.IID)
+	if !ok {
+		return m, nil
+	}
+	filtered := filterUserDiscussions(discussions)
+	if m.mrView.selectedDiscussion >= len(filtered) {
+		return m, nil
+	}
+	disc := filtered[m.mrView.selectedDiscussion]
+
+	ta := textarea.New()
+	ta.Placeholder = "Type your reply..."
+	ta.SetWidth(50)
+	ta.SetHeight(5)
+	ta.Focus()
+
+	m.mrView.reply = mrReplyState{
+		active:       true,
+		discussionID: disc.ID,
+		projectID:    m.mrView.project.ID,
+		mrIID:        mr.IID,
+		input:        ta,
+	}
+	return m, textarea.Blink
+}
+
+// handleMRReplyKey handles keys when the MR reply modal is active.
+func (m Model) handleMRReplyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.mrView.reply = mrReplyState{}
+		return m, nil
+	case "ctrl+s":
+		body := strings.TrimSpace(m.mrView.reply.input.Value())
+		if body == "" {
+			m.mrView.reply.err = fmt.Errorf("reply cannot be empty")
+			return m, nil
+		}
+		m.mrView.reply.sending = true
+		m.mrView.reply.err = nil
+		m.status = "Sending reply..."
+		return m, replyMRDiscussionCmd(
+			m.ctx, m.client, m.opts.APITimeout,
+			m.mrView.reply.projectID,
+			m.mrView.reply.mrIID,
+			m.mrView.reply.discussionID,
+			body,
+		)
+	default:
+		var cmd tea.Cmd
+		m.mrView.reply.input, cmd = m.mrView.reply.input.Update(msg)
+		return m, cmd
+	}
+}
+
 // cycleDetailTab cycles through detail pane tabs based on context.
 func (m Model) cycleDetailTab() (tea.Model, tea.Cmd) {
 	ctx := detailContextPanel(&m)
@@ -864,7 +1102,7 @@ func (m Model) setMRDetailTab(tab mrDetailTab) (tea.Model, tea.Cmd) {
 			return m, fetchMRDiscussionsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mr.IID)
 		}
 		if discussions, ok := m.mrView.discussions.Get(mr.IID); ok {
-			m.setMRViewportContent(renderMRCommentsText(discussions, m.mrViewportWidth()))
+			m.setMRViewportContent(renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion))
 			m.mrView.mrViewport.GotoTop()
 		}
 	case mrDetailTabDiff:

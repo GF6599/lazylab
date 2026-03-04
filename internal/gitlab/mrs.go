@@ -99,6 +99,30 @@ func (c *Client) ListMergeRequestDiscussions(ctx context.Context, projectID, mrI
 	return discussions, nil
 }
 
+// ResolveMergeRequestDiscussion toggles the resolved state of a discussion thread.
+func (c *Client) ResolveMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error {
+	opts := gl.ResolveMergeRequestDiscussionOptions{
+		Resolved: gl.Ptr(resolved),
+	}
+	_, _, err := c.api.Discussions.ResolveMergeRequestDiscussion(projectID, mrIID, discussionID, &opts, gl.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("resolve MR discussion: %w", err)
+	}
+	return nil
+}
+
+// AddMergeRequestDiscussionNote posts a reply to an existing discussion thread.
+func (c *Client) AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error {
+	opts := gl.AddMergeRequestDiscussionNoteOptions{
+		Body: gl.Ptr(body),
+	}
+	_, _, err := c.api.Discussions.AddMergeRequestDiscussionNote(projectID, mrIID, discussionID, &opts, gl.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("add MR discussion note: %w", err)
+	}
+	return nil
+}
+
 // ListMergeRequestDiffs returns every changed file (across all pages) in a
 // merge request. The Diff field contains the unified diff text; NewFile,
 // RenamedFile, and DeletedFile flags indicate the change type.

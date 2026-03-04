@@ -601,22 +601,23 @@ func TestLeftArrow_ReturnsFromDetail(t *testing.T) {
 	}
 }
 
-func TestLeftArrow_DoesNotNavigateBackInSidebar(t *testing.T) {
-	// left arrow in Pipelines/Stages/MRs should NOT change panel (h/esc does that)
+func TestLeftArrow_NavigatesBackInSidebar(t *testing.T) {
+	// left arrow in Pipelines/Stages/MRs navigates back (same as h)
 	tests := []struct {
-		panel PanelID
+		from PanelID
+		to   PanelID
 	}{
-		{PanelPipelines},
-		{PanelStages},
-		{PanelMRs},
+		{PanelPipelines, PanelProjects},
+		{PanelStages, PanelPipelines},
+		{PanelMRs, PanelStages},
 	}
 	for _, tt := range tests {
-		t.Run(panelLabel(tt.panel), func(t *testing.T) {
-			m := newMultiPanelModel(tt.panel)
+		t.Run(panelLabel(tt.from), func(t *testing.T) {
+			m := newMultiPanelModel(tt.from)
 			updated, _ := m.handleMultiPanelKey(keyMsg("left"))
 			got := updated.(Model)
-			if got.focus.Active != tt.panel {
-				t.Fatalf("left arrow changed panel from %d to %d; should be no-op", tt.panel, got.focus.Active)
+			if got.focus.Active != tt.to {
+				t.Fatalf("left arrow: expected panel %d, got %d", tt.to, got.focus.Active)
 			}
 		})
 	}
@@ -644,28 +645,42 @@ func TestH_StillNavigatesBackHierarchically(t *testing.T) {
 }
 
 func TestEnterL_DrillsIn_NotRight(t *testing.T) {
-	// enter/l from Projects should go to Pipelines (not Detail)
-	for _, key := range []string{"enter", "l"} {
-		t.Run("Projects_"+key, func(t *testing.T) {
-			m := newMultiPanelModel(PanelProjects)
-			updated, _ := m.handleMultiPanelKey(keyMsg(key))
-			got := updated.(Model)
-			if got.focus.Active != PanelPipelines {
-				t.Fatalf("expected %s to drill into Pipelines, got %d", key, got.focus.Active)
-			}
-		})
-	}
-	// enter/l from Pipelines should go to Stages (not Detail)
-	for _, key := range []string{"enter", "l"} {
-		t.Run("Pipelines_"+key, func(t *testing.T) {
-			m := newMultiPanelModel(PanelPipelines)
-			updated, _ := m.handleMultiPanelKey(keyMsg(key))
-			got := updated.(Model)
-			if got.focus.Active != PanelStages {
-				t.Fatalf("expected %s to drill into Stages, got %d", key, got.focus.Active)
-			}
-		})
-	}
+	// enter from Projects should go to Pipelines
+	t.Run("Projects_enter", func(t *testing.T) {
+		m := newMultiPanelModel(PanelProjects)
+		updated, _ := m.handleMultiPanelKey(keyMsg("enter"))
+		got := updated.(Model)
+		if got.focus.Active != PanelPipelines {
+			t.Fatalf("expected enter to drill into Pipelines, got %d", got.focus.Active)
+		}
+	})
+	// l from Projects should go to Detail pane
+	t.Run("Projects_l", func(t *testing.T) {
+		m := newMultiPanelModel(PanelProjects)
+		updated, _ := m.handleMultiPanelKey(keyMsg("l"))
+		got := updated.(Model)
+		if got.focus.Active != PanelDetail {
+			t.Fatalf("expected l to focus Detail, got %d", got.focus.Active)
+		}
+	})
+	// enter from Pipelines should go to Stages
+	t.Run("Pipelines_enter", func(t *testing.T) {
+		m := newMultiPanelModel(PanelPipelines)
+		updated, _ := m.handleMultiPanelKey(keyMsg("enter"))
+		got := updated.(Model)
+		if got.focus.Active != PanelStages {
+			t.Fatalf("expected enter to drill into Stages, got %d", got.focus.Active)
+		}
+	})
+	// l from Pipelines should go to Detail pane
+	t.Run("Pipelines_l", func(t *testing.T) {
+		m := newMultiPanelModel(PanelPipelines)
+		updated, _ := m.handleMultiPanelKey(keyMsg("l"))
+		got := updated.(Model)
+		if got.focus.Active != PanelDetail {
+			t.Fatalf("expected l to focus Detail, got %d", got.focus.Active)
+		}
+	})
 }
 
 func TestDetailPanel_ScrollKeys(t *testing.T) {
