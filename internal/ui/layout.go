@@ -183,11 +183,18 @@ func accordionLayout(panels []PanelID, focused PanelID, mode ScreenMode, totalHe
 	return heights
 }
 
+// scrollInfo describes the scroll position of a panel's content, used to render
+// a mini scrollbar on the right border when content overflows.
+type scrollInfo struct {
+	offset int // first visible item/line index (0-based)
+	total  int // total items/lines
+}
+
 // renderBorderedPane draws content inside a Unicode box border with an embedded
 // title, optional tab bar, and footer counter. We build borders manually rather
 // than using lipgloss.Border because the top line interleaves styled title text,
 // tab indicators, and border characters that need independent coloring.
-func renderBorderedPane(content string, width, height int, focused bool, title string, tabs []string, activeTab int, footer string) string {
+func renderBorderedPane(content string, width, height int, focused bool, title string, tabs []string, activeTab int, footer string, scroll ...scrollInfo) string {
 	if width < 4 || height < 1 {
 		return ""
 	}
@@ -205,13 +212,34 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 	// Top border: ╭─ Title ── Tab1 | Tab2 ───╮
 	topLine := buildTopBorder(width, title, tabs, activeTab, borderStyle, titleStyleLocal, focused)
 
-	// Content area: pad/truncate to exact dimensions
-	contentLines := normalizeColumn(content, width-borderCharsH, height)
+	// Compute scrollbar thumb range when content overflows
+	hasScrollbar := false
+	thumbStart, thumbEnd := -1, -1
+	if len(scroll) > 0 && scroll[0].total > height && height > 0 {
+		s := scroll[0]
+		hasScrollbar = true
+		thumbSize := max(1, height*height/s.total)
+		maxOffset := s.total - height
+		if maxOffset > 0 {
+			thumbStart = s.offset * (height - thumbSize) / maxOffset
+		}
+		thumbEnd = thumbStart + thumbSize
+	}
+
+	contentWidth := width - borderCharsH
+	contentLines := normalizeColumn(content, contentWidth, height)
+
+	thumbStyle := lipgloss.NewStyle().Foreground(rosePineFoam)
+
 	var body strings.Builder
-	for _, line := range contentLines {
+	for i, line := range contentLines {
 		body.WriteString(borderStyle.Render("│"))
-		body.WriteString(fitLine(line, width-borderCharsH))
-		body.WriteString(borderStyle.Render("│"))
+		body.WriteString(fitLine(line, contentWidth))
+		if hasScrollbar && i >= thumbStart && i < thumbEnd {
+			body.WriteString(thumbStyle.Render("▐"))
+		} else {
+			body.WriteString(borderStyle.Render("│"))
+		}
 		body.WriteString("\n")
 	}
 

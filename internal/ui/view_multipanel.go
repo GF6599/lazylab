@@ -49,7 +49,8 @@ func renderSidebar(m *Model, layout layoutResult) string {
 		content := renderSidebarPanelContent(m, panelID, layout.SidebarWidth, h)
 		tabs, activeTab := panelTabs(panelID, m)
 		footer := panelFooter(panelID, m)
-		rendered := renderBorderedPane(content, layout.SidebarWidth+borderCharsH, h, focused, panelLabel(panelID), tabs, activeTab, footer)
+		scroll := panelScrollInfo(panelID, m, h)
+		rendered := renderBorderedPane(content, layout.SidebarWidth+borderCharsH, h, focused, panelLabel(panelID), tabs, activeTab, footer, scroll)
 		panels = append(panels, rendered)
 	}
 	return strings.Join(panels, "\n")
@@ -140,7 +141,7 @@ func renderStagesPanelContent(m *Model, width, height int) string {
 
 	// Render stage table (height minus header row and its border)
 	m.pipelineView.stageTable.SetHeight(max(1, height-2))
-	return m.pipelineView.stageTable.View()
+	return colorizeStatusIcons(m.pipelineView.stageTable.View())
 }
 
 // renderRightArea renders the detail pane.
@@ -149,7 +150,8 @@ func renderRightArea(m *Model, layout layoutResult) string {
 	detailFocused := m.focus.Active == PanelDetail
 	detailTitle := detailPaneTitle(m)
 	detailTabs, detailActiveTab := detailPaneTabs(m)
-	return renderBorderedPane(detailContent, layout.DetailWidth+borderCharsH, layout.DetailHeight, detailFocused, detailTitle, detailTabs, detailActiveTab, "")
+	scroll := detailScrollInfo(m, layout.DetailHeight)
+	return renderBorderedPane(detailContent, layout.DetailWidth+borderCharsH, layout.DetailHeight, detailFocused, detailTitle, detailTabs, detailActiveTab, "", scroll)
 }
 
 // detailContextPanel resolves which sidebar panel determines what the detail
@@ -501,6 +503,41 @@ func detailPaneTabs(m *Model) ([]string, int) {
 	}
 }
 
+// panelScrollInfo returns the scroll position for a sidebar panel.
+func panelScrollInfo(panel PanelID, m *Model, height int) scrollInfo {
+	switch panel {
+	case PanelProjects:
+		return scrollInfo{offset: m.projectList.Index(), total: len(m.visibleProjects())}
+	case PanelPipelines:
+		return scrollInfo{offset: m.pipelineView.selected, total: len(m.pipelineView.pipelines)}
+	case PanelStages:
+		return scrollInfo{offset: m.pipelineView.stageSelected, total: len(m.pipelineView.stageJobRows)}
+	case PanelMRs:
+		return scrollInfo{offset: m.mrView.selected, total: len(m.mrView.mrs)}
+	default:
+		return scrollInfo{}
+	}
+}
+
+// detailScrollInfo returns the scroll position for the detail pane.
+func detailScrollInfo(m *Model, height int) scrollInfo {
+	switch detailContextPanel(m) {
+	case PanelPipelines, PanelStages:
+		vp := m.pipelineView.logViewport
+		total := vp.TotalLineCount()
+		if total > vp.Height {
+			return scrollInfo{offset: vp.YOffset, total: total}
+		}
+	case PanelMRs:
+		vp := m.mrView.mrViewport
+		total := vp.TotalLineCount()
+		if total > vp.Height {
+			return scrollInfo{offset: vp.YOffset, total: total}
+		}
+	}
+	return scrollInfo{}
+}
+
 // panelTabs returns the tab labels and active tab for a sidebar panel.
 func panelTabs(panel PanelID, m *Model) ([]string, int) {
 	switch panel {
@@ -518,4 +555,28 @@ func panelTabs(panel PanelID, m *Model) ([]string, int) {
 	default:
 		return nil, 0
 	}
+}
+
+// colorizeStatusIcons replaces plain status icon characters in rendered table
+// output with their colored equivalents. This works around the bubbles table
+// using runewidth.Truncate (not ANSI-aware) for cell content.
+func colorizeStatusIcons(s string) string {
+	replacements := []struct {
+		plain   string
+		colored string
+	}{
+		{iconSuccess + " SUCCESS", pipelineStatusStyle("success").Render(iconSuccess) + " SUCCESS"},
+		{iconFailed + " FAILED", pipelineStatusStyle("failed").Render(iconFailed) + " FAILED"},
+		{iconRunning + " RUNNING", pipelineStatusStyle("running").Render(iconRunning) + " RUNNING"},
+		{iconPending + " PENDING", pipelineStatusStyle("pending").Render(iconPending) + " PENDING"},
+		{iconPending + " CREATED", pipelineStatusStyle("pending").Render(iconPending) + " CREATED"},
+		{iconCanceled + " CANCELED", pipelineStatusStyle("canceled").Render(iconCanceled) + " CANCELED"},
+		{iconSkipped + " SKIPPED", pipelineStatusStyle("skipped").Render(iconSkipped) + " SKIPPED"},
+		{iconManual + " MANUAL", pipelineStatusStyle("manual").Render(iconManual) + " MANUAL"},
+		{iconBlocked + " BLOCKED", pipelineStatusStyle("manual").Render(iconBlocked) + " BLOCKED"},
+	}
+	for _, r := range replacements {
+		s = strings.ReplaceAll(s, r.plain, r.colored)
+	}
+	return s
 }
