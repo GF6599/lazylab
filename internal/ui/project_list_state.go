@@ -672,15 +672,6 @@ func (m *Model) queueExpandedChildJobsRefresh() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (m *Model) selectedPipelineStages() []gitlab.PipelineStage {
-	pipeline := m.selectedPipeline()
-	if pipeline == nil {
-		return nil
-	}
-	stages, _ := m.pipelineView.stages.Get(pipeline.ID)
-	return stages
-}
-
 func (m *Model) selectedPipelineJob() *gitlab.PipelineJob {
 	idx := m.pipelineView.stageSelected
 	if idx < 0 || idx >= len(m.pipelineView.jobRows) {
@@ -821,30 +812,6 @@ func (m *Model) queuePipelineLogRefresh() tea.Cmd {
 		m.pipelineView.logPreview = previewState{path: job.Name, loading: true}
 	}
 	return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, job.ID)
-}
-
-func (m *Model) refreshPipelineLogPreviewFromCache() bool {
-	if m.pipelineView.logAutoFollow && m.pipelineView.pendingLogJobID != 0 {
-		m.pipelineView.logJobID = m.pipelineView.pendingLogJobID
-		m.pipelineView.pendingLogJobID = 0
-	}
-	if m.pipelineView.logJobID == 0 {
-		return false
-	}
-	content, ok := m.pipelineView.logs.Get(m.pipelineView.logJobID)
-	if !ok || content == "" {
-		return false
-	}
-	if content == m.pipelineView.logPreview.raw && m.pipelineView.logPreview.content != "" {
-		return false
-	}
-	m.pipelineView.logPreview = previewState{
-		path:    fmt.Sprintf("job-%d", m.pipelineView.logJobID),
-		content: content,
-		raw:     content,
-		loading: false,
-	}
-	return true
 }
 
 func (m *Model) resetPipelineLogPreview() {

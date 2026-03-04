@@ -54,22 +54,10 @@ const (
 	// halfPageScrollFactor is the divisor for half-page scrolling
 	halfPageScrollFactor = 2
 
-	// statusBarLines is the number of lines reserved for status/help bar
-	statusBarLines = 2
-
-	// Project list view width percentages
-	projectListWidthPct   = 45 // Percentage of width for project list in projects view
-	projectDetailWidthPct = 55 // Percentage of width for project detail in projects view (100 - projectListWidthPct)
-
 	// Explorer view width percentages
 	explorerParentWidthPct  = 25 // Parent directory listing width
 	explorerCurrentWidthPct = 45 // Current directory listing width
 	explorerPreviewWidthPct = 30 // File preview width
-
-	// Pipeline view width percentages
-	pipelineListWidthPct   = 20 // Pipeline list width
-	pipelineStagesWidthPct = 40 // Pipeline stages/jobs width
-	pipelineLogWidthPct    = 40 // Pipeline log preview width
 
 	// Tree view widths for navigation (when in nested directory)
 	treeParentWidthPct  = 30 // Parent directory listing
@@ -169,65 +157,6 @@ func pipelineStatusStyle(status string) lipgloss.Style {
 	default:
 		return pipelineUnknown
 	}
-}
-
-func renderPipelineEntryLine(line string, selected, focused bool) string {
-	if selected && focused {
-		return explorerSelectedStyle.Render(line)
-	}
-	if selected {
-		return explorerPathStyle.Render(line)
-	}
-	return explorerFileStyle.Render(line)
-}
-
-func latestJobForStage(jobs []gitlab.PipelineJob, stage string) *gitlab.PipelineJob {
-	var selected *gitlab.PipelineJob
-	for i := range jobs {
-		job := &jobs[i]
-		if job.Stage != stage {
-			continue
-		}
-		if selected == nil || job.ID > selected.ID {
-			selected = job
-		}
-	}
-	return selected
-}
-
-func stageJobSummary(jobs []gitlab.PipelineJob, stage string) string {
-	if len(jobs) == 0 {
-		return ""
-	}
-	total := 0
-	counts := map[string]int{}
-	for _, job := range jobs {
-		if job.Stage != stage {
-			continue
-		}
-		total++
-		status := strings.ToLower(job.Status)
-		if status == "" {
-			status = unknownStatus
-		}
-		counts[status]++
-	}
-	if total == 0 {
-		return ""
-	}
-	parts := make([]string, 0, 3)
-	for _, status := range []string{"success", "failed", "running", "pending", "canceled", "skipped", "manual", "blocked", unknownStatus} {
-		if count := counts[status]; count > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", count, status))
-		}
-		if len(parts) >= 2 {
-			break
-		}
-	}
-	if len(parts) == 0 {
-		return fmt.Sprintf(" (%d jobs)", total)
-	}
-	return fmt.Sprintf(" (%d jobs: %s)", total, strings.Join(parts, ", "))
 }
 
 func (m *Model) pipelineLogJob() *gitlab.PipelineJob {
@@ -729,7 +658,6 @@ func previewContentWidth(width int) int {
 	previewWidth := width - parentWidth - currentWidth
 	if previewWidth < minParentWidth {
 		previewWidth = minParentWidth
-		currentWidth = max(minCurrentWidth, width-parentWidth-previewWidth)
 	}
 	contentWidth := previewWidth - 2
 	if contentWidth < 1 {
@@ -760,7 +688,6 @@ func pipelineLogContentWidth(width int) int {
 	previewWidth := width - parentWidth - currentWidth
 	if previewWidth < minTreeParent {
 		previewWidth = minTreeParent
-		currentWidth = max(minTreeCurrent, width-parentWidth-previewWidth)
 	}
 	contentWidth := previewWidth - 2
 	if contentWidth < 1 {
@@ -800,31 +727,6 @@ func (m *Model) setLogViewportContent(content string) {
 	normalized := normalizePipelineLogContent(content)
 	wrapped := ansi.Wrap(normalized, w, "")
 	m.pipelineView.logViewport.SetContent(wrapped)
-}
-
-func pipelineLogContentLines(preview previewState, width int) []string {
-	if preview.content == "" {
-		return nil
-	}
-	normalized := normalizePipelineLogContent(preview.content)
-	wrapped := ansi.Wrap(normalized, width, "")
-	return strings.Split(wrapped, "\n")
-}
-
-func previewContentLines(preview previewState, width int) []string {
-	if preview.content == "" {
-		return nil
-	}
-	lines := strings.Split(preview.content, "\n")
-	if preview.highlighted {
-		return lines
-	}
-	wrapped := make([]string, 0, len(lines))
-	for _, line := range lines {
-		segments := wrapPreviewLine(line, width)
-		wrapped = append(wrapped, segments...)
-	}
-	return wrapped
 }
 
 // refreshPreviewHighlight re-renders syntax highlighting when terminal width changes

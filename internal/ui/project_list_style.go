@@ -9,27 +9,23 @@
 //   - Palette colors: raw Rose Pine Moon hex values, used nowhere else
 //   - Component styles: general-purpose text styles (titles, items, errors, pipeline statuses)
 //   - Pane styles: borders, headers, and content styles for the multi-pane layout
+
 package ui
 
 import "github.com/charmbracelet/lipgloss"
 
 // Rose Pine Moon palette — see https://rosepinetheme.com/palette
 var (
-	rosePineBase          = lipgloss.Color("#232136")
-	rosePineSurface       = lipgloss.Color("#2a273f")
-	rosePineOverlay       = lipgloss.Color("#393552")
-	rosePineHighlightLow  = lipgloss.Color("#2a283e")
-	rosePineHighlightMed  = lipgloss.Color("#44415a")
-	rosePineHighlightHigh = lipgloss.Color("#56526e")
-	rosePineText          = lipgloss.Color("#e0def4")
-	rosePineMuted         = lipgloss.Color("#6e6a86")
-	rosePineSubtle        = lipgloss.Color("#908caa")
-	rosePineRose          = lipgloss.Color("#ea9a97")
-	rosePinePine          = lipgloss.Color("#31748f")
-	rosePineFoam          = lipgloss.Color("#9ccfd8")
-	rosePineGold          = lipgloss.Color("#f6c177")
-	rosePineIris          = lipgloss.Color("#c4a7e7")
-	rosePineLove          = lipgloss.Color("#eb6f92")
+	rosePineHighlightLow = lipgloss.Color("#2a283e")
+	rosePineHighlightMed = lipgloss.Color("#44415a")
+	rosePineText         = lipgloss.Color("#e0def4")
+	rosePineMuted        = lipgloss.Color("#6e6a86")
+	rosePineSubtle       = lipgloss.Color("#908caa")
+	rosePinePine         = lipgloss.Color("#31748f")
+	rosePineFoam         = lipgloss.Color("#9ccfd8")
+	rosePineGold         = lipgloss.Color("#f6c177")
+	rosePineIris         = lipgloss.Color("#c4a7e7")
+	rosePineLove         = lipgloss.Color("#eb6f92")
 )
 
 // Component styles: titles, list items, status indicators, and pipeline state colors.
@@ -67,11 +63,7 @@ var (
 	explorerPathStyle        = lipgloss.NewStyle().Foreground(rosePineMuted)
 	explorerHintStyle        = lipgloss.NewStyle().Foreground(rosePineSubtle)
 	explorerErrorStyle       = lipgloss.NewStyle().Foreground(rosePineLove)
-	explorerDirStyle         = lipgloss.NewStyle().Foreground(rosePinePine)
-	explorerFileStyle        = lipgloss.NewStyle().Foreground(rosePineText)
-	explorerSelectedStyle    = lipgloss.NewStyle().Bold(true).Foreground(rosePineFoam).Background(rosePineHighlightLow)
-
-	diffAddStyle  = lipgloss.NewStyle().Foreground(rosePinePine)
-	diffDelStyle  = lipgloss.NewStyle().Foreground(rosePineLove)
-	diffHunkStyle = lipgloss.NewStyle().Foreground(rosePineGold)
+	diffAddStyle             = lipgloss.NewStyle().Foreground(rosePinePine)
+	diffDelStyle             = lipgloss.NewStyle().Foreground(rosePineLove)
+	diffHunkStyle            = lipgloss.NewStyle().Foreground(rosePineGold)
 )

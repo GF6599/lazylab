@@ -17,6 +17,7 @@
 //
 // Status aggregation uses worst-case semantics: if any child job failed, the
 // group shows "failed". Priority order mirrors internal/gitlab/pipelines.go.
+
 package ui
 
 import (
@@ -308,37 +309,4 @@ func (m *Model) selectedStageJobRow() *stageJobRow {
 		return nil
 	}
 	return &m.pipelineView.stageJobRows[idx]
-}
-
-// stageJobRowDisplayName returns the formatted name column for rendering.
-func stageJobRowDisplayName(row stageJobRow) string {
-	switch row.Kind {
-	case rowKindMatrixGroup:
-		return fmt.Sprintf("%s %s [%d]", iconTreeExpanded, row.BaseName, len(row.Jobs))
-	case rowKindMatrixChild:
-		prefix := "├─"
-		if row.IsLast {
-			prefix = "└─"
-		}
-		return fmt.Sprintf("  %s %s", prefix, row.Vars)
-	case rowKindBridge:
-		if row.Bridge != nil {
-			return row.Bridge.Name
-		}
-		return ""
-	case rowKindBridgeChild:
-		prefix := "├─"
-		if row.IsLast {
-			prefix = "└─"
-		}
-		if row.Job != nil {
-			return fmt.Sprintf("  %s %s", prefix, row.Job.Name)
-		}
-		return fmt.Sprintf("  %s (unknown)", prefix)
-	default:
-		if row.Job != nil {
-			return row.Job.Name
-		}
-		return ""
-	}
 }

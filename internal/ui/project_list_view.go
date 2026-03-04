@@ -856,17 +856,6 @@ func renderExplorerPreview(m Model, width, height int, focused bool) string {
 	return b.String()
 }
 
-func renderExplorerEntryLine(line string, isDir, selected bool) string {
-	style := explorerFileStyle
-	if isDir {
-		style = explorerDirStyle
-	}
-	if selected {
-		style = explorerSelectedStyle
-	}
-	return style.Render(line)
-}
-
 func explorerEntryIcon(entry gitlab.TreeNode) string {
 	switch entry.Type {
 	case "tree":
@@ -926,11 +915,6 @@ func renderProgressBar(m Model, width int) string {
 	}
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 	return progressStyle.Render(clampLine(fmt.Sprintf("Caching %d/%d pages [%s]", loaded, total, bar), width))
-}
-
-func writeDetailLine(b *strings.Builder, line string, width int) {
-	b.WriteString(clampLine(line, width))
-	b.WriteString("\n")
 }
 
 func writeDetailSection(b *strings.Builder, title string, width int) {

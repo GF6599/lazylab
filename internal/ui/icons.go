@@ -2,6 +2,7 @@
 // metadata, and file types. These replace text labels with compact glyphs that
 // are scannable at a glance in the TUI. The pipeline status icons mirror
 // GitLab's web UI conventions (checkmark for success, X for failed, etc.).
+
 package ui
 
 import (
@@ -83,17 +84,6 @@ func visibilityIcon(visibility string) string {
 	}
 }
 
-// formatDuration formats a duration in a human-readable way
-func formatDuration(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
-	}
-	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
-}
-
 // formatTimeAgo formats a timestamp as "time ago" string
 func formatTimeAgo(t time.Time) string {
 	if t.IsZero() {
@@ -155,20 +145,4 @@ func formatBytes(b int) string {
 	default:
 		return fmt.Sprintf("%d B", b)
 	}
-}
-
-// formatProjectCount formats a count of projects
-func formatProjectCount(visible, total int) string {
-	if visible == total {
-		return fmt.Sprintf("%d projects", total)
-	}
-	return fmt.Sprintf("%d of %d projects", visible, total)
-}
-
-// makeBreadcrumb creates a breadcrumb path string
-func makeBreadcrumb(parts []string) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, " "+iconBreadcrumb+" ")
 }

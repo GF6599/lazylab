@@ -110,7 +110,6 @@ type Logger interface {
 // which drives the built-in fuzzy filter.
 type projectItem struct {
 	project gitlab.ProjectNode
-	status  string // Pipeline status for this project
 }
 
 func (i projectItem) FilterValue() string {
@@ -448,7 +447,6 @@ type pipelineViewState struct {
 	retrying              bool
 	retryErr              error
 	pendingSelectID       int
-	paginator             paginator.Model
 	bridges               AsyncCache[int, []gitlab.PipelineBridge]
 	childJobs             AsyncCache[int, []gitlab.PipelineJob]
 	testReport            *gitlab.TestReport
