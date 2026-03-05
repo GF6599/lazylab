@@ -57,6 +57,98 @@ func TestVisibleProjectsSearch(t *testing.T) {
 	}
 }
 
+// TestVisibleProjectsSearch_Nested exercises fuzzy search against deeply nested
+// GitLab group paths (e.g., "org/platform/backend/auth-service"), verifying
+// that queries can match any path segment and cross segment boundaries.
+func TestVisibleProjectsSearch_Nested(t *testing.T) {
+	m := Model{
+		allProjects: []gitlab.ProjectNode{
+			{Name: "api-server", PathWithNamespace: "team/api-server"},
+			{Name: "auth-service", PathWithNamespace: "org/platform/backend/auth-service"},
+			{Name: "user-service", PathWithNamespace: "org/platform/backend/user-service"},
+			{Name: "web-app", PathWithNamespace: "org/platform/frontend/web-app"},
+			{Name: "deploy-tool", PathWithNamespace: "company/org/team/infra/deploy-tool"},
+		},
+		opts:       Options{ProjectsPerPage: 10},
+		pagesReady: map[int]bool{1: true},
+		page:       1,
+		projectTab: projectTabAll,
+	}
+
+	tests := []struct {
+		name      string
+		query     string
+		wantNames []string
+	}{
+		{
+			name:      "leaf project name",
+			query:     "auth",
+			wantNames: []string{"auth-service"},
+		},
+		{
+			name:      "middle group",
+			query:     "platform",
+			wantNames: []string{"auth-service", "user-service", "web-app"},
+		},
+		{
+			name:      "partial nested path",
+			query:     "org/plat",
+			wantNames: []string{"auth-service", "user-service", "web-app"},
+		},
+		{
+			name:      "deep path segment",
+			query:     "backend/auth",
+			wantNames: []string{"auth-service"},
+		},
+		{
+			name:      "fuzzy cross-segment",
+			query:     "opbau",
+			wantNames: []string{"auth-service", "user-service"},
+		},
+		{
+			name:      "empty query returns all",
+			query:     "",
+			wantNames: []string{"api-server", "auth-service", "user-service", "web-app", "deploy-tool"},
+		},
+		{
+			name:      "no match",
+			query:     "zzz",
+			wantNames: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.search.query = tt.query
+			m.invalidateVisibleCache()
+			got := m.visibleProjects()
+
+			if len(got) != len(tt.wantNames) {
+				names := make([]string, len(got))
+				for i, p := range got {
+					names[i] = p.Name
+				}
+				t.Fatalf("query %q: expected %d results %v, got %d %v",
+					tt.query, len(tt.wantNames), tt.wantNames, len(got), names)
+			}
+
+			gotNames := make(map[string]bool)
+			for _, p := range got {
+				gotNames[p.Name] = true
+			}
+			for _, want := range tt.wantNames {
+				if !gotNames[want] {
+					t.Errorf("query %q: expected %q in results", tt.query, want)
+				}
+			}
+		})
+	}
+}
+
+// TestHandlePipelineLogLoadedIgnoresStale verifies that log responses for a
+// previously-selected job are cached but do not overwrite the active preview.
+// This prevents the viewport from jumping when an out-of-order response arrives
+// after the user has already moved to a different job.
 func TestHandlePipelineLogLoadedIgnoresStale(t *testing.T) {
 	logs := NewAsyncCache[int, string]()
 	logs.SetLoading(10)
@@ -84,6 +176,9 @@ func TestHandlePipelineLogLoadedIgnoresStale(t *testing.T) {
 	}
 }
 
+// TestQueuePipelineLogPreviewPreservesOffset verifies that when logAutoFollow
+// is false (user has scrolled), re-queuing the same job's log updates content
+// without resetting the viewport scroll position.
 func TestQueuePipelineLogPreviewPreservesOffset(t *testing.T) {
 	content := strings.Repeat("line\n", 40)
 	stages := NewAsyncCache[int, []gitlab.PipelineStage]()
@@ -198,6 +293,9 @@ func TestEvictOldLogs(t *testing.T) {
 	}
 }
 
+// TestPipelineView_RetryModalOpens verifies that pressing R in pipeline focus
+// opens the retry confirmation modal with the correct pipeline ID and ref
+// pre-populated from the current selection.
 func TestPipelineView_RetryModalOpens(t *testing.T) {
 	m := Model{
 		mode: modePipelines,
@@ -219,6 +317,9 @@ func TestPipelineView_RetryModalOpens(t *testing.T) {
 	}
 }
 
+// TestPipelineView_RetryConfirmStartsRetry verifies that pressing Enter in the
+// retry confirmation modal sets retrying=true, closes the modal, and returns
+// a non-nil command to dispatch the retry API call.
 func TestPipelineView_RetryConfirmStartsRetry(t *testing.T) {
 	m := Model{
 		mode: modePipelines,
@@ -795,9 +896,10 @@ func TestComputeLayout_DefaultLayoutSidebarWidth(t *testing.T) {
 	if !layout.OK {
 		t.Fatal("expected layout.OK")
 	}
-	// 30% of 200 = 60, but capped at maxSidebarWidth (50)
-	if layout.SidebarWidth > maxSidebarWidth {
-		t.Fatalf("default layout sidebar %d exceeds maxSidebarWidth %d", layout.SidebarWidth, maxSidebarWidth)
+	// 30% of 200 = 60, purely percentage-based (no hard cap)
+	expected := 200 * sidebarWidthPct / 100
+	if layout.SidebarWidth != expected {
+		t.Fatalf("default layout sidebar = %d, want %d (30%% of 200)", layout.SidebarWidth, expected)
 	}
 	if layout.SidebarWidth < minSidebarWidth {
 		t.Fatalf("default layout sidebar %d below minSidebarWidth %d", layout.SidebarWidth, minSidebarWidth)
@@ -1213,5 +1315,121 @@ func TestDetailPanelKey_T_CyclesDetailTab(t *testing.T) {
 	got := updated.(Model)
 	if got.pipelineView.detailTab != detailTabTests {
 		t.Fatalf("expected detailTabTests after t, got %d", got.pipelineView.detailTab)
+	}
+}
+
+func TestCopyMRComment_WithPosition(t *testing.T) {
+	discussions := NewAsyncCache[int, []gitlab.MRDiscussion]()
+	discussions.Set(42, []gitlab.MRDiscussion{
+		{
+			ID: "disc-1",
+			Notes: []gitlab.MRNote{
+				{ID: 1, Author: "Alice", Body: "Fix this", FilePath: "main.go", Line: 10},
+				{ID: 2, Author: "Bob", Body: "Done"},
+			},
+		},
+	})
+	m := Model{
+		mrView: mrViewState{
+			mrs:                []gitlab.MergeRequestSummary{{IID: 42}},
+			selected:           0,
+			discussions:        discussions,
+			selectedDiscussion: 0,
+		},
+	}
+	m.copyMRComment()
+	if !strings.Contains(m.status, "Copied comment") {
+		t.Fatalf("expected success status, got %q", m.status)
+	}
+}
+
+func TestCopyMRComment_WithoutPosition(t *testing.T) {
+	discussions := NewAsyncCache[int, []gitlab.MRDiscussion]()
+	discussions.Set(42, []gitlab.MRDiscussion{
+		{
+			ID: "disc-1",
+			Notes: []gitlab.MRNote{
+				{ID: 1, Author: "Alice", Body: "Looks good"},
+			},
+		},
+	})
+	m := Model{
+		mrView: mrViewState{
+			mrs:                []gitlab.MergeRequestSummary{{IID: 42}},
+			selected:           0,
+			discussions:        discussions,
+			selectedDiscussion: 0,
+		},
+	}
+	m.copyMRComment()
+	if !strings.Contains(m.status, "Copied comment") {
+		t.Fatalf("expected success status, got %q", m.status)
+	}
+}
+
+func TestCopyMRComment_NoDiscussions(t *testing.T) {
+	m := Model{
+		mrView: mrViewState{
+			mrs:      []gitlab.MergeRequestSummary{{IID: 42}},
+			selected: 0,
+		},
+	}
+	m.copyMRComment()
+	if !strings.Contains(m.status, "No discussions") {
+		t.Fatalf("expected no discussions status, got %q", m.status)
+	}
+}
+
+func TestCopyExplorerURL_File(t *testing.T) {
+	m := Model{
+		explorer: explorerState{
+			project: gitlab.ProjectNode{WebURL: "https://gitlab.com/team/app"},
+			ref:     "main",
+			stack: []dirState{{
+				path:     "",
+				selected: 0,
+				entries: []gitlab.TreeNode{
+					{Path: "src/main.go", Name: "main.go", Type: "blob"},
+				},
+			}},
+		},
+	}
+	m.copyExplorerURL()
+	if !strings.Contains(m.status, "Copied main.go URL") {
+		t.Fatalf("expected success status, got %q", m.status)
+	}
+}
+
+func TestCopyExplorerURL_Dir(t *testing.T) {
+	m := Model{
+		explorer: explorerState{
+			project: gitlab.ProjectNode{WebURL: "https://gitlab.com/team/app"},
+			ref:     "develop",
+			stack: []dirState{{
+				path:     "",
+				selected: 0,
+				entries: []gitlab.TreeNode{
+					{Path: "src", Name: "src", Type: "tree"},
+				},
+			}},
+		},
+	}
+	m.copyExplorerURL()
+	if !strings.Contains(m.status, "Copied src URL") {
+		t.Fatalf("expected success status, got %q", m.status)
+	}
+}
+
+func TestCopyExplorerURL_NoEntry(t *testing.T) {
+	m := Model{
+		explorer: explorerState{
+			project: gitlab.ProjectNode{WebURL: "https://gitlab.com/team/app"},
+			ref:     "main",
+			stack:   []dirState{{path: "", entries: nil}},
+		},
+	}
+	m.copyExplorerURL()
+	if m.status != "No file selected" {
+		t.Fatalf("expected 'No file selected', got %q", m.status)
 	}
 }

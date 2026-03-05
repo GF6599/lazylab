@@ -371,6 +371,10 @@ type Model struct {
 	commitLoading map[int]bool
 }
 
+// searchState implements debounced search: keystrokes update pendingQuery
+// immediately, but the committed query (used by visibleProjects) only changes
+// after debounceTimer expires. This prevents per-keystroke re-filtering of
+// the full project list while still giving responsive feedback.
 type searchState struct {
 	active        bool
 	query         string
@@ -387,6 +391,10 @@ type dirState struct {
 	err      error
 }
 
+// previewState holds the content and viewport for a file or directory preview
+// pane. The viewport field must be preserved across state resets — it is
+// initialized once with proper dimensions, and a zero-valued viewport causes
+// empty renders because Width/Height would be 0.
 type previewState struct {
 	path           string
 	content        string
@@ -398,6 +406,10 @@ type previewState struct {
 	viewport       viewport.Model
 }
 
+// explorerState models the three-pane file browser as a stack of directories.
+// stack[0] is always the repository root (path ""); descending into a directory
+// pushes a new dirState, and ascending pops it. The stack depth encodes the
+// current path implicitly, so the breadcrumb trail is always available.
 type explorerState struct {
 	project     gitlab.ProjectNode
 	ref         string
@@ -413,6 +425,18 @@ type actionMenuState struct {
 	selected int // Keep for backward compatibility
 }
 
+// pipelineViewState holds all state for the pipeline browsing mode. Fields
+// are grouped by concern:
+//   - List/page: project, pipelines, selected, loading, err, page, totalPages, perPage
+//   - Stages/matrix: stages, stageSelected, stageTable, jobRows, stageJobRows, matrixExpanded
+//   - Logs: logs, logPreview, logViewport, logJobID, pendingLogJobID, logAutoFollow
+//   - Retry: confirmRetry*, retrying, retryErr
+//   - Bridges/children: bridges, childJobs
+//   - Test reports: testReport*
+//
+// All caches are reset on page/selection changes via resetCaches, except
+// matrixExpanded which is preserved across refreshes so bridge expand/collapse
+// state survives auto-refresh ticks.
 type pipelineViewState struct {
 	project               gitlab.ProjectNode
 	pipelines             []gitlab.PipelineSummary
@@ -457,6 +481,10 @@ type pipelineViewState struct {
 	detailTab             pipelineDetailTab
 }
 
+// pipelineState is a tri-state model for a project's latest pipeline status:
+// loading (fetch in progress), error (fetch failed), or ready (hasInfo=true or
+// empty=true). lastFetched prevents re-fetching within pipelineRefreshInterval;
+// lastAccessed is used for LRU eviction when the cache exceeds its size limit.
 type pipelineState struct {
 	info         gitlab.PipelineSummary
 	hasInfo      bool
@@ -468,6 +496,10 @@ type pipelineState struct {
 	lastAccessed time.Time
 }
 
+// pipelineFocus tracks which column has keyboard focus in the dual-focus
+// pipeline view: pipelines on the left (navigated with j/k) or stages in
+// the middle (navigated with j/k after pressing l). Press h to return focus
+// to pipelines.
 type pipelineFocus int
 
 const (
@@ -496,6 +528,10 @@ func NewModel(client gitlab.Service, opts Options) Model {
 	input.Placeholder = "Search projects"
 	input.CharLimit = 128
 	input.Prompt = "/ "
+	input.TextStyle = lipgloss.NewStyle().Foreground(rosePineText)
+	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(rosePineMuted)
+	input.PromptStyle = lipgloss.NewStyle().Foreground(rosePineSubtle)
+	input.Cursor.Style = lipgloss.NewStyle().Foreground(rosePineFoam)
 	input.Blur()
 
 	// Initialize spinner

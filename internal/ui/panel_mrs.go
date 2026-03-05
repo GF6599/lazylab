@@ -25,6 +25,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// mrPerPage matches GitLab's web UI default of 25 MRs per page, keeping the
+// TUI's pagination aligned with what users see in the browser.
 const mrPerPage = 25
 
 // mrTab filters the MR list by state. Maps to GitLab API state parameters.
@@ -53,7 +55,8 @@ func mrTabStateString(t mrTab) string {
 
 // mrViewState holds all state for the MR panel and its detail tabs. Each
 // project gets its own mrViewState (reset when the project selection changes).
-// Discussions and diffs are cached per MR IID to survive tab switching.
+// Discussions and diffs are cached per MR IID (via AsyncCache keyed by IID) to
+// survive tab switching without redundant API calls.
 type mrViewState struct {
 	project    gitlab.ProjectNode
 	mrs        []gitlab.MergeRequestSummary
@@ -71,11 +74,14 @@ type mrViewState struct {
 	discussions        AsyncCache[int, []gitlab.MRDiscussion]
 	diffs              AsyncCache[int, []gitlab.MRDiffFile]
 	mrViewport         viewport.Model
-	selectedDiscussion int // Index into filtered (non-system) discussions
+	selectedDiscussion int // Index into filtered (non-system) discussions, not raw discussions
 	reply              mrReplyState
 }
 
-// mrReplyState holds state for the reply-to-discussion modal.
+// mrReplyState holds state for the reply-to-discussion modal. The modal
+// lifecycle is: inactive → active (textarea shown) → sending (API call in
+// flight) → inactive. A fresh textarea.Model is created each time the modal
+// opens to avoid carrying over stale draft text.
 type mrReplyState struct {
 	active       bool
 	discussionID string
@@ -231,7 +237,7 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx 
 				if width > 0 {
 					out = ansi.Truncate(out, width, "…")
 				}
-				b.WriteString(out + "\n")
+				b.WriteString(itemStyle.Render(out) + "\n")
 			}
 			b.WriteString("\n")
 		}
@@ -295,7 +301,7 @@ func renderMRDiffText(diffs []gitlab.MRDiffFile, width int) string {
 			case strings.HasPrefix(line, "@@"):
 				b.WriteString(diffHunkStyle.Render(line))
 			default:
-				b.WriteString(line)
+				b.WriteString(itemStyle.Render(line))
 			}
 			b.WriteString("\n")
 		}

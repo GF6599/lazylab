@@ -164,6 +164,8 @@ func (m *Model) clearAllRetryState() {
 	m.pipelineView.retryErr = nil
 }
 
+// closePipelineView exits pipeline mode and returns to the project list,
+// clearing all pipeline view state.
 func (m *Model) closePipelineView() {
 	m.mode = modeProjects
 	m.pipelineView = pipelineViewState{}
@@ -184,6 +186,9 @@ func (pv *pipelineViewState) resetCaches() {
 	// Note: matrixExpanded is intentionally preserved across refreshes
 }
 
+// reloadPipelineView performs a hard refresh: resets the pipeline list, all
+// per-pipeline caches (stages, jobs, logs, bridges), log preview, and focus
+// back to the pipelines column. Returns a command to re-fetch the current page.
 func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
 	if m.pipelineView.project.ID == 0 {
 		return *m, nil
@@ -211,6 +216,9 @@ func (m *Model) reloadPipelineView() (tea.Model, tea.Cmd) {
 	return *m, fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, page, perPage)
 }
 
+// changePipelinePage navigates by delta pages (e.g., +1 for next, -1 for prev),
+// clamping to [1, totalPages]. Returns nil if the target page equals the current
+// page (no-op). Resets all per-pipeline caches for the new page.
 func (m *Model) changePipelinePage(delta int) tea.Cmd {
 	if m.pipelineView.project.ID == 0 {
 		return nil
@@ -276,6 +284,9 @@ func (m Model) navigateExplorerUp() (tea.Model, tea.Cmd) {
 	return m, m.queueExplorerPreview()
 }
 
+// reloadExplorerPath re-fetches the current directory's tree listing. Preserves
+// the stack depth and selection index so the user stays at the same location;
+// only the entries and preview are reset.
 func (m Model) reloadExplorerPath() (tea.Model, tea.Cmd) {
 	cur := m.currentDirState()
 	if cur == nil {
@@ -298,6 +309,9 @@ func (m *Model) closeExplorer(status string) {
 	}
 }
 
+// movePage navigates the project list by delta pages. Returns nil immediately
+// for the favorites tab (favorites are not paginated). If the target page
+// hasn't been background-loaded yet, starts a foreground fetch.
 func (m *Model) movePage(delta int) tea.Cmd {
 	if m.projectTab == projectTabFavorites {
 		return nil
@@ -409,6 +423,82 @@ func (m *Model) copyMRURL() {
 	m.status = fmt.Sprintf("Copied !%d URL", mr.IID)
 }
 
+// copyMRComment copies the selected discussion's comment body (with file
+// reference if present) to the clipboard.
+func (m *Model) copyMRComment() {
+	if len(m.mrView.mrs) == 0 || m.mrView.selected >= len(m.mrView.mrs) {
+		m.status = "No merge request selected"
+		return
+	}
+	mr := m.mrView.mrs[m.mrView.selected]
+	discussions, ok := m.mrView.discussions.Get(mr.IID)
+	if !ok || len(discussions) == 0 {
+		m.status = "No discussions loaded"
+		return
+	}
+	filtered := filterUserDiscussions(discussions)
+	if len(filtered) == 0 || m.mrView.selectedDiscussion >= len(filtered) {
+		m.status = "No discussion selected"
+		return
+	}
+	disc := filtered[m.mrView.selectedDiscussion]
+	var b strings.Builder
+	for i, note := range disc.Notes {
+		if note.System {
+			continue
+		}
+		if i > 0 {
+			b.WriteString("\n---\n")
+		}
+		if note.FilePath != "" {
+			if note.Line > 0 {
+				fmt.Fprintf(&b, "%s:%d\n", note.FilePath, note.Line)
+			} else {
+				fmt.Fprintf(&b, "%s\n", note.FilePath)
+			}
+		}
+		fmt.Fprintf(&b, "%s: %s\n", note.Author, note.Body)
+	}
+	text := b.String()
+	if text == "" {
+		m.status = "No comment to copy"
+		return
+	}
+	if err := clipboard.WriteAll(text); err != nil {
+		m.status = "Failed to copy comment"
+		if m.opts.Logger != nil {
+			m.opts.Logger.Error("copy clipboard", "err", err)
+		}
+		return
+	}
+	m.status = "Copied comment to clipboard"
+}
+
+// copyExplorerURL copies the GitLab web URL for the selected file or directory.
+func (m *Model) copyExplorerURL() {
+	entry := m.selectedEntry()
+	if entry == nil {
+		m.status = "No file selected"
+		return
+	}
+	ref := displayRef(m.explorer)
+	var kind string
+	if entry.IsDir() {
+		kind = "tree"
+	} else {
+		kind = "blob"
+	}
+	url := fmt.Sprintf("%s/-/%s/%s/%s", m.explorer.project.WebURL, kind, ref, entry.Path)
+	if err := clipboard.WriteAll(url); err != nil {
+		m.status = "Failed to copy URL"
+		if m.opts.Logger != nil {
+			m.opts.Logger.Error("copy clipboard", "err", err)
+		}
+		return
+	}
+	m.status = fmt.Sprintf("Copied %s URL", entry.Name)
+}
+
 func (m Model) selectedProject() (gitlab.ProjectNode, bool) {
 	projects := m.visibleProjects()
 	if len(projects) == 0 || m.selected < 0 || m.selected >= len(projects) {
@@ -425,6 +515,10 @@ func (m Model) currentSelectedProjectID() (int, bool) {
 	return project.ID, true
 }
 
+// ensureSelectionBounds clamps m.selected to [0, len(visibleProjects)-1].
+// Must be called after any operation that changes the visible project set
+// (page navigation, search query change, tab switch, project list reload)
+// to prevent out-of-bounds selection indexes.
 func (m *Model) ensureSelectionBounds() {
 	projects := m.visibleProjects()
 	if len(projects) == 0 {
@@ -482,6 +576,9 @@ func (m *Model) queuePipelineFetchForSelection(force bool) tea.Cmd {
 	return m.queuePipelineFetch(project, force)
 }
 
+// queuePipelineFetch starts a latest-pipeline status fetch for a project,
+// guarding against duplicate in-flight requests (returns nil if already loading)
+// and redundant fetches within pipelineRefreshInterval (unless force is true).
 func (m *Model) queuePipelineFetch(project gitlab.ProjectNode, force bool) tea.Cmd {
 	if m.pipelineStatus == nil {
 		m.pipelineStatus = make(map[int]pipelineState)
@@ -680,6 +777,12 @@ func (m *Model) selectedPipelineJob() *gitlab.PipelineJob {
 	return &m.pipelineView.jobRows[idx]
 }
 
+// queuePipelineLogPreview loads the log for the currently selected stage row.
+// Dispatches differently by row kind: bridge rows show metadata (no trace),
+// bridge child rows fetch from the downstream project, and regular rows fetch
+// from the parent project. Uses the log cache when available; otherwise starts
+// an async fetch. Resets the viewport to top on job change, or auto-scrolls
+// to bottom when logAutoFollow is true.
 func (m *Model) queuePipelineLogPreview() tea.Cmd {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
@@ -764,6 +867,10 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 	return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, job.ID)
 }
 
+// queuePipelineLogRefresh re-fetches the log for the current job without
+// resetting the viewport or clearing existing content. Unlike queuePipelineLogPreview
+// (which resets state for a new selection), this merges fresh data into the
+// existing preview, preserving scroll position for live-tailing.
 func (m *Model) queuePipelineLogRefresh() tea.Cmd {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
@@ -814,6 +921,9 @@ func (m *Model) queuePipelineLogRefresh() tea.Cmd {
 	return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, job.ID)
 }
 
+// resetPipelineLogPreview clears all log preview state and re-enables auto-follow.
+// Call this on page changes or pipeline selection changes where showing stale
+// log content would be confusing.
 func (m *Model) resetPipelineLogPreview() {
 	m.pipelineView.logPreview = previewState{}
 	m.pipelineView.logJobID = 0
@@ -1007,6 +1117,10 @@ func (m *Model) updateProjectList() {
 	}
 }
 
+// appendPage inserts a page of projects at the correct offset in allProjects,
+// growing the slice with zero-value placeholders if pages arrive out of order.
+// This ensures pageSlice works regardless of the order in which background
+// page fetches complete.
 func (m *Model) appendPage(page gitlab.ProjectPage) {
 	m.pagesReady[page.Page] = true
 	m.pagesLoaded = len(m.pagesReady)
@@ -1320,6 +1434,9 @@ func (m *Model) updateViewportSizes() {
 	}
 }
 
+// updateProjectListSize recalculates the bubbles list dimensions from the
+// current terminal size. No-ops in modeMultiPanel where the list size is set
+// during render (the sidebar width depends on focus/layout mode).
 func (m *Model) updateProjectListSize() {
 	if m.mode != modeProjects && m.mode != modeMultiPanel {
 		return

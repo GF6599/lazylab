@@ -1,9 +1,9 @@
 // layout.go computes the multi-panel geometry for the lazygit-style layout.
 //
 // The screen is split into a left sidebar (stacked panels) and a right detail
-// pane. Horizontally, the sidebar gets ~30% of terminal width (clamped to
-// min/max bounds), with the detail pane taking the remainder. The user can
-// toggle between 30/70 and 50/50 splits with +/-.
+// pane. Horizontally, the sidebar gets 30% of terminal width (with a minimum
+// floor), with the detail pane taking the remainder. The user can toggle
+// between 30/70 and 50/50 splits with +/-.
 //
 // Vertically, sidebar panels use an "accordion" layout: the focused panel
 // expands to consume most of the height while unfocused panels shrink to a
@@ -28,7 +28,6 @@ import (
 const (
 	sidebarWidthPct = 30 // Sidebar takes 30% of terminal width
 	minSidebarWidth = 28 // Minimum sidebar width in columns
-	maxSidebarWidth = 50 // Maximum sidebar width in columns
 	minPanelHeight  = 4  // Minimum content height for a non-focused panel
 	infoBarHeight   = 1  // Bottom info bar
 	detailMinWidth  = 30 // Detail pane won't shrink below this
@@ -62,7 +61,7 @@ func computeLayout(width, height int, focus FocusState) layoutResult {
 	if focus.LayoutMode == LayoutWide {
 		sidebarInner = max(minSidebarWidth, width*50/100)
 	} else {
-		sidebarInner = max(minSidebarWidth, min(maxSidebarWidth, width*sidebarWidthPct/100))
+		sidebarInner = max(minSidebarWidth, width*sidebarWidthPct/100)
 	}
 	sidebarOuter := sidebarInner + borderCharsH
 
@@ -112,6 +111,8 @@ func computeLayout(width, height int, focus FocusState) layoutResult {
 func accordionLayout(panels []PanelID, focused PanelID, mode ScreenMode, totalHeight int) map[PanelID]int {
 	heights := make(map[PanelID]int, len(panels))
 	n := len(panels)
+	// Bail out when total height can't satisfy minimum constraints — give
+	// every panel its floor height and let the caller clip or scroll.
 	if n == 0 || totalHeight < n*(minPanelHeight+borderCharsV) {
 		for _, p := range panels {
 			heights[p] = minPanelHeight
@@ -213,7 +214,9 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 	// Top border: ╭─ Title ── Tab1 | Tab2 ───╮
 	topLine := buildTopBorder(width, title, tabs, activeTab, borderStyle, titleStyleLocal, focused)
 
-	// Compute scrollbar thumb range when content overflows
+	// Compute scrollbar thumb range when content overflows.
+	// Thumb size is proportional: (visible / total) * height, clamped to ≥1.
+	// Thumb position maps the scroll offset to the available track (height - thumbSize).
 	hasScrollbar := false
 	thumbStart, thumbEnd := -1, -1
 	if len(scroll) > 0 && scroll[0].total > height && height > 0 {

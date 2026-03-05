@@ -781,6 +781,10 @@ func renderExplorerParents(m Model, width, height int, focused bool) string {
 	return b.String()
 }
 
+// renderExplorerCurrent renders the center pane: the current directory's entries
+// as a scrollable list with path breadcrumb. The list height is constrained to
+// (height - headerLines - 1) so the bubbles list handles internal scrolling
+// rather than rendering all entries at once.
 func renderExplorerCurrent(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	title := fmt.Sprintf("Explorer · %s @ %s", m.explorer.project.PathWithNamespace, displayRef(m.explorer))
@@ -830,6 +834,8 @@ func renderExplorerCurrent(m Model, width, height int, focused bool) string {
 	return finalize()
 }
 
+// renderExplorerPreview renders the right pane: file content (syntax-highlighted
+// if possible) or directory listing in a scrollable viewport.
 func renderExplorerPreview(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	b.WriteString(paneHeaderStyle(focused).Render(clampLine("Preview", width)))
@@ -890,6 +896,10 @@ func renderSearchBar(m Model, width int) string {
 	return searchStyle.Render(clampLine(line, width))
 }
 
+// renderProgressBar shows background page-loading progress as a block-character
+// bar. Visible only while pagesLoaded < total pages and pagesLoaded >= 0.
+// Returns "Cache warm" when loading is complete and a cache exists, or empty
+// string when there's nothing to show.
 func renderProgressBar(m Model, width int) string {
 	if len(m.pagesReady) == 0 || m.pagesLoaded >= len(m.pagesReady) {
 		if m.cache != nil {

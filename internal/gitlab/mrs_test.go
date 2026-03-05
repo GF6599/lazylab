@@ -7,6 +7,9 @@ import (
 	"testing"
 )
 
+// TestListMergeRequests_Success verifies that MR list responses are correctly
+// mapped to MergeRequestSummary values, including author name extraction and
+// branch fields.
 func TestListMergeRequests_Success(t *testing.T) {
 	data, err := os.ReadFile("testdata/merge_requests.json")
 	if err != nil {
@@ -40,6 +43,8 @@ func TestListMergeRequests_Success(t *testing.T) {
 	}
 }
 
+// TestListMRDiscussions_Success verifies pagination exhaust and note mapping,
+// including author extraction and chronological ordering.
 func TestListMRDiscussions_Success(t *testing.T) {
 	data, err := os.ReadFile("testdata/mr_discussions.json")
 	if err != nil {
@@ -70,6 +75,71 @@ func TestListMRDiscussions_Success(t *testing.T) {
 	}
 }
 
+// TestListMRDiscussions_PositionExtraction verifies that diff-line positions
+// are extracted from notes (NewPath preferred over OldPath) and that notes
+// without positions leave FilePath/Line at zero values.
+func TestListMRDiscussions_PositionExtraction(t *testing.T) {
+	json := `[{
+		"id": "disc-pos",
+		"notes": [{
+			"id": 601,
+			"body": "Fix this line",
+			"author": {"id": 1, "name": "Reviewer"},
+			"system": false,
+			"resolvable": true,
+			"resolved": false,
+			"created_at": "2025-01-15T13:00:00Z",
+			"position": {
+				"new_path": "src/main.go",
+				"new_line": 42,
+				"old_path": "src/main.go",
+				"old_line": 40
+			}
+		}, {
+			"id": 602,
+			"body": "No position here",
+			"author": {"id": 2, "name": "Author"},
+			"system": false,
+			"resolvable": false,
+			"resolved": false,
+			"created_at": "2025-01-15T14:00:00Z"
+		}]
+	}]`
+
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(json))
+	}))
+
+	discussions, err := client.ListMergeRequestDiscussions(context.Background(), 1, 42)
+	if err != nil {
+		t.Fatalf("ListMergeRequestDiscussions: %v", err)
+	}
+	if len(discussions) != 1 {
+		t.Fatalf("expected 1 discussion, got %d", len(discussions))
+	}
+	notes := discussions[0].Notes
+	if len(notes) != 2 {
+		t.Fatalf("expected 2 notes, got %d", len(notes))
+	}
+	// Note with position: should extract NewPath/NewLine
+	if notes[0].FilePath != "src/main.go" {
+		t.Errorf("expected FilePath=src/main.go, got %q", notes[0].FilePath)
+	}
+	if notes[0].Line != 42 {
+		t.Errorf("expected Line=42, got %d", notes[0].Line)
+	}
+	// Note without position: should be empty
+	if notes[1].FilePath != "" {
+		t.Errorf("expected empty FilePath, got %q", notes[1].FilePath)
+	}
+	if notes[1].Line != 0 {
+		t.Errorf("expected Line=0, got %d", notes[1].Line)
+	}
+}
+
+// TestListMRDiffs_Success verifies that diff responses are mapped to MRDiffFile
+// values with correct change-type flags (NewFile, RenamedFile, DeletedFile).
 func TestListMRDiffs_Success(t *testing.T) {
 	data, err := os.ReadFile("testdata/mr_diffs.json")
 	if err != nil {

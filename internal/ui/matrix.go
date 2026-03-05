@@ -47,7 +47,7 @@ type stageJobRow struct {
 	Job            *gitlab.PipelineJob    // Set for rowKindJob, rowKindMatrixChild, and rowKindBridgeChild
 	Jobs           []gitlab.PipelineJob   // All sub-jobs for rowKindMatrixGroup
 	Bridge         *gitlab.PipelineBridge // Set for rowKindBridge
-	GroupKey       string                 // "stage:baseName" or "bridge:<id>" for expand state lookup
+	GroupKey       string                 // Key into matrixExpanded: "stage:baseName" for matrix groups, "bridge:<id>" for bridges
 	BaseName       string                 // Parsed base name (without matrix vars)
 	Vars           string                 // Matrix variables (content inside brackets)
 	Stage          string                 // Stage name
@@ -144,7 +144,8 @@ func buildStageJobRows(stages []gitlab.PipelineStage, jobs []gitlab.PipelineJob,
 						Stage:    stage.Name,
 						Status:   aggregateMatrixStatus(g.jobs),
 					})
-					// Always emit children for matrix groups
+					// Matrix groups are always expanded (small count, known upfront)
+					// unlike bridges which are toggleable and trigger extra API calls.
 					for i, job := range g.jobs {
 						_, vars, _ := parseMatrixName(job.Name)
 						j := job // copy for pointer stability
@@ -256,6 +257,9 @@ func statusRank(status string) int {
 	return 9
 }
 
+// normalizeJobStatus lowercases and trims a job status string, guarding against
+// inconsistent casing from different GitLab API versions or edge cases (e.g.,
+// "Running" vs "running"). Returns "unknown" for empty strings.
 func normalizeJobStatus(status string) string {
 	s := strings.TrimSpace(strings.ToLower(status))
 	if s == "" {
@@ -274,27 +278,27 @@ func bridgePreviewContent(bridge *gitlab.PipelineBridge, isChild bool) string {
 	b := &strings.Builder{}
 	if isChild && bridge.DownstreamPipeline != nil {
 		ds := bridge.DownstreamPipeline
-		b.WriteString(fmt.Sprintf("Child Pipeline #%d\n", ds.ID))
-		b.WriteString(fmt.Sprintf("Status: %s\n", ds.Status))
+		b.WriteString(detailHeaderStyle.Render(fmt.Sprintf("Child Pipeline #%d", ds.ID)) + "\n")
+		b.WriteString(detailLabelStyle.Render("Status: ") + pipelineStatusStyle(ds.Status).Render(ds.Status) + "\n")
 		if ds.WebURL != "" {
-			b.WriteString(fmt.Sprintf("URL:    %s\n", ds.WebURL))
+			b.WriteString(detailLabelStyle.Render("URL:    ") + detailValueStyle.Render(ds.WebURL) + "\n")
 		}
 	} else {
-		b.WriteString(fmt.Sprintf("Bridge: %s\n", bridge.Name))
-		b.WriteString(fmt.Sprintf("Stage:  %s\n", bridge.Stage))
-		b.WriteString(fmt.Sprintf("Status: %s\n", bridge.Status))
+		b.WriteString(detailLabelStyle.Render("Bridge: ") + detailValueStyle.Render(bridge.Name) + "\n")
+		b.WriteString(detailLabelStyle.Render("Stage:  ") + detailValueStyle.Render(bridge.Stage) + "\n")
+		b.WriteString(detailLabelStyle.Render("Status: ") + pipelineStatusStyle(bridge.Status).Render(bridge.Status) + "\n")
 		if bridge.Ref != "" {
-			b.WriteString(fmt.Sprintf("Ref:    %s\n", bridge.Ref))
+			b.WriteString(detailLabelStyle.Render("Ref:    ") + detailValueStyle.Render(bridge.Ref) + "\n")
 		}
 		if bridge.Duration > 0 {
-			b.WriteString(fmt.Sprintf("Duration: %.1fs\n", bridge.Duration))
+			b.WriteString(detailLabelStyle.Render("Duration: ") + detailValueStyle.Render(fmt.Sprintf("%.1fs", bridge.Duration)) + "\n")
 		}
 		if bridge.DownstreamPipeline != nil {
 			ds := bridge.DownstreamPipeline
-			b.WriteString(fmt.Sprintf("\nChild Pipeline #%d\n", ds.ID))
-			b.WriteString(fmt.Sprintf("Status: %s\n", ds.Status))
+			b.WriteString("\n" + detailHeaderStyle.Render(fmt.Sprintf("Child Pipeline #%d", ds.ID)) + "\n")
+			b.WriteString(detailLabelStyle.Render("Status: ") + pipelineStatusStyle(ds.Status).Render(ds.Status) + "\n")
 			if ds.WebURL != "" {
-				b.WriteString(fmt.Sprintf("URL:    %s\n", ds.WebURL))
+				b.WriteString(detailLabelStyle.Render("URL:    ") + detailValueStyle.Render(ds.WebURL) + "\n")
 			}
 		}
 	}

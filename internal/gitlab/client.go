@@ -135,6 +135,8 @@ type PipelineListOptions struct {
 }
 
 // PipelinePage contains a slice of pipelines along with pagination metadata.
+// Zero-value PrevPage/NextPage indicate no previous/next page, mirroring the
+// convention used by GitLab API response headers (same as ProjectPage).
 type PipelinePage struct {
 	Pipelines  []PipelineSummary
 	Page       int
@@ -144,6 +146,9 @@ type PipelinePage struct {
 }
 
 // TreeNode represents a repository tree entry (file or directory).
+// Type is one of "tree" (directory), "blob" (file), or "commit" (submodule link).
+// Mode is the git file mode string (e.g., "040000" for dirs, "100644" for files);
+// retained for potential future use in permission display.
 type TreeNode struct {
 	Path string
 	Name string
@@ -209,7 +214,9 @@ type PipelineVariable struct {
 	VariableType string
 }
 
-// MergeRequestSummary represents a merge request in a project.
+// MergeRequestSummary represents a merge request in a project. IID is the
+// project-scoped merge request number (used in URLs like !42), while the
+// global ID is intentionally omitted since all MR API calls use IID.
 type MergeRequestSummary struct {
 	IID          int
 	Title        string
@@ -222,6 +229,8 @@ type MergeRequestSummary struct {
 }
 
 // MRListOptions describe pagination and filter parameters for merge request listings.
+// State accepts "opened", "closed", "merged", or "all"; an empty string omits the
+// filter, letting GitLab's server-side default ("all") apply.
 type MRListOptions struct {
 	State   string
 	Page    int
@@ -253,6 +262,9 @@ type PipelineBridge struct {
 }
 
 // PipelineBridgeDownstream is the downstream pipeline triggered by a bridge.
+// ProjectID is carried because the downstream pipeline may belong to a different
+// project than the parent — the TUI needs it to fetch child jobs via the correct
+// project-scoped API endpoint.
 type PipelineBridgeDownstream struct {
 	ID        int
 	ProjectID int
@@ -260,7 +272,8 @@ type PipelineBridgeDownstream struct {
 	WebURL    string
 }
 
-// TestReport contains a pipeline's test report summary.
+// TestReport contains a pipeline's test report summary. A nil *TestReport
+// means the pipeline has no test artifact — callers must nil-check before access.
 type TestReport struct {
 	TotalTime    float64
 	TotalCount   int
@@ -332,6 +345,8 @@ type MRNote struct {
 	Resolvable bool
 	Resolved   bool
 	CreatedAt  time.Time
+	FilePath   string
+	Line       int
 }
 
 // MRDiffFile represents a single changed file in a merge request diff.

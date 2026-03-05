@@ -12,6 +12,8 @@ import (
 // empty State omits the filter and defaults to GitLab's server-side default
 // (which is "all").
 func (c *Client) ListMergeRequests(ctx context.Context, projectID int, opts MRListOptions) (MRPage, error) {
+	// Defensive defaults: zero-value PerPage/Page are replaced so callers don't
+	// have to worry about uninitialized MRListOptions producing empty results.
 	if opts.PerPage <= 0 {
 		opts.PerPage = 25
 	}
@@ -92,6 +94,17 @@ func (c *Client) ListMergeRequestDiscussions(ctx context.Context, projectID, mrI
 			if n.CreatedAt != nil {
 				note.CreatedAt = *n.CreatedAt
 			}
+			// Prefer NewPath over OldPath: for renames, NewPath reflects the
+			// file's current location; for edits both are identical.
+			if n.Position != nil {
+				if n.Position.NewPath != "" {
+					note.FilePath = n.Position.NewPath
+					note.Line = n.Position.NewLine
+				} else if n.Position.OldPath != "" {
+					note.FilePath = n.Position.OldPath
+					note.Line = n.Position.OldLine
+				}
+			}
 			disc.Notes = append(disc.Notes, note)
 		}
 		discussions = append(discussions, disc)
@@ -100,6 +113,9 @@ func (c *Client) ListMergeRequestDiscussions(ctx context.Context, projectID, mrI
 }
 
 // ResolveMergeRequestDiscussion toggles the resolved state of a discussion thread.
+// Pass resolved=true to mark resolved, false to reopen. Only resolvable discussions
+// (diff-line comments) can be toggled; calling on a non-resolvable discussion returns
+// a GitLab API error.
 func (c *Client) ResolveMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error {
 	opts := gl.ResolveMergeRequestDiscussionOptions{
 		Resolved: gl.Ptr(resolved),
@@ -112,6 +128,8 @@ func (c *Client) ResolveMergeRequestDiscussion(ctx context.Context, projectID, m
 }
 
 // AddMergeRequestDiscussionNote posts a reply to an existing discussion thread.
+// The body supports GitLab-flavored Markdown. The note is attributed to the user
+// whose token authenticated the API client.
 func (c *Client) AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error {
 	opts := gl.AddMergeRequestDiscussionNoteOptions{
 		Body: gl.Ptr(body),
