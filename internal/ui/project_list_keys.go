@@ -259,6 +259,9 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.navigateExplorerUp()
 	case "r", "ctrl+r":
 		return m.reloadExplorerPath()
+	case "ctrl+o":
+		m.copyExplorerURL()
+		return m, nil
 	}
 	return m, nil
 }
@@ -336,6 +339,13 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.reloadPipelineView()
 	case "R":
 		return m.handlePipelineRetryRequest()
+	case "ctrl+o":
+		if m.pipelineView.focus == pipelineFocusStages {
+			m.copyJobURL()
+		} else {
+			m.copyPipelineURL()
+		}
+		return m, nil
 	}
 	return m, nil
 }

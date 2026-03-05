@@ -486,55 +486,55 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 		refLabel = "all refs"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, " Pipeline (%s):\n", refLabel)
+	b.WriteString(detailLabelStyle.Render(fmt.Sprintf(" Pipeline (%s):", refLabel)) + "\n")
 	switch {
 	case state.loading && !state.hasInfo:
-		b.WriteString("  Loading latest pipeline...\n")
+		b.WriteString(progressStyle.Render("  Loading latest pipeline...") + "\n")
 	case state.err != nil:
-		b.WriteString("  Error: " + state.err.Error() + "\n")
+		b.WriteString(errorStyle.Render("  Error: "+state.err.Error()) + "\n")
 	case state.empty:
-		fmt.Fprintf(&b, "  %s for %s.\n", msgNoPipelines, refLabel)
+		b.WriteString(progressStyle.Render(fmt.Sprintf("  %s for %s.", msgNoPipelines, refLabel)) + "\n")
 	case state.hasInfo:
-		fmt.Fprintf(&b, "  Status: %s (#%d)\n", state.info.Status, state.info.ID)
+		b.WriteString(detailLabelStyle.Render("  Status: ") + pipelineStatusStyle(state.info.Status).Render(fmt.Sprintf("%s (#%d)", state.info.Status, state.info.ID)) + "\n")
 		if state.info.SHA != "" {
-			fmt.Fprintf(&b, "  SHA: %s\n", truncate(state.info.SHA, 12))
+			b.WriteString(detailLabelStyle.Render("  SHA: ") + detailValueStyle.Render(truncate(state.info.SHA, 12)) + "\n")
 		}
 		if !state.info.UpdatedAt.IsZero() {
-			fmt.Fprintf(&b, "  Updated: %s\n", state.info.UpdatedAt.Format(time.RFC1123))
+			b.WriteString(detailLabelStyle.Render("  Updated: ") + detailValueStyle.Render(state.info.UpdatedAt.Format(time.RFC1123)) + "\n")
 		}
 		if state.info.WebURL != "" {
 			urlWidth := width - 4
 			if urlWidth < 4 {
 				urlWidth = width
 			}
-			fmt.Fprintf(&b, "  URL: %s\n", truncate(state.info.WebURL, urlWidth))
+			b.WriteString(detailLabelStyle.Render("  URL: ") + detailValueStyle.Render(truncate(state.info.WebURL, urlWidth)) + "\n")
 		}
 		if len(state.info.Stages) > 0 {
 			stageWidth := width - 8
 			if stageWidth < 8 {
 				stageWidth = width
 			}
-			b.WriteString("  Stages:\n")
+			b.WriteString(detailLabelStyle.Render("  Stages:") + "\n")
 			for _, stage := range state.info.Stages {
 				stageName := truncate(stage.Name, stageWidth)
 				stageStatus := truncate(stage.Status, stageWidth)
-				fmt.Fprintf(&b, "   - %s: %s\n", stageName, stageStatus)
+				b.WriteString(detailLabelStyle.Render("   - "+stageName+": ") + pipelineStatusStyle(stageStatus).Render(stageStatus) + "\n")
 			}
 		}
 		if state.loading {
-			b.WriteString("  Refreshing...\n")
+			b.WriteString(progressStyle.Render("  Refreshing...") + "\n")
 		}
 	default:
 		if !ok {
-			b.WriteString("  Pipeline status pending...\n")
+			b.WriteString(progressStyle.Render("  Pipeline status pending...") + "\n")
 		} else if state.loading {
-			b.WriteString("  Refreshing pipeline status...\n")
+			b.WriteString(progressStyle.Render("  Refreshing pipeline status...") + "\n")
 		} else {
-			b.WriteString("  Pipeline status pending...\n")
+			b.WriteString(progressStyle.Render("  Pipeline status pending...") + "\n")
 		}
 	}
 	if !state.lastFetched.IsZero() {
-		fmt.Fprintf(&b, "  Checked: %s\n", state.lastFetched.Format(time.RFC1123))
+		b.WriteString(detailLabelStyle.Render("  Checked: ") + detailValueStyle.Render(state.lastFetched.Format(time.RFC1123)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

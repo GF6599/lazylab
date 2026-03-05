@@ -771,7 +771,7 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "T":
 			return m.cycleDetailTabReverse()
 		case "ctrl+o":
-			m.copyMRURL()
+			m.copyMRComment()
 			return m, nil
 		}
 		return m, nil
@@ -1012,6 +1012,12 @@ func (m Model) openMRReplyModal() (tea.Model, tea.Cmd) {
 	ta.Placeholder = "Type your reply..."
 	ta.SetWidth(50)
 	ta.SetHeight(5)
+	ta.FocusedStyle.Base = lipgloss.NewStyle().Foreground(rosePineText)
+	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(rosePineMuted)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().Foreground(rosePineText).Background(rosePineHighlightLow)
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(rosePineSubtle)
+	ta.Cursor.Style = lipgloss.NewStyle().Foreground(rosePineFoam)
+	ta.BlurredStyle = ta.FocusedStyle
 	ta.Focus()
 
 	m.mrView.reply = mrReplyState{
