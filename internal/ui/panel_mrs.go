@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/gitlab"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"

@@ -17,9 +17,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/pflag"
 
-	"lazylab/internal/gitlab"
-	"lazylab/internal/ui"
-	"lazylab/pkg/config"
+	"github.com/GF6599/lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/ui"
+	"github.com/GF6599/lazylab/pkg/config"
 )
 
 func main() {

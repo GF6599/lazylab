@@ -16,7 +16,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 type projectsLoadedMsg struct {

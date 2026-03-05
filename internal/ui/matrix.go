@@ -25,7 +25,7 @@ import (
 	"regexp"
 	"strings"
 
-	"lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 // stageJobRowKind distinguishes the five row types in the stage table.

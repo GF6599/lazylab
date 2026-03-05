@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 func TestProjectCache_SaveAndLoad(t *testing.T) {

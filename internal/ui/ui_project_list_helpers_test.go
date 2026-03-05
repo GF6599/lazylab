@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 func TestClampLineANSI(t *testing.T) {

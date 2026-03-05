@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 const (

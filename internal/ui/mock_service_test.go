@@ -3,7 +3,7 @@ package ui
 import (
 	"context"
 
-	"lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 // mockService is a hand-written mock implementing gitlab.Service for UI tests.
