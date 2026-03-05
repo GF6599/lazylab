@@ -1,12 +1,47 @@
 # Lazylab
 
-Lazylab is a Bubble Tea-powered terminal UI for browsing GitLab projects, pipelines, merge requests, and repository files without leaving the keyboard. It features a lazygit-inspired multi-panel layout, real-time pipeline monitoring with auto-refresh, and persistent caching for instant startup.
+[![Go Version](https://img.shields.io/github/go-mod/go-version/GF6599/lazylab)](https://go.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/GF6599/lazylab)](https://goreportcard.com/report/github.com/GF6599/lazylab)
 
-## Requirements
+A terminal UI for browsing GitLab projects, pipelines, merge requests, and repository files — without leaving the keyboard.
+
+Navigate your GitLab instance the way lazygit navigates git: with a multi-panel TUI, instant keyboard shortcuts, and real-time updates.
+
+<!-- TODO: Add demo GIF or screenshot here -->
+
+## Features
+
+- **Multi-panel layout**: Lazygit-style accordion sidebar with Projects, Pipelines, Stages, and Merge Requests panels, plus a detail pane on the right
+- **Pipeline monitoring**: Real-time pipeline status with auto-refresh every 5 seconds, stage/job drill-down, and log preview with auto-follow
+- **Merge Requests panel**: Browse open/merged MRs with discussions, diffs, and info tabs in the detail pane
+- **Matrix job grouping**: CI matrix jobs are collapsed into expandable groups in the stages view
+- **Favorites**: Mark projects with `f` for quick access via the Favorites tab; persisted across sessions
+- **Explorer mode**: Yazi/ranger-inspired file browser with syntax-highlighted preview pane
+- **Project search**: Fuzzy search across all projects with `/`
+- **Persistent cache**: Project list cached under `~/.cache/lazylab/` for instant startup
+- **Layout modes**: Toggle between default (30/70) and wide (50/50) sidebar-to-detail split with `+`; cycle accordion sizing with `=`
+
+## Installation
+
+### go install
+
+```bash
+go install github.com/GF6599/lazylab/cmd/lazylab@latest
+```
+
+### From source
+
+```bash
+git clone https://github.com/GF6599/lazylab.git
+cd lazylab
+go build ./cmd/lazylab
+```
+
+### Requirements
 
 - Go 1.24+
-- GitLab personal access token with `api` scope (`GITLAB_TOKEN`)
-- Optional: custom host via `GITLAB_HOST` (defaults to `https://gitlab.com`)
+- GitLab personal access token with `api` scope
 
 ## Usage
 
@@ -23,21 +58,7 @@ Flags override env variables when needed:
 go run ./cmd/lazylab --token glpat-xxxx --host https://gitlab.mycompany.com --projects-per-page 100
 ```
 
-You can also point to a config file (`--config ./lazylab.yaml`) that Viper can parse as YAML/TOML/JSON. The UI opens in an alternate screen. Quit anytime with `q` or `Ctrl+C`.
-
-Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emitted to stderr in text format for easy piping or redirection.
-
-## Features
-
-- **Multi-panel layout**: Lazygit-style accordion sidebar with Projects, Pipelines, Stages, and Merge Requests panels, plus a detail pane on the right
-- **Pipeline monitoring**: Real-time pipeline status with auto-refresh every 5 seconds, stage/job drill-down, and log preview with auto-follow
-- **Merge Requests panel**: Browse open/merged MRs with discussions, diffs, and info tabs in the detail pane
-- **Matrix job grouping**: CI matrix jobs are collapsed into expandable groups in the stages view
-- **Favorites**: Mark projects with `f` for quick access via the Favorites tab; persisted across sessions
-- **Explorer mode**: Yazi/ranger-inspired file browser with syntax-highlighted preview pane
-- **Project search**: Fuzzy search across all projects with `/`
-- **Persistent cache**: Project list cached under `~/.cache/lazylab/` for instant startup
-- **Layout modes**: Toggle between default (30/70) and wide (50/50) sidebar-to-detail split with `+`; cycle accordion sizing with `=`
+The UI opens in an alternate screen. Quit anytime with `q` or `Ctrl+C`.
 
 ## Controls
 
@@ -122,6 +143,20 @@ Set `--log-level debug` (or INFO/WARN/ERROR) to control verbosity. Logs are emit
 | `r` | Reload current directory |
 | `Esc` | Exit explorer |
 
+## Configuration
+
+Lazylab reads settings from environment variables, CLI flags, or a config file. Precedence (highest to lowest): CLI flags > env vars > config file > defaults.
+
+| Setting | Env Variable | CLI Flag | Default |
+|---------|-------------|----------|---------|
+| Token | `GITLAB_TOKEN` | `--token` | (required) |
+| Host | `GITLAB_HOST` | `--host` | `https://gitlab.com` |
+| Projects per page | — | `--projects-per-page` | `30` |
+| Log level | — | `--log-level` | `info` |
+| Config file | `LAZYLAB_CONFIG` | `--config` | — |
+
+Config files can be YAML, TOML, or JSON (parsed by Viper).
+
 ## Architecture
 
 - `pkg/config`: Loads host/token settings from environment, config file, and CLI flags (Viper-based precedence)
@@ -178,3 +213,7 @@ go vet ./...
 # Keep dependencies tidy
 go mod tidy
 ```
+
+## License
+
+[MIT](LICENSE)
