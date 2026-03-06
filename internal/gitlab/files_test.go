@@ -50,7 +50,7 @@ func TestGetFileContent_Success(t *testing.T) {
 	content := "package main\n\nfunc main() {}\n"
 	encoded := base64.StdEncoding.EncodeToString([]byte(content))
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"file_name": "main.go",
 		"file_path": "main.go",
 		"size":      len(content),
@@ -77,7 +77,7 @@ func TestGetFileContent_Success(t *testing.T) {
 func TestGetFileContent_TooLarge(t *testing.T) {
 	const maxFileSize = 10 * 1024 * 1024 // must match the constant in files.go
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"file_name": "big.bin",
 		"file_path": "big.bin",
 		"size":      maxFileSize + 1,

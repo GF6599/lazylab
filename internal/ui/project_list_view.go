@@ -267,7 +267,7 @@ func renderDetailPane(m *Model, width, height int) string {
 		writeDetailDivider(b, width)
 		writeDetailSection(b, "Description", width)
 		desc := clampLines(wrapText(project.Description, width), width)
-		for _, line := range strings.Split(desc, "\n") {
+		for line := range strings.SplitSeq(desc, "\n") {
 			b.WriteString(detailValueStyle.Render(line))
 			b.WriteString("\n")
 		}
@@ -275,7 +275,7 @@ func renderDetailPane(m *Model, width, height int) string {
 	writeDetailDivider(b, width)
 	writeDetailSection(b, "Pipeline", width)
 	pipe := clampLines(renderPipelineSection(m, project, width), width)
-	for _, line := range strings.Split(strings.TrimSuffix(pipe, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSuffix(pipe, "\n"), "\n") {
 		b.WriteString(detailValueStyle.Render(line))
 		b.WriteString("\n")
 	}
@@ -915,14 +915,8 @@ func renderProgressBar(m Model, width int) string {
 	if total <= 0 {
 		return ""
 	}
-	barWidth := width - 20
-	if barWidth < 8 {
-		barWidth = 8
-	}
-	filled := int(float64(barWidth) * (float64(loaded) / float64(total)))
-	if filled > barWidth {
-		filled = barWidth
-	}
+	barWidth := max(width-20, 8)
+	filled := min(int(float64(barWidth)*(float64(loaded)/float64(total))), barWidth)
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 	return progressStyle.Render(clampLine(fmt.Sprintf("Caching %d/%d pages [%s]", loaded, total, bar), width))
 }

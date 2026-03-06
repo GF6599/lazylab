@@ -80,9 +80,7 @@ func computeLayout(width, height int, focus FocusState) layoutResult {
 
 	// Detail pane gets all remaining vertical space
 	detailOuter := availableHeight
-	if detailOuter < borderCharsV+3 {
-		detailOuter = borderCharsV + 3
-	}
+	detailOuter = max(detailOuter, borderCharsV+3)
 	detailContent := detailOuter - borderCharsV
 
 	// Sidebar accordion layout: when detail pane is focused, keep the
@@ -123,18 +121,13 @@ func accordionLayout(panels []PanelID, focused PanelID, mode ScreenMode, totalHe
 	// Total available for content after accounting for borders
 	totalBorders := n * borderCharsV
 	contentBudget := totalHeight - totalBorders
-	if contentBudget < n*minPanelHeight {
-		contentBudget = n * minPanelHeight
-	}
+	contentBudget = max(contentBudget, n*minPanelHeight)
 
 	switch mode {
 	case ScreenFull:
 		// Focused panel gets everything, others get minimum
 		otherTotal := (n - 1) * minPanelHeight
-		focusHeight := contentBudget - otherTotal
-		if focusHeight < minPanelHeight {
-			focusHeight = minPanelHeight
-		}
+		focusHeight := max(contentBudget-otherTotal, minPanelHeight)
 		for _, p := range panels {
 			if p == focused {
 				heights[p] = focusHeight
@@ -145,10 +138,7 @@ func accordionLayout(panels []PanelID, focused PanelID, mode ScreenMode, totalHe
 
 	case ScreenHalf:
 		// Focused panel gets half, rest distributed evenly
-		focusHeight := contentBudget / 2
-		if focusHeight < minPanelHeight {
-			focusHeight = minPanelHeight
-		}
+		focusHeight := max(contentBudget/2, minPanelHeight)
 		remaining := contentBudget - focusHeight
 		otherHeight := minPanelHeight
 		if n > 1 {
@@ -164,10 +154,7 @@ func accordionLayout(panels []PanelID, focused PanelID, mode ScreenMode, totalHe
 
 	default: // ScreenNormal
 		// Focused panel gets 40% of budget, rest distributed evenly
-		focusHeight := contentBudget * 40 / 100
-		if focusHeight < minPanelHeight {
-			focusHeight = minPanelHeight
-		}
+		focusHeight := max(contentBudget*40/100, minPanelHeight)
 		remaining := contentBudget - focusHeight
 		otherHeight := minPanelHeight
 		if n > 1 {

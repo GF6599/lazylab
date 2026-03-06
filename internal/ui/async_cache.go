@@ -1,5 +1,10 @@
 package ui
 
+import (
+	"maps"
+	"slices"
+)
+
 // AsyncCache is a generic map-based cache that tracks loading and error state
 // per key. It replaces the repeated (map[K]V, map[K]bool, map[K]error) triplet
 // used throughout pipelineViewState.
@@ -82,11 +87,7 @@ func (c *AsyncCache[K, V]) Len() int {
 
 // Keys returns all keys that have cached values.
 func (c *AsyncCache[K, V]) Keys() []K {
-	keys := make([]K, 0, len(c.data))
-	for k := range c.data {
-		keys = append(keys, k)
-	}
-	return keys
+	return slices.Collect(maps.Keys(c.data))
 }
 
 // LoadingMap exposes the underlying loading map for backward compatibility

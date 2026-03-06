@@ -405,14 +405,8 @@ func fuzzyMatch(target, pattern string) bool {
 // listPageStep calculates how many items to skip for half-page scrolling,
 // based on the visible terminal height minus chrome.
 func listPageStep(height int) int {
-	visible := height - headerFooterLines
-	if visible < 1 {
-		visible = 1
-	}
-	step := visible / halfPageScrollFactor
-	if step < 1 {
-		step = 1
-	}
+	visible := max(height-headerFooterLines, 1)
+	step := max(visible/halfPageScrollFactor, 1)
 	return step
 }
 
@@ -499,15 +493,13 @@ func (m *Model) findDirIndex(path string) int {
 // This ensures all panes in a horizontal join have identical dimensions,
 // preventing lipgloss.JoinHorizontal from producing ragged layouts.
 func normalizeColumn(content string, width, height int) []string {
-	if width < 1 {
-		width = 1
-	}
+	width = max(width, 1)
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 {
 		lines = []string{""}
 	}
 	result := make([]string, height)
-	for i := 0; i < height; i++ {
+	for i := range height {
 		line := ""
 		if i < len(lines) {
 			line = lines[i]
@@ -656,24 +648,15 @@ func previewContentWidth(width int) int {
 	parentWidth := max(minParentWidth, width*explorerParentWidthPct/100)
 	currentWidth := max(minCurrentWidth, width*explorerCurrentWidthPct/100)
 	previewWidth := width - parentWidth - currentWidth
-	if previewWidth < minParentWidth {
-		previewWidth = minParentWidth
-	}
-	contentWidth := previewWidth - 2
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	previewWidth = max(previewWidth, minParentWidth)
+	contentWidth := max(previewWidth-2, 1)
 	return contentWidth
 }
 
 // previewContentHeight returns the viewport height for the explorer preview pane.
 // Reserves 6 lines: 4 (layout: 2 borders + helpbar + newline) + 2 (pane header + newline).
 func previewContentHeight(height int) int {
-	h := height - 6
-	if h < 1 {
-		h = 1
-	}
-	return h
+	return max(height-6, 1)
 }
 
 // pipelineLogContentWidth estimates the inner width of the pipeline log pane
@@ -686,24 +669,15 @@ func pipelineLogContentWidth(width int) int {
 	parentWidth := max(minTreeParent, width*treeParentWidthPct/100)
 	currentWidth := max(minTreeCurrent, width*treeCurrentWidthPct/100)
 	previewWidth := width - parentWidth - currentWidth
-	if previewWidth < minTreeParent {
-		previewWidth = minTreeParent
-	}
-	contentWidth := previewWidth - 2
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	previewWidth = max(previewWidth, minTreeParent)
+	contentWidth := max(previewWidth-2, 1)
 	return contentWidth
 }
 
 // pipelineLogContentHeight returns the viewport height for the pipeline log pane.
 // Reserves 6 lines: 4 (layout: 2 borders + helpbar + newline) + 2 (pane header + newline).
 func pipelineLogContentHeight(height int) int {
-	h := height - 6
-	if h < 1 {
-		h = 1
-	}
-	return h
+	return max(height-6, 1)
 }
 
 func normalizePipelineLogContent(content string) string {

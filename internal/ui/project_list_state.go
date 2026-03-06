@@ -2,7 +2,7 @@ package ui
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -228,9 +228,7 @@ func (m *Model) changePipelinePage(delta int) tea.Cmd {
 		page = 1
 	}
 	target := page + delta
-	if target < 1 {
-		target = 1
-	}
+	target = max(target, 1)
 	if m.pipelineView.totalPages > 0 && target > m.pipelineView.totalPages {
 		target = m.pipelineView.totalPages
 	}
@@ -317,9 +315,7 @@ func (m *Model) movePage(delta int) tea.Cmd {
 		return nil
 	}
 	target := m.page + delta
-	if target < 1 {
-		target = 1
-	}
+	target = max(target, 1)
 	if m.totalPages > 0 && target > m.totalPages {
 		target = m.totalPages
 	}
@@ -1094,9 +1090,7 @@ func (m Model) pageSlice(page int) []gitlab.ProjectNode {
 		return nil
 	}
 	end := start + m.opts.ProjectsPerPage
-	if end > len(m.allProjects) {
-		end = len(m.allProjects)
-	}
+	end = min(end, len(m.allProjects))
 	return m.allProjects[start:end]
 }
 
@@ -1158,11 +1152,11 @@ func (m *Model) evictOldLogs() {
 
 	// Find jobs to evict (oldest by job ID - assumes increasing IDs over time)
 	jobIDs := m.pipelineView.logs.Keys()
-	sort.Ints(jobIDs)
+	slices.Sort(jobIDs)
 
 	// Keep the current job and the most recent ones, remove the oldest
 	toRemove := len(jobIDs) - maxLogCacheEntries
-	for i := 0; i < toRemove; i++ {
+	for i := range toRemove {
 		jobID := jobIDs[i]
 		// Don't evict currently displayed log
 		if jobID == m.pipelineView.logJobID {

@@ -14,9 +14,10 @@
 package ui
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -271,7 +272,7 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	if m.totalPages <= 0 {
 		m.totalPages = m.page
 	}
-	m.allProjects = append([]gitlab.ProjectNode(nil), msg.page.Projects...)
+	m.allProjects = slices.Clone(msg.page.Projects)
 	m.invalidateVisibleCache()
 	m.pagesReady = map[int]bool{m.page: true}
 	m.pagesLoaded = len(m.pagesReady)
@@ -398,19 +399,17 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 		return m, fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, m.pipelineView.page, perPage)
 	}
 	m.pipelineView.pipelines = msg.pipelines
-	sort.SliceStable(m.pipelineView.pipelines, func(i, j int) bool {
-		a := m.pipelineView.pipelines[i]
-		b := m.pipelineView.pipelines[j]
+	slices.SortStableFunc(m.pipelineView.pipelines, func(a, b gitlab.PipelineSummary) int {
 		if !a.UpdatedAt.IsZero() && !b.UpdatedAt.IsZero() {
 			if a.UpdatedAt.Equal(b.UpdatedAt) {
-				return a.ID > b.ID
+				return cmp.Compare(b.ID, a.ID)
 			}
-			return a.UpdatedAt.After(b.UpdatedAt)
+			return b.UpdatedAt.Compare(a.UpdatedAt)
 		}
 		if a.ID != b.ID {
-			return a.ID > b.ID
+			return cmp.Compare(b.ID, a.ID)
 		}
-		return a.Ref > b.Ref
+		return cmp.Compare(b.Ref, a.Ref)
 	})
 
 	// Update pipeline list with sorted pipelines

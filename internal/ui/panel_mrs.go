@@ -125,15 +125,11 @@ func renderMRsPanel(m *Model, width, height int) string {
 	if offset > total-height {
 		offset = total - height
 	}
-	if offset < 0 {
-		offset = 0
-	}
+	offset = max(offset, 0)
 
 	var lines []string
 	end := offset + height
-	if end > total {
-		end = total
-	}
+	end = min(end, total)
 	for i := offset; i < end; i++ {
 		mr := m.mrView.mrs[i]
 		cursor := " "
@@ -231,8 +227,7 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx 
 			} else if j > 0 {
 				prefix = "├ "
 			}
-			bodyLines := strings.Split(note.Body, "\n")
-			for _, line := range bodyLines {
+			for line := range strings.SplitSeq(note.Body, "\n") {
 				out := "  " + prefix + line
 				if width > 0 {
 					out = ansi.Truncate(out, width, "…")
@@ -283,8 +278,7 @@ func renderMRDiffText(diffs []gitlab.MRDiffFile, width int) string {
 		b.WriteString("\n")
 
 		// Render diff lines with color, truncating to viewport width
-		lines := strings.Split(d.Diff, "\n")
-		for _, line := range lines {
+		for line := range strings.SplitSeq(d.Diff, "\n") {
 			// Normalize tabs and carriage returns before measuring
 			line = strings.ReplaceAll(line, "\t", "    ")
 			line = strings.ReplaceAll(line, "\r", "")

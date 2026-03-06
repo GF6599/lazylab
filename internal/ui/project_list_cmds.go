@@ -225,7 +225,7 @@ func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Servic
 		}
 
 		// Collect all results
-		for i := 0; i < len(projects); i++ {
+		for range len(projects) {
 			result := <-resultCh
 			results[result.projectID] = pipelineStatusResult{
 				pipeline: result.pipeline,

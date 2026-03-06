@@ -577,7 +577,7 @@ func TestSetLogViewportContent_WrapsLongLines(t *testing.T) {
 	m.setLogViewportContent(longLine)
 
 	output := m.pipelineView.logViewport.View()
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if w := lipgloss.Width(line); w > 40 {
 			t.Fatalf("line visual width %d exceeds viewport width 40: %q", w, line)
 		}

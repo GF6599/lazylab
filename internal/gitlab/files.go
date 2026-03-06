@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	gl "gitlab.com/gitlab-org/api/client-go"
@@ -40,14 +40,14 @@ func (c *Client) ListTree(ctx context.Context, projectID int, opts TreeListOptio
 			Mode: node.Mode,
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].IsDir() && !out[j].IsDir() {
-			return true
+	slices.SortStableFunc(out, func(a, b TreeNode) int {
+		if a.IsDir() && !b.IsDir() {
+			return -1
 		}
-		if !out[i].IsDir() && out[j].IsDir() {
-			return false
+		if !a.IsDir() && b.IsDir() {
+			return 1
 		}
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 	})
 	return out, nil
 }
