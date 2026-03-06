@@ -100,7 +100,7 @@ func TestAccordionLayout_DetailFocusPreservesSidebar_AllModes(t *testing.T) {
 func TestBuildTopBorder_TitleOnly(t *testing.T) {
 	borderStyle := lipgloss.NewStyle()
 	titleStyle := lipgloss.NewStyle().Bold(true)
-	result := buildTopBorder(40, "Projects", nil, 0, borderStyle, titleStyle, false)
+	result := buildTopBorder(40, "Projects", nil, 0, borderStyle, titleStyle)
 	if !strings.Contains(result, "Projects") {
 		t.Fatalf("expected title in border, got %q", result)
 	}
@@ -113,7 +113,7 @@ func TestBuildTopBorder_TitleAndTabs(t *testing.T) {
 	borderStyle := lipgloss.NewStyle()
 	titleStyle := lipgloss.NewStyle().Bold(true)
 	tabs := []string{"Log", "Tests", "Artifacts"}
-	result := buildTopBorder(60, "Detail", tabs, 0, borderStyle, titleStyle, false)
+	result := buildTopBorder(60, "Detail", tabs, 0, borderStyle, titleStyle)
 	if !strings.Contains(result, "Detail") {
 		t.Fatalf("expected title in border, got %q", result)
 	}
@@ -126,7 +126,7 @@ func TestBuildTopBorder_TitleAndTabs(t *testing.T) {
 func TestBuildTopBorder_NarrowWidth(t *testing.T) {
 	borderStyle := lipgloss.NewStyle()
 	titleStyle := lipgloss.NewStyle()
-	result := buildTopBorder(3, "X", nil, 0, borderStyle, titleStyle, false)
+	result := buildTopBorder(3, "X", nil, 0, borderStyle, titleStyle)
 	if result == "" {
 		t.Fatal("expected non-empty result for width=3")
 	}
@@ -175,11 +175,11 @@ func TestBuildBottomBorder_FooterTooWide(t *testing.T) {
 }
 
 func TestBuildTabString_Empty(t *testing.T) {
-	result := buildTabString(nil, 0, false)
+	result := buildTabString(nil, 0)
 	if result != "" {
 		t.Fatalf("expected empty string for nil tabs, got %q", result)
 	}
-	result = buildTabString([]string{}, 0, false)
+	result = buildTabString([]string{}, 0)
 	if result != "" {
 		t.Fatalf("expected empty string for empty tabs, got %q", result)
 	}
@@ -187,7 +187,7 @@ func TestBuildTabString_Empty(t *testing.T) {
 
 func TestBuildTabString_ActiveHighlighted(t *testing.T) {
 	tabs := []string{"Log", "Tests", "Artifacts"}
-	result := buildTabString(tabs, 1, true)
+	result := buildTabString(tabs, 1)
 	// The active tab (Tests) should appear in the output
 	if !strings.Contains(result, "Tests") {
 		t.Fatalf("expected active tab 'Tests' in output, got %q", result)

@@ -199,7 +199,7 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 	titleStyleLocal := lipgloss.NewStyle().Bold(true).Foreground(titleFg)
 
 	// Top border: ╭─ Title ── Tab1 | Tab2 ───╮
-	topLine := buildTopBorder(width, title, tabs, activeTab, borderStyle, titleStyleLocal, focused)
+	topLine := buildTopBorder(width, title, tabs, activeTab, borderStyle, titleStyleLocal)
 
 	// Compute scrollbar thumb range when content overflows.
 	// Thumb size is proportional: (visible / total) * height, clamped to ≥1.
@@ -241,7 +241,7 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 }
 
 // buildTopBorder constructs the top border with title and optional tabs.
-func buildTopBorder(width int, title string, tabs []string, activeTab int, borderStyle, titleStyleLocal lipgloss.Style, focused bool) string {
+func buildTopBorder(width int, title string, tabs []string, activeTab int, borderStyle, titleStyleLocal lipgloss.Style) string {
 	if width < 4 {
 		return borderStyle.Render(strings.Repeat("─", width))
 	}
@@ -268,7 +268,7 @@ func buildTopBorder(width int, title string, tabs []string, activeTab int, borde
 	}
 
 	if len(tabs) > 0 && available > 4 {
-		tabStr := buildTabString(tabs, activeTab, focused)
+		tabStr := buildTabString(tabs, activeTab)
 		tabWidth := ansi.StringWidth(tabStr)
 		if tabWidth+3 <= available { // 3 for " ── " separator
 			sep := " ── "
@@ -287,7 +287,7 @@ func buildTopBorder(width int, title string, tabs []string, activeTab int, borde
 }
 
 // buildTabString constructs the tab portion: "Tab1 | Tab2"
-func buildTabString(tabs []string, activeTab int, focused bool) string {
+func buildTabString(tabs []string, activeTab int) string {
 	if len(tabs) == 0 {
 		return ""
 	}

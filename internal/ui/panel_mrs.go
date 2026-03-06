@@ -345,7 +345,7 @@ func renderMRReplyModal(m Model, width int) string {
 // filtered discussion index begins in the rendered comments text. This mirrors
 // the line-counting logic in renderMRCommentsText so the viewport can scroll
 // to keep the selected discussion visible.
-func discussionStartLine(discussions []gitlab.MRDiscussion, width, selectedIdx int) int {
+func discussionStartLine(discussions []gitlab.MRDiscussion, selectedIdx int) int {
 	filtered := filterUserDiscussions(discussions)
 	line := 0
 	for i, d := range filtered {

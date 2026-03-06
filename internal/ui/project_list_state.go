@@ -1037,7 +1037,7 @@ func (m *Model) cachedDetailPane(width, height int) string {
 		m.detailCacheHeight = 0
 		m.detailCacheOutput = ""
 		// Render empty state
-		return renderDetailPane(m, width, height)
+		return renderDetailPane(m, width)
 	}
 
 	project := visible[m.selected]
@@ -1055,7 +1055,7 @@ func (m *Model) cachedDetailPane(width, height int) string {
 	}
 
 	// Render fresh
-	output := renderDetailPane(m, width, height)
+	output := renderDetailPane(m, width)
 
 	// Update cache
 	m.detailCacheProjectID = project.ID

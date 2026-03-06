@@ -44,7 +44,7 @@ func renderInfoBar(m *Model, width int) string {
 	}
 
 	// Center: contextual keybindings
-	hints := panelKeyHints(m.focus.Active, m)
+	hints := panelKeyHints(m.focus.Active)
 	center := centerStyle.Render(hints)
 
 	// Layout: left ... center ... right
@@ -66,19 +66,15 @@ func renderInfoBar(m *Model, width int) string {
 
 	gap1 := max(1, (width-leftWidth-centerWidth-rightWidth)/2-leftWidth/2)
 	gap2 := max(1, width-leftWidth-gap1-centerWidth-rightWidth)
-	if gap1 < 0 {
-		gap1 = 0
-	}
-	if gap2 < 0 {
-		gap2 = 0
-	}
+	gap1 = max(gap1, 0)
+	gap2 = max(gap2, 0)
 
 	return left + strings.Repeat(" ", gap1) + center + strings.Repeat(" ", gap2) + right
 }
 
 // panelKeyHints returns a compact keybinding cheat-sheet for the focused panel.
 // These are intentionally terse — full help is available via '?'.
-func panelKeyHints(panel PanelID, m *Model) string {
+func panelKeyHints(panel PanelID) string {
 	switch panel {
 	case PanelProjects:
 		return "j/k nav · / search · f fav · t tab · e explorer · Enter pipelines · r refresh"

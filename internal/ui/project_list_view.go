@@ -231,7 +231,7 @@ func renderListPane(m Model, width, height int, focused bool) string {
 // latest pipeline status with stage breakdown, and recent commits.
 // Takes a pointer receiver because it reads from async caches that may
 // be populated by background commands.
-func renderDetailPane(m *Model, width, height int) string {
+func renderDetailPane(m *Model, width int) string {
 	b := &strings.Builder{}
 	b.WriteString(detailHeaderStyle.Render(clampLine("Details", width)))
 	b.WriteString("\n\n")
@@ -435,7 +435,7 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 // renderPipelineLogPane renders the right pane: job log output in a scrollable
 // viewport. The header shows [LIVE] when auto-following new output or [PAUSED]
 // when the user has scrolled away from the bottom.
-func renderPipelineLogPane(m Model, width, height int, focused bool) string {
+func renderPipelineLogPane(m Model, width int, focused bool) string {
 	b := &strings.Builder{}
 	title := "Log Preview"
 	job := m.pipelineLogJob()
@@ -579,7 +579,7 @@ func renderExplorerView(m Model, width int) string {
 	}
 	parentPane := renderPane(renderExplorerParents(m, parentInner, contentHeight, false), parentInner, contentHeight, false)
 	currentPane := renderPane(renderExplorerCurrent(m, currentInner, contentHeight, true), currentInner, contentHeight, true)
-	previewPane := renderPane(renderExplorerPreview(m, previewInner, contentHeight, false), previewInner, contentHeight, false)
+	previewPane := renderPane(renderExplorerPreview(m, previewInner, false), previewInner, contentHeight, false)
 	gap := renderPaneGap(paneGap, contentHeight+2)
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
@@ -656,7 +656,7 @@ func renderPipelineView(m Model, width int) string {
 	stagesFocused := m.pipelineView.focus == pipelineFocusStages
 	parentPane := renderPane(renderPipelineListPane(m, pipelineInner, contentHeight, pipelinesFocused), pipelineInner, contentHeight, pipelinesFocused)
 	currentPane := renderPane(renderPipelineStagesPane(m, stagesInner, contentHeight, stagesFocused), stagesInner, contentHeight, stagesFocused)
-	previewPane := renderPane(renderPipelineLogPane(m, logInner, contentHeight, false), logInner, contentHeight, false)
+	previewPane := renderPane(renderPipelineLogPane(m, logInner, false), logInner, contentHeight, false)
 	gap := renderPaneGap(paneGap, contentHeight+2)
 	return lipgloss.JoinHorizontal(lipgloss.Top, parentPane, gap, currentPane, gap, previewPane)
 }
@@ -836,7 +836,7 @@ func renderExplorerCurrent(m Model, width, height int, focused bool) string {
 
 // renderExplorerPreview renders the right pane: file content (syntax-highlighted
 // if possible) or directory listing in a scrollable viewport.
-func renderExplorerPreview(m Model, width, height int, focused bool) string {
+func renderExplorerPreview(m Model, width int, focused bool) string {
 	b := &strings.Builder{}
 	b.WriteString(paneHeaderStyle(focused).Render(clampLine("Preview", width)))
 	b.WriteString("\n")

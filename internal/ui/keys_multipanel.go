@@ -875,9 +875,7 @@ func (m Model) moveDiscussionSelection(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	newIdx := m.mrView.selectedDiscussion + delta
-	if newIdx < 0 {
-		newIdx = 0
-	}
+	newIdx = max(newIdx, 0)
 	if newIdx >= len(filtered) {
 		newIdx = len(filtered) - 1
 	}
@@ -922,7 +920,7 @@ func (m Model) refreshMRCommentsViewport() (tea.Model, tea.Cmd) {
 	m.setMRViewportContent(content)
 
 	// Scroll so the selected discussion is visible
-	startLine := discussionStartLine(discussions, w, m.mrView.selectedDiscussion)
+	startLine := discussionStartLine(discussions, m.mrView.selectedDiscussion)
 	vpHeight := m.mrView.mrViewport.Height
 	yOffset := m.mrView.mrViewport.YOffset
 	if startLine < yOffset {

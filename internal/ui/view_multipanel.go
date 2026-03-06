@@ -50,7 +50,7 @@ func renderSidebar(m *Model, layout layoutResult) string {
 		content := renderSidebarPanelContent(m, panelID, layout.SidebarWidth, h)
 		tabs, activeTab := panelTabs(panelID, m)
 		footer := panelFooter(panelID, m)
-		scroll := panelScrollInfo(panelID, m, h)
+		scroll := panelScrollInfo(panelID, m)
 		rendered := renderBorderedPane(content, layout.SidebarWidth+borderCharsH, h, focused, panelLabel(panelID), tabs, activeTab, footer, scroll)
 		panels = append(panels, rendered)
 	}
@@ -151,7 +151,7 @@ func renderRightArea(m *Model, layout layoutResult) string {
 	detailFocused := m.focus.Active == PanelDetail
 	detailTitle := detailPaneTitle(m)
 	detailTabs, detailActiveTab := detailPaneTabs(m)
-	scroll := detailScrollInfo(m, layout.DetailHeight)
+	scroll := detailScrollInfo(m)
 	return renderBorderedPane(detailContent, layout.DetailWidth+borderCharsH, layout.DetailHeight, detailFocused, detailTitle, detailTabs, detailActiveTab, "", scroll)
 }
 
@@ -183,9 +183,9 @@ func renderDetailContent(m *Model, width, height int) string {
 func renderPipelineDetailContent(m *Model, width, height int) string {
 	switch m.pipelineView.detailTab {
 	case detailTabTests:
-		return renderTestReportContent(m, width, height)
+		return renderTestReportContent(m, width)
 	case detailTabArtifacts:
-		return renderArtifactsContent(m, width, height)
+		return renderArtifactsContent(m, width)
 	default:
 		return renderPipelineLogContent(m, width, height)
 	}
@@ -242,7 +242,7 @@ func renderPipelineLogContent(m *Model, width, height int) string {
 }
 
 // renderTestReportContent renders the pipeline test report in the detail pane.
-func renderTestReportContent(m *Model, width, height int) string {
+func renderTestReportContent(m *Model, width int) string {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
 		return explorerHintStyle.Render(clampLine(" Select a pipeline", width))
@@ -305,7 +305,7 @@ func renderTestReportContent(m *Model, width, height int) string {
 }
 
 // renderArtifactsContent renders job artifacts in the detail pane.
-func renderArtifactsContent(m *Model, width, height int) string {
+func renderArtifactsContent(m *Model, width int) string {
 	job := m.pipelineLogJob()
 	if job == nil {
 		return explorerHintStyle.Render(clampLine(" Select a stage to view artifacts", width))
@@ -361,12 +361,12 @@ func renderMRDetailContent(m *Model, width, height int) string {
 	case mrDetailTabDiff:
 		return renderMRDiffPane(m, width, height)
 	default:
-		return renderMRInfoContent(m, width, height)
+		return renderMRInfoContent(m, width)
 	}
 }
 
 // renderMRInfoContent renders basic MR metadata (the original Info tab).
-func renderMRInfoContent(m *Model, width, height int) string {
+func renderMRInfoContent(m *Model, width int) string {
 	if len(m.mrView.mrs) == 0 || m.mrView.selected >= len(m.mrView.mrs) {
 		return explorerHintStyle.Render(clampLine(" Select a merge request", width))
 	}
@@ -505,7 +505,7 @@ func detailPaneTabs(m *Model) ([]string, int) {
 }
 
 // panelScrollInfo returns the scroll position for a sidebar panel.
-func panelScrollInfo(panel PanelID, m *Model, height int) scrollInfo {
+func panelScrollInfo(panel PanelID, m *Model) scrollInfo {
 	switch panel {
 	case PanelProjects:
 		return scrollInfo{offset: m.projectList.Index(), total: len(m.visibleProjects())}
@@ -521,7 +521,7 @@ func panelScrollInfo(panel PanelID, m *Model, height int) scrollInfo {
 }
 
 // detailScrollInfo returns the scroll position for the detail pane.
-func detailScrollInfo(m *Model, height int) scrollInfo {
+func detailScrollInfo(m *Model) scrollInfo {
 	switch detailContextPanel(m) {
 	case PanelPipelines, PanelStages:
 		vp := m.pipelineView.logViewport
