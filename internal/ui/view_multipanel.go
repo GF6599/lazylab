@@ -440,7 +440,7 @@ func renderMRDiffPane(m *Model, width, height int) string {
 		m.mrView.mrViewport.Width = width
 		m.mrView.mrViewport.Height = height
 		if widthChanged {
-			content := renderMRDiffText(diffs, width)
+			content := renderMRDiffText(diffs, width, m.mrView.diffCursor)
 			m.setMRViewportContent(content)
 		}
 	}

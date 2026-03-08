@@ -53,6 +53,15 @@ func mrTabStateString(t mrTab) string {
 	}
 }
 
+// diffLineInfo maps a rendered diff line back to its source file and line number.
+// Used to construct positioned comments from the diff cursor.
+type diffLineInfo struct {
+	fileIdx int  // index into []MRDiffFile
+	oldLine int  // 0 = not applicable (additions)
+	newLine int  // 0 = not applicable (deletions)
+	kind    byte // '+', '-', ' ' (context), '@' (hunk), 'H' (header), 'D' (divider)
+}
+
 // mrViewState holds all state for the MR panel and its detail tabs. Each
 // project gets its own mrViewState (reset when the project selection changes).
 // Discussions and diffs are cached per MR IID (via AsyncCache keyed by IID) to
@@ -76,6 +85,11 @@ type mrViewState struct {
 	mrViewport         viewport.Model
 	selectedDiscussion int // Index into filtered (non-system) discussions, not raw discussions
 	reply              mrReplyState
+
+	// Diff cursor state
+	diffLineMap []diffLineInfo
+	diffCursor  int
+	diffRefs    gitlab.MRDiffRefs // fetched alongside diffs for positioned comments
 }
 
 // mrReplyState holds state for the reply-to-discussion modal. The modal
@@ -90,6 +104,8 @@ type mrReplyState struct {
 	input        textarea.Model
 	sending      bool
 	err          error
+	isNew        bool                      // true = new discussion (not reply)
+	position     *gitlab.MRCommentPosition // non-nil = line-level comment
 }
 
 // selectedMR returns a pointer to the currently selected merge request,
@@ -242,15 +258,19 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx 
 
 // renderMRDiffText builds a styled unified diff view with per-line coloring
 // (green for additions, red for deletions, dimmed for hunk headers).
-// Width controls line truncation; pass 0 to skip.
-func renderMRDiffText(diffs []gitlab.MRDiffFile, width int) string {
+// Width controls line truncation; pass 0 to skip. cursorLine highlights the
+// specified rendered line index with a distinct background; pass -1 to disable.
+func renderMRDiffText(diffs []gitlab.MRDiffFile, width, cursorLine int) string {
 	if len(diffs) == 0 {
 		return explorerHintStyle.Render("No changes")
 	}
+	cursorBg := lipgloss.NewStyle().Background(rosePineHighlightMed)
+	lineNum := 0
 	var b strings.Builder
 	for i, d := range diffs {
 		if i > 0 {
 			b.WriteString("\n")
+			lineNum++
 		}
 		// File header with change type
 		var changeType string
@@ -270,12 +290,14 @@ func renderMRDiffText(diffs []gitlab.MRDiffFile, width int) string {
 		}
 		b.WriteString(detailHeaderStyle.Render(header))
 		b.WriteString("\n")
+		lineNum++
 		divW := 40
 		if width > 0 && width < divW {
 			divW = width
 		}
 		b.WriteString(detailDividerStyle.Render(strings.Repeat("─", divW)))
 		b.WriteString("\n")
+		lineNum++
 
 		// Render diff lines with color, truncating to viewport width
 		for line := range strings.SplitSeq(d.Diff, "\n") {
@@ -285,19 +307,25 @@ func renderMRDiffText(diffs []gitlab.MRDiffFile, width int) string {
 			if width > 0 {
 				line = ansi.Truncate(line, width, "…")
 			}
+			var styled string
 			switch {
 			case strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
-				b.WriteString(diffHunkStyle.Render(line))
+				styled = diffHunkStyle.Render(line)
 			case strings.HasPrefix(line, "+"):
-				b.WriteString(diffAddStyle.Render(line))
+				styled = diffAddStyle.Render(line)
 			case strings.HasPrefix(line, "-"):
-				b.WriteString(diffDelStyle.Render(line))
+				styled = diffDelStyle.Render(line)
 			case strings.HasPrefix(line, "@@"):
-				b.WriteString(diffHunkStyle.Render(line))
+				styled = diffHunkStyle.Render(line)
 			default:
-				b.WriteString(itemStyle.Render(line))
+				styled = itemStyle.Render(line)
 			}
+			if lineNum == cursorLine {
+				styled = cursorBg.Render(styled)
+			}
+			b.WriteString(styled)
 			b.WriteString("\n")
+			lineNum++
 		}
 	}
 	return b.String()
@@ -314,7 +342,18 @@ func renderMRReplyModal(m Model, width int) string {
 	}
 
 	b := &strings.Builder{}
-	b.WriteString(detailHeaderStyle.Render(clampLine("Reply to Discussion", innerWidth)))
+	title := "Reply to Discussion"
+	if m.mrView.reply.isNew {
+		if m.mrView.reply.position != nil {
+			title = fmt.Sprintf("Comment on %s:%d", m.mrView.reply.position.NewPath, m.mrView.reply.position.NewLine)
+			if m.mrView.reply.position.NewLine == 0 && m.mrView.reply.position.OldLine != 0 {
+				title = fmt.Sprintf("Comment on %s:%d", m.mrView.reply.position.OldPath, m.mrView.reply.position.OldLine)
+			}
+		} else {
+			title = "New Comment"
+		}
+	}
+	b.WriteString(detailHeaderStyle.Render(clampLine(title, innerWidth)))
 	b.WriteString("\n\n")
 
 	m.mrView.reply.input.SetWidth(innerWidth - 2)
@@ -378,6 +417,66 @@ func (m *Model) mrViewportWidth() int {
 		return 80
 	}
 	return w
+}
+
+// buildDiffLineMap creates a mapping from rendered line index to source file/line
+// info, mirroring the line-emission logic in renderMRDiffText.
+func buildDiffLineMap(diffs []gitlab.MRDiffFile) []diffLineInfo {
+	var m []diffLineInfo
+	for i, d := range diffs {
+		if i > 0 {
+			m = append(m, diffLineInfo{fileIdx: i, kind: 'D'}) // blank separator
+		}
+		// File header line
+		m = append(m, diffLineInfo{fileIdx: i, kind: 'H'})
+		// Divider line
+		m = append(m, diffLineInfo{fileIdx: i, kind: 'D'})
+		// Diff lines
+		oldLine, newLine := 0, 0
+		for _, line := range strings.Split(d.Diff, "\n") {
+			line = strings.ReplaceAll(line, "\r", "")
+			switch {
+			case strings.HasPrefix(line, "@@"):
+				// Parse hunk header for line numbers
+				oldLine, newLine = parseHunkHeader(line)
+				m = append(m, diffLineInfo{fileIdx: i, kind: '@', oldLine: oldLine, newLine: newLine})
+			case strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
+				m = append(m, diffLineInfo{fileIdx: i, kind: 'H'})
+			case strings.HasPrefix(line, "+"):
+				m = append(m, diffLineInfo{fileIdx: i, kind: '+', newLine: newLine})
+				newLine++
+			case strings.HasPrefix(line, "-"):
+				m = append(m, diffLineInfo{fileIdx: i, kind: '-', oldLine: oldLine})
+				oldLine++
+			default:
+				m = append(m, diffLineInfo{fileIdx: i, kind: ' ', oldLine: oldLine, newLine: newLine})
+				oldLine++
+				newLine++
+			}
+		}
+	}
+	return m
+}
+
+// parseHunkHeader extracts old and new starting line numbers from a unified diff hunk header.
+func parseHunkHeader(line string) (oldLine, newLine int) {
+	// Format: @@ -old,count +new,count @@
+	parts := strings.SplitN(line, "@@", 3)
+	if len(parts) < 2 {
+		return 1, 1
+	}
+	inner := strings.TrimSpace(parts[1])
+	fields := strings.Fields(inner)
+	for _, f := range fields {
+		if strings.HasPrefix(f, "-") {
+			nums := strings.SplitN(f[1:], ",", 2)
+			fmt.Sscanf(nums[0], "%d", &oldLine)
+		} else if strings.HasPrefix(f, "+") {
+			nums := strings.SplitN(f[1:], ",", 2)
+			fmt.Sscanf(nums[0], "%d", &newLine)
+		}
+	}
+	return oldLine, newLine
 }
 
 // setMRViewportContent normalizes and hard-wraps content to fit the MR viewport width.

@@ -566,6 +566,37 @@ func replyMRDiscussionCmd(parentCtx context.Context, client gitlab.Service, time
 	}
 }
 
+type mrDiffRefsLoadedMsg struct {
+	projectID int
+	mrIID     int
+	diffRefs  gitlab.MRDiffRefs
+	err       error
+}
+
+func fetchMRDiffRefsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, mrIID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		refs, err := client.GetMergeRequestDiffRefs(ctx, projectID, mrIID)
+		return mrDiffRefsLoadedMsg{projectID: projectID, mrIID: mrIID, diffRefs: refs, err: err}
+	}
+}
+
+type mrDiscussionCreatedMsg struct {
+	projectID int
+	mrIID     int
+	err       error
+}
+
+func createMRDiscussionCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, mrIID int, body string, pos *gitlab.MRCommentPosition) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		err := client.CreateMergeRequestDiscussion(ctx, projectID, mrIID, body, pos)
+		return mrDiscussionCreatedMsg{projectID: projectID, mrIID: mrIID, err: err}
+	}
+}
+
 func fetchMRDiffsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, mrIID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)

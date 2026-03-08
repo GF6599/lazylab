@@ -748,6 +748,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMRDiscussionResolved(msg)
 	case mrDiscussionReplyMsg:
 		return m.handleMRDiscussionReply(msg)
+	case mrDiscussionCreatedMsg:
+		return m.handleMRDiscussionCreated(msg)
+	case mrDiffRefsLoadedMsg:
+		return m.handleMRDiffRefsLoaded(msg)
 	case pipelineCanceledMsg:
 		return m.handlePipelineCanceled(msg)
 	case jobCanceledMsg:

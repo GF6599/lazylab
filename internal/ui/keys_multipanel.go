@@ -723,6 +723,8 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mrView.selected = 0
 		m.mrView.detailTab = mrDetailTabInfo
 		return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage)
+	case "c":
+		return m.openMRNewCommentModal()
 	case "ctrl+o":
 		m.copyMRURL()
 	}
@@ -766,6 +768,8 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.toggleDiscussionResolved()
 		case "enter":
 			return m.openMRReplyModal()
+		case "c":
+			return m.openMRNewCommentModal()
 		case "t":
 			return m.cycleDetailTab()
 		case "T":
@@ -777,6 +781,8 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	isMRDiff := isMR && m.mrView.detailTab == mrDetailTabDiff
+
 	switch key {
 	case "left", "h":
 		m.focus.Active = m.focus.PrevActive
@@ -786,7 +792,9 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus.Active = PanelProjects
 		return m, nil
 	case "down", "j":
-		if isMR {
+		if isMRDiff {
+			return m.moveDiffCursor(1)
+		} else if isMR {
 			m.mrView.mrViewport.ScrollDown(1)
 		} else {
 			m.pipelineView.logViewport.ScrollDown(1)
@@ -794,7 +802,9 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "up", "k":
-		if isMR {
+		if isMRDiff {
+			return m.moveDiffCursor(-1)
+		} else if isMR {
 			m.mrView.mrViewport.ScrollUp(1)
 		} else {
 			m.pipelineView.logViewport.ScrollUp(1)
@@ -818,7 +828,9 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "<", "g":
-		if isMR {
+		if isMRDiff {
+			return m.moveDiffCursorTo(0)
+		} else if isMR {
 			m.mrView.mrViewport.GotoTop()
 		} else {
 			m.pipelineView.logViewport.GotoTop()
@@ -826,13 +838,21 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case ">", "G":
-		if isMR {
+		if isMRDiff && len(m.mrView.diffLineMap) > 0 {
+			return m.moveDiffCursorTo(len(m.mrView.diffLineMap) - 1)
+		} else if isMR {
 			m.mrView.mrViewport.GotoBottom()
 		} else {
 			m.pipelineView.logViewport.GotoBottom()
 			m.pipelineView.logAutoFollow = true
 		}
 		return m, nil
+	case "c":
+		if isMRDiff {
+			return m.openMRDiffCommentModal()
+		} else if isMR {
+			return m.openMRNewCommentModal()
+		}
 	case "t":
 		return m.cycleDetailTab()
 	case "T":
@@ -1006,8 +1026,90 @@ func (m Model) openMRReplyModal() (tea.Model, tea.Cmd) {
 	}
 	disc := filtered[m.mrView.selectedDiscussion]
 
+	ta := m.newMRTextarea("Type your reply...")
+	m.mrView.reply = mrReplyState{
+		active:       true,
+		discussionID: disc.ID,
+		projectID:    m.mrView.project.ID,
+		mrIID:        mr.IID,
+		input:        ta,
+	}
+	return m, textarea.Blink
+}
+
+// openMRNewCommentModal opens a textarea modal for creating a general comment.
+func (m Model) openMRNewCommentModal() (tea.Model, tea.Cmd) {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return m, nil
+	}
+
+	ta := m.newMRTextarea("Type your comment...")
+	m.mrView.reply = mrReplyState{
+		active:    true,
+		projectID: m.mrView.project.ID,
+		mrIID:     mr.IID,
+		input:     ta,
+		isNew:     true,
+	}
+	return m, textarea.Blink
+}
+
+// openMRDiffCommentModal opens a textarea modal for creating a line-level diff comment.
+func (m Model) openMRDiffCommentModal() (tea.Model, tea.Cmd) {
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return m, nil
+	}
+	if len(m.mrView.diffLineMap) == 0 {
+		m.status = "No diff lines available"
+		return m, nil
+	}
+	if m.mrView.diffCursor < 0 || m.mrView.diffCursor >= len(m.mrView.diffLineMap) {
+		m.status = "Cursor out of range"
+		return m, nil
+	}
+	info := m.mrView.diffLineMap[m.mrView.diffCursor]
+	if info.kind != '+' && info.kind != '-' && info.kind != ' ' {
+		m.status = "Cannot comment on this line (select a code line)"
+		return m, nil
+	}
+
+	diffs, ok := m.mrView.diffs.Get(mr.IID)
+	if !ok || info.fileIdx >= len(diffs) {
+		m.status = "Diff data not available"
+		return m, nil
+	}
+	d := diffs[info.fileIdx]
+
+	if m.mrView.diffRefs.BaseSHA == "" {
+		m.status = "Diff refs not loaded yet — try again shortly"
+		return m, nil
+	}
+	pos := &gitlab.MRCommentPosition{
+		OldPath:  d.OldPath,
+		NewPath:  d.NewPath,
+		OldLine:  info.oldLine,
+		NewLine:  info.newLine,
+		DiffRefs: m.mrView.diffRefs,
+	}
+
+	ta := m.newMRTextarea("Type your comment...")
+	m.mrView.reply = mrReplyState{
+		active:    true,
+		projectID: m.mrView.project.ID,
+		mrIID:     mr.IID,
+		input:     ta,
+		isNew:     true,
+		position:  pos,
+	}
+	return m, textarea.Blink
+}
+
+// newMRTextarea creates a styled textarea for MR comment/reply modals.
+func (m Model) newMRTextarea(placeholder string) textarea.Model {
 	ta := textarea.New()
-	ta.Placeholder = "Type your reply..."
+	ta.Placeholder = placeholder
 	ta.SetWidth(50)
 	ta.SetHeight(5)
 	ta.FocusedStyle.Base = lipgloss.NewStyle().Foreground(rosePineText)
@@ -1017,15 +1119,46 @@ func (m Model) openMRReplyModal() (tea.Model, tea.Cmd) {
 	ta.Cursor.Style = lipgloss.NewStyle().Foreground(rosePineFoam)
 	ta.BlurredStyle = ta.FocusedStyle
 	ta.Focus()
+	return ta
+}
 
-	m.mrView.reply = mrReplyState{
-		active:       true,
-		discussionID: disc.ID,
-		projectID:    m.mrView.project.ID,
-		mrIID:        mr.IID,
-		input:        ta,
+// moveDiffCursor moves the diff cursor by delta, re-renders, and scrolls to keep visible.
+func (m Model) moveDiffCursor(delta int) (tea.Model, tea.Cmd) {
+	if len(m.mrView.diffLineMap) == 0 {
+		return m, nil
 	}
-	return m, textarea.Blink
+	newCursor := m.mrView.diffCursor + delta
+	newCursor = max(newCursor, 0)
+	newCursor = min(newCursor, len(m.mrView.diffLineMap)-1)
+	if newCursor == m.mrView.diffCursor {
+		return m, nil
+	}
+	return m.moveDiffCursorTo(newCursor)
+}
+
+// moveDiffCursorTo sets the diff cursor to a specific position, re-renders, and scrolls.
+func (m Model) moveDiffCursorTo(pos int) (tea.Model, tea.Cmd) {
+	m.mrView.diffCursor = pos
+	mr := m.mrView.selectedMR()
+	if mr == nil {
+		return m, nil
+	}
+	diffs, ok := m.mrView.diffs.Get(mr.IID)
+	if !ok {
+		return m, nil
+	}
+	content := renderMRDiffText(diffs, m.mrViewportWidth(), m.mrView.diffCursor)
+	m.setMRViewportContent(content)
+
+	// Scroll viewport to keep cursor visible
+	vpHeight := m.mrView.mrViewport.Height
+	yOffset := m.mrView.mrViewport.YOffset
+	if m.mrView.diffCursor < yOffset {
+		m.mrView.mrViewport.SetYOffset(m.mrView.diffCursor)
+	} else if m.mrView.diffCursor >= yOffset+vpHeight {
+		m.mrView.mrViewport.SetYOffset(m.mrView.diffCursor - vpHeight + 1)
+	}
+	return m, nil
 }
 
 // handleMRReplyKey handles keys when the MR reply modal is active.
@@ -1040,11 +1173,21 @@ func (m Model) handleMRReplyKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+s":
 		body := strings.TrimSpace(m.mrView.reply.input.Value())
 		if body == "" {
-			m.mrView.reply.err = fmt.Errorf("reply cannot be empty")
+			m.mrView.reply.err = fmt.Errorf("comment cannot be empty")
 			return m, nil
 		}
 		m.mrView.reply.sending = true
 		m.mrView.reply.err = nil
+		if m.mrView.reply.isNew {
+			m.status = "Posting comment..."
+			return m, createMRDiscussionCmd(
+				m.ctx, m.client, m.opts.APITimeout,
+				m.mrView.reply.projectID,
+				m.mrView.reply.mrIID,
+				body,
+				m.mrView.reply.position,
+			)
+		}
 		m.status = "Sending reply..."
 		return m, replyMRDiscussionCmd(
 			m.ctx, m.client, m.opts.APITimeout,
@@ -1132,7 +1275,7 @@ func (m Model) setMRDetailTab(tab mrDetailTab) (tea.Model, tea.Cmd) {
 			return m, fetchMRDiffsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mr.IID)
 		}
 		if diffs, ok := m.mrView.diffs.Get(mr.IID); ok {
-			m.setMRViewportContent(renderMRDiffText(diffs, m.mrViewportWidth()))
+			m.setMRViewportContent(renderMRDiffText(diffs, m.mrViewportWidth(), m.mrView.diffCursor))
 			m.mrView.mrViewport.GotoTop()
 		}
 	}

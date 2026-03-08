@@ -768,15 +768,20 @@ func (m Model) handleMRDiffsLoaded(msg mrDiffsLoadedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mrView.diffs.Set(msg.mrIID, msg.diffs)
+	m.mrView.diffCursor = 0
+	m.mrView.diffLineMap = buildDiffLineMap(msg.diffs)
+	var cmd tea.Cmd
 	if m.mrView.detailTab == mrDetailTabDiff {
 		mr := m.mrView.selectedMR()
 		if mr != nil && mr.IID == msg.mrIID {
-			content := renderMRDiffText(msg.diffs, m.mrViewportWidth())
+			content := renderMRDiffText(msg.diffs, m.mrViewportWidth(), m.mrView.diffCursor)
 			m.setMRViewportContent(content)
 			m.mrView.mrViewport.GotoTop()
 		}
 	}
-	return m, nil
+	// Fetch diff refs for positioned comments
+	cmd = fetchMRDiffRefsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, msg.mrIID)
+	return m, cmd
 }
 
 func (m Model) handleMRsLoaded(msg mrsLoadedMsg) (tea.Model, tea.Cmd) {
@@ -992,6 +997,39 @@ func (m Model) handleMRDiscussionReply(msg mrDiscussionReplyMsg) (tea.Model, tea
 	// Close modal and re-fetch discussions to show the new reply
 	m.mrView.reply = mrReplyState{}
 	m.status = "Reply sent"
+	m.mrView.discussions.SetLoading(msg.mrIID)
+	return m, fetchMRDiscussionsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, msg.mrIID)
+}
+
+func (m Model) handleMRDiffRefsLoaded(msg mrDiffRefsLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		if m.opts.Logger != nil {
+			m.opts.Logger.Error("load MR diff refs", "err", msg.err, "mr", msg.mrIID)
+		}
+		return m, nil
+	}
+	mr := m.mrView.selectedMR()
+	if mr != nil && mr.IID == msg.mrIID {
+		m.mrView.diffRefs = msg.diffRefs
+	}
+	return m, nil
+}
+
+func (m Model) handleMRDiscussionCreated(msg mrDiscussionCreatedMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.mrView.reply.sending = false
+		m.mrView.reply.err = msg.err
+		m.status = fmt.Sprintf("Failed to post comment: %v", msg.err)
+		return m, nil
+	}
+	m.mrView.reply = mrReplyState{}
+	m.status = "Comment posted"
 	m.mrView.discussions.SetLoading(msg.mrIID)
 	return m, fetchMRDiscussionsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, msg.mrIID)
 }
