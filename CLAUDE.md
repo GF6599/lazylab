@@ -111,7 +111,7 @@ Key message types in `internal/ui/project_list_cmds.go`:
 - `project_list_view.go`: All rendering functions (project list, explorer, pipelines, modals)
 - `project_list_style.go`: Lipgloss styles and color definitions
 - `project_list_helpers.go`: Pure helper functions (formatting, scrolling, selection)
-- `cache.go`: Project list caching under `~/.cache/lazylab/projects_<host>.json`
+- `cache.go`: Project list caching under `<os-cache-dir>/lazylab/projects_<host>.json`
 
 **GitLab Client** (`internal/gitlab/client.go`):
 - Wraps `gitlab.com/gitlab-org/api/client-go` with TUI-friendly types
@@ -126,7 +126,7 @@ Key message types in `internal/ui/project_list_cmds.go`:
 
 ### Caching Strategy
 
-On first run, the app fetches page 1 of projects in the foreground, then background-loads remaining pages. All projects are cached to `~/.cache/lazylab/projects_<host>.json` keyed by GitLab host.
+On first run, the app fetches page 1 of projects in the foreground, then background-loads remaining pages. All projects are cached to `<os-cache-dir>/lazylab/projects_<host>.json` (`~/Library/Caches` on macOS, `~/.cache` on Linux) keyed by GitLab host.
 
 Subsequent launches:
 1. `Init()` tries cache load first
@@ -237,7 +237,7 @@ When adding features or fixing bugs:
 - **Commit Style**: Use Conventional Commits (`feat:`, `fix:`, `refactor:`)
 - **Testing**: Aim for >80% coverage on `internal/gitlab` (it hides API failure modes)
 - **Test Naming**: `Test<Component>_<Behavior>` (e.g., `TestCache_SaveAndLoad`)
-- **Caching**: Store under `~/.cache/lazylab/` and document paths for users
+- **Caching**: Store under `<os-cache-dir>/lazylab/` (via `os.UserCacheDir`) and document paths for users
 - **Token Security**: Never log or display tokens; redact in log output
 
 ### Testing Guidelines
@@ -259,5 +259,5 @@ For UI tests:
 - **Go Version**: Requires Go 1.24+
 - **Dependencies**: Managed via `go.mod`; run `go mod tidy` after adding deps
 - **Cross-compilation**: `just build` creates binaries for Darwin (current arch) and Linux AMD64
-- **Cache Location**: `~/.cache/lazylab/projects_<host>.json` (users can delete to force refresh)
+- **Cache Location**: `<os-cache-dir>/lazylab/` — `~/Library/Caches` on macOS, `~/.cache` on Linux (users can delete to force refresh)
 - **Logs**: Emitted to stderr in text format (safe for TUI rendering on alternate screen)

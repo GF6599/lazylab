@@ -1,10 +1,11 @@
 // favorites.go persists per-host favorite project IDs to disk.
 //
-// Favorites are stored at ~/.cache/lazylab/favorites_<host>.json, using the
-// same host-keyed strategy as the project cache so each GitLab instance has
-// its own set. The file format is versioned (favoritesVersion) for forward
-// compatibility. Writes use the same atomic temp+rename pattern as cache.go
-// to prevent corruption.
+// Favorites are stored under the OS cache directory (os.UserCacheDir) in a
+// "lazylab" subdirectory as favorites_<host>.json, using the same host-keyed
+// strategy as the project cache so each GitLab instance has its own set. The
+// file format is versioned (favoritesVersion) for forward compatibility.
+// Writes use the same atomic temp+rename pattern as cache.go to prevent
+// corruption.
 //
 // The on-disk slice preserves user-defined ordering so favorites can be
 // reordered in the TUI and the order persists across sessions. Callers
@@ -38,13 +39,9 @@ type favoritesFile struct {
 // newFavoritesStore initializes the cache directory and returns a store
 // scoped to the given GitLab host.
 func newFavoritesStore(host string) (*favoritesStore, error) {
-	base, err := os.UserCacheDir()
+	dir, err := ensureCacheDir()
 	if err != nil {
-		return nil, fmt.Errorf("user cache dir: %w", err)
-	}
-	dir := filepath.Join(base, "lazylab")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("create cache dir: %w", err)
+		return nil, err
 	}
 	name := fmt.Sprintf("favorites_%s.json", sanitizeHost(host))
 	return &favoritesStore{

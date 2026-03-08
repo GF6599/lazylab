@@ -19,7 +19,7 @@ Navigate your GitLab instance the way lazygit navigates git: with a multi-panel 
 - **Favorites**: Mark projects with `f` for quick access via the Favorites tab; persisted across sessions
 - **Explorer mode**: Yazi/ranger-inspired file browser with syntax-highlighted preview pane
 - **Project search**: Fuzzy search across all projects with `/`
-- **Persistent cache**: Project list cached under `~/.cache/lazylab/` for instant startup
+- **Persistent cache**: Project list cached in the system cache directory for instant startup
 - **Layout modes**: Toggle between default (30/70) and wide (50/50) sidebar-to-detail split with `+`; cycle accordion sizing with `=`
 
 ## Installation
@@ -166,8 +166,8 @@ Config files can be YAML, TOML, or JSON (parsed by Viper).
 
 ### Caching
 
-- **Project list**: Cached under `~/.cache/lazylab/projects_<host>.json` for instant startup. Use `Ctrl+R` to force refresh.
-- **Favorites**: Persisted under `~/.cache/lazylab/favorites_<host>.json`.
+- **Project list**: Cached at `<os-cache-dir>/lazylab/projects_<host>.json` for instant startup (`~/Library/Caches` on macOS, `~/.cache` on Linux). Use `Ctrl+R` to force refresh.
+- **Favorites**: Persisted at `<os-cache-dir>/lazylab/favorites_<host>.json`.
 - **Pipeline status**: In-memory LRU cache (last 100 projects) with 5-second refresh interval.
 
 ## Development

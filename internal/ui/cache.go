@@ -1,9 +1,11 @@
 // cache.go persists the project list to disk so subsequent launches feel instant.
 //
-// The cache lives at ~/.cache/lazylab/projects_<host>.json, keyed by GitLab host
-// to support multiple instances. It uses a versioned envelope (cacheVersion) so
-// that incompatible schema changes silently invalidate stale files rather than
-// crashing. A 24-hour TTL forces periodic refresh without manual intervention.
+// The cache lives under the OS cache directory (os.UserCacheDir) in a "lazylab"
+// subdirectory — e.g. ~/Library/Caches/lazylab on macOS, ~/.cache/lazylab on
+// Linux. Files are keyed by GitLab host to support multiple instances. The format
+// uses a versioned envelope (cacheVersion) so that incompatible schema changes
+// silently invalidate stale files rather than crashing. A 24-hour TTL forces
+// periodic refresh without manual intervention.
 //
 // Writes use an atomic temp-file-then-rename strategy: data is written to a
 // temporary file in the same directory, then os.Rename swaps it in. This
@@ -31,6 +33,19 @@ const (
 
 var errCacheNotFound = errors.New("cache not found")
 
+// ensureCacheDir returns the lazylab cache directory path, creating it if needed.
+func ensureCacheDir() (string, error) {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("user cache dir: %w", err)
+	}
+	dir := filepath.Join(base, "lazylab")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create cache dir: %w", err)
+	}
+	return dir, nil
+}
+
 // projectCache manages read/write access to the on-disk project list cache
 // for a single GitLab host.
 type projectCache struct {
@@ -47,18 +62,12 @@ type cacheFile struct {
 	Projects []gitlab.ProjectNode `json:"projects"`
 }
 
-// newProjectCache initializes the cache directory (~/.cache/lazylab/) and
-// returns a handle scoped to the given GitLab host. The directory is created
-// with 0700 permissions to avoid exposing cached project metadata to other users.
+// newProjectCache initializes the cache directory and returns a handle scoped
+// to the given GitLab host.
 func newProjectCache(host string) (*projectCache, error) {
-	base, err := os.UserCacheDir()
+	dir, err := ensureCacheDir()
 	if err != nil {
-		return nil, fmt.Errorf("user cache dir: %w", err)
-	}
-	dir := filepath.Join(base, "lazylab")
-	// Use 0o700 for cache directory (user-only access) for security
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("create cache dir: %w", err)
+		return nil, err
 	}
 	name := fmt.Sprintf("projects_%s.json", sanitizeHost(host))
 	return &projectCache{
