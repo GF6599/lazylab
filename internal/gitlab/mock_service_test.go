@@ -26,6 +26,8 @@ type MockService struct {
 	ListProjectCommitsFn            func(ctx context.Context, projectID int, ref string, limit int) ([]CommitSummary, error)
 	ResolveMergeRequestDiscussionFn func(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error
 	AddMergeRequestDiscussionNoteFn func(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
+	CreateMergeRequestDiscussionFn  func(ctx context.Context, projectID, mrIID int, body string, pos *MRCommentPosition) error
+	GetMergeRequestDiffRefsFn       func(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error)
 }
 
 // Compile-time check: MockService implements Service.
@@ -176,4 +178,18 @@ func (m *MockService) AddMergeRequestDiscussionNote(ctx context.Context, project
 		return m.AddMergeRequestDiscussionNoteFn(ctx, projectID, mrIID, discussionID, body)
 	}
 	return nil
+}
+
+func (m *MockService) CreateMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, body string, pos *MRCommentPosition) error {
+	if m.CreateMergeRequestDiscussionFn != nil {
+		return m.CreateMergeRequestDiscussionFn(ctx, projectID, mrIID, body, pos)
+	}
+	return nil
+}
+
+func (m *MockService) GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error) {
+	if m.GetMergeRequestDiffRefsFn != nil {
+		return m.GetMergeRequestDiffRefsFn(ctx, projectID, mrIID)
+	}
+	return MRDiffRefs{}, nil
 }

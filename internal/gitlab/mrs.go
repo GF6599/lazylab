@@ -141,6 +141,51 @@ func (c *Client) AddMergeRequestDiscussionNote(ctx context.Context, projectID, m
 	return nil
 }
 
+// GetMergeRequestDiffRefs fetches the diff refs (base, head, start SHAs) for a
+// merge request. These are needed to create line-level positioned comments.
+func (c *Client) GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error) {
+	mr, _, err := c.api.MergeRequests.GetMergeRequest(projectID, mrIID, nil, gl.WithContext(ctx))
+	if err != nil {
+		return MRDiffRefs{}, fmt.Errorf("get MR diff refs: %w", err)
+	}
+	return MRDiffRefs{
+		BaseSHA:  mr.DiffRefs.BaseSha,
+		HeadSHA:  mr.DiffRefs.HeadSha,
+		StartSHA: mr.DiffRefs.StartSha,
+	}, nil
+}
+
+// CreateMergeRequestDiscussion creates a new discussion on a merge request.
+// When pos is nil, a general comment is created. When pos is non-nil, a
+// line-level diff comment is created anchored to the specified file and line.
+func (c *Client) CreateMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, body string, pos *MRCommentPosition) error {
+	opts := gl.CreateMergeRequestDiscussionOptions{
+		Body: gl.Ptr(body),
+	}
+	if pos != nil {
+		posOpts := &gl.PositionOptions{
+			PositionType: gl.Ptr("text"),
+			BaseSHA:      gl.Ptr(pos.DiffRefs.BaseSHA),
+			HeadSHA:      gl.Ptr(pos.DiffRefs.HeadSHA),
+			StartSHA:     gl.Ptr(pos.DiffRefs.StartSHA),
+			OldPath:      gl.Ptr(pos.OldPath),
+			NewPath:      gl.Ptr(pos.NewPath),
+		}
+		if pos.OldLine != 0 {
+			posOpts.OldLine = gl.Ptr(pos.OldLine)
+		}
+		if pos.NewLine != 0 {
+			posOpts.NewLine = gl.Ptr(pos.NewLine)
+		}
+		opts.Position = posOpts
+	}
+	_, _, err := c.api.Discussions.CreateMergeRequestDiscussion(projectID, mrIID, &opts, gl.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("create MR discussion: %w", err)
+	}
+	return nil
+}
+
 // ListMergeRequestDiffs returns every changed file (across all pages) in a
 // merge request. The Diff field contains the unified diff text; NewFile,
 // RenamedFile, and DeletedFile flags indicate the change type.

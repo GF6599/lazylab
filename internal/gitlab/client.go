@@ -90,6 +90,8 @@ type Service interface {
 	ListProjectCommits(ctx context.Context, projectID int, ref string, limit int) ([]CommitSummary, error)
 	ResolveMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error
 	AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
+	CreateMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, body string, pos *MRCommentPosition) error
+	GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error)
 }
 
 // Verify at compile time that *Client satisfies Service.
@@ -212,6 +214,24 @@ type PipelineVariable struct {
 	Key          string
 	Value        string
 	VariableType string
+}
+
+// MRDiffRefs captures the three SHAs that anchor a merge request diff.
+// These are required when creating line-level (positioned) discussion comments.
+type MRDiffRefs struct {
+	BaseSHA  string
+	HeadSHA  string
+	StartSHA string
+}
+
+// MRCommentPosition describes the file and line to anchor a diff comment on.
+// Used with CreateMergeRequestDiscussion to create line-level comments.
+type MRCommentPosition struct {
+	OldPath  string
+	NewPath  string
+	OldLine  int
+	NewLine  int
+	DiffRefs MRDiffRefs
 }
 
 // MergeRequestSummary represents a merge request in a project. IID is the
