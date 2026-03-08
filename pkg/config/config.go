@@ -37,6 +37,8 @@ const (
 	FlagConfig = "config"
 	// FlagLogLevel chooses the log level emitted to stderr.
 	FlagLogLevel = "log-level"
+	// FlagDemo enables demo mode with fake data (no token required).
+	FlagDemo = "demo"
 
 	defaultHost            = "https://gitlab.com"
 	defaultProjectsPerPage = 30
@@ -52,6 +54,8 @@ type Config struct {
 	Token           string
 	ProjectsPerPage int
 	LogLevel        string
+	// Demo enables demo mode with fake data and no token requirement.
+	Demo bool
 	// ConfigFile records which file was loaded, if any. Empty when
 	// configuration came entirely from flags, env vars, and defaults.
 	ConfigFile string
@@ -67,6 +71,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int(FlagProjectsPerPage, 0, "Number of projects to request per page")
 	fs.String(FlagConfig, "", "Optional config file (YAML, TOML, JSON)")
 	fs.String(FlagLogLevel, "", "Log level: debug, info, warn, error")
+	fs.Bool(FlagDemo, false, "Run in demo mode with fake data (no token required)")
 }
 
 // Load merges configuration from defaults, an optional config file,
@@ -111,6 +116,19 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 
 	overrideFromFlags(fs, &cfg)
 
+	if cfg.Demo {
+		if cfg.Host == "" {
+			cfg.Host = defaultHost
+		}
+		if cfg.LogLevel == "" {
+			cfg.LogLevel = defaultLogLevel
+		}
+		if cfg.ProjectsPerPage <= 0 {
+			cfg.ProjectsPerPage = defaultProjectsPerPage
+		}
+		return cfg, nil
+	}
+
 	if cfg.Host == "" {
 		cfg.Host = defaultHost
 	}
@@ -153,6 +171,9 @@ func overrideFromFlags(fs *pflag.FlagSet, cfg *Config) {
 	}
 	if fs.Changed(FlagConfig) {
 		cfg.ConfigFile, _ = fs.GetString(FlagConfig)
+	}
+	if fs.Changed(FlagDemo) {
+		cfg.Demo, _ = fs.GetBool(FlagDemo)
 	}
 }
 

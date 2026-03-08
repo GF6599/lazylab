@@ -17,17 +17,30 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/pflag"
 
+	"github.com/GF6599/lazylab/internal/demo"
 	"github.com/GF6599/lazylab/internal/gitlab"
 	"github.com/GF6599/lazylab/internal/ui"
 	"github.com/GF6599/lazylab/pkg/config"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	fs := pflag.NewFlagSet("lazylab", pflag.ExitOnError)
 	config.RegisterFlags(fs)
+	fs.BoolP("version", "v", false, "Print version and exit")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "parse flags:", err)
 		os.Exit(1)
+	}
+
+	if v, _ := fs.GetBool("version"); v {
+		fmt.Printf("lazylab %s (commit: %s, built: %s)\n", version, commit, date)
+		return
 	}
 
 	cfg, err := config.Load(fs)
@@ -45,10 +58,17 @@ func main() {
 	baseHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	logger := slog.New(ui.NewRedactingHandler(baseHandler))
 
-	client, err := gitlab.NewClient(cfg.Token, cfg.Host)
-	if err != nil {
-		logger.Error("create gitlab client", "err", err)
-		os.Exit(1)
+	var client gitlab.Service
+	if cfg.Demo {
+		client = &demo.DemoService{}
+		cfg.Host = "https://demo.gitlab.example.com"
+	} else {
+		c, err := gitlab.NewClient(cfg.Token, cfg.Host)
+		if err != nil {
+			logger.Error("create gitlab client", "err", err)
+			os.Exit(1)
+		}
+		client = c
 	}
 
 	model := ui.NewModel(client, ui.Options{ProjectsPerPage: cfg.ProjectsPerPage, Logger: logger, Host: cfg.Host})
