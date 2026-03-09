@@ -125,7 +125,7 @@ func TestLoad_InvalidHost(t *testing.T) {
 		host string
 		want string
 	}{
-		{"no scheme", "gitlab.com", "http or https"},
+		{"no scheme", "gitlab.com", "must include a scheme"},
 		{"ftp scheme", "ftp://gitlab.com", "http or https"},
 	}
 	for _, tt := range tests {

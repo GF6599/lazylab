@@ -194,6 +194,9 @@ func validateHostURL(host string) error {
 	if err != nil {
 		return fmt.Errorf("invalid host URL %q: %w", host, err)
 	}
+	if u.Scheme == "" {
+		return fmt.Errorf("host URL must include a scheme (e.g., https://%s)", host)
+	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("host URL must use http or https scheme, got %q", u.Scheme)
 	}
