@@ -102,7 +102,7 @@ func (m Model) handleMRDiscussionResolved(msg mrDiscussionResolvedMsg) (tea.Mode
 			content := renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion)
 			m.setMRViewportContent(content)
 		}
-		m.status = fmt.Sprintf("Failed to resolve discussion: %v", msg.err)
+		m.status = fmt.Sprintf("Failed to resolve discussion: %v", RedactToken(msg.err.Error()))
 		return m, nil
 	}
 	if msg.resolved {
@@ -120,7 +120,7 @@ func (m Model) handleMRDiscussionReply(msg mrDiscussionReplyMsg) (tea.Model, tea
 	if msg.err != nil {
 		m.mrView.reply.sending = false
 		m.mrView.reply.err = msg.err
-		m.status = fmt.Sprintf("Failed to send reply: %v", msg.err)
+		m.status = fmt.Sprintf("Failed to send reply: %v", RedactToken(msg.err.Error()))
 		return m, nil
 	}
 	// Close modal and re-fetch discussions to show the new reply
@@ -152,7 +152,7 @@ func (m Model) handleMRDiscussionCreated(msg mrDiscussionCreatedMsg) (tea.Model,
 	if msg.err != nil {
 		m.mrView.reply.sending = false
 		m.mrView.reply.err = msg.err
-		m.status = fmt.Sprintf("Failed to post comment: %v", msg.err)
+		m.status = fmt.Sprintf("Failed to post comment: %v", RedactToken(msg.err.Error()))
 		return m, nil
 	}
 	m.mrView.reply = mrReplyState{}

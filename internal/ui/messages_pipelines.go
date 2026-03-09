@@ -290,7 +290,7 @@ func (m Model) handlePipelineCanceled(msg pipelineCanceledMsg) (tea.Model, tea.C
 		return m, nil
 	}
 	if msg.err != nil {
-		m.status = fmt.Sprintf("Failed to cancel pipeline #%d: %v", msg.pipelineID, msg.err)
+		m.status = fmt.Sprintf("Failed to cancel pipeline #%d: %v", msg.pipelineID, RedactToken(msg.err.Error()))
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Canceled pipeline #%d", msg.pipelineID)
@@ -302,7 +302,7 @@ func (m Model) handleJobCanceled(msg jobCanceledMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.err != nil {
-		m.status = fmt.Sprintf("Failed to cancel job #%d: %v", msg.jobID, msg.err)
+		m.status = fmt.Sprintf("Failed to cancel job #%d: %v", msg.jobID, RedactToken(msg.err.Error()))
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Canceled job #%d", msg.jobID)
@@ -314,7 +314,7 @@ func (m Model) handleJobPlayed(msg jobPlayedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.err != nil {
-		m.status = fmt.Sprintf("Failed to play job #%d: %v", msg.jobID, msg.err)
+		m.status = fmt.Sprintf("Failed to play job #%d: %v", msg.jobID, RedactToken(msg.err.Error()))
 		return m, nil
 	}
 	if msg.job.Name != "" {

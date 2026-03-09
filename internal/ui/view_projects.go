@@ -74,7 +74,7 @@ func renderListPane(m Model, width, height int, focused bool) string {
 	bottomLines := make([]string, 0, 5)
 	switch {
 	case m.err != nil:
-		bottomLines = append(bottomLines, errorStyle.Render(clampLine(" "+m.err.Error(), width)))
+		bottomLines = append(bottomLines, errorStyle.Render(clampLine(" "+RedactToken(m.err.Error()), width)))
 	case len(m.allProjects) == 0 && !m.loading:
 		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(" No projects found.", width)))
 	case m.loading && len(m.allProjects) == 0:
