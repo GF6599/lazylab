@@ -90,7 +90,11 @@ func (c *Client) ListMergeRequestDiscussions(ctx context.Context, projectID, mrI
 				Resolvable: n.Resolvable,
 				Resolved:   n.Resolved,
 			}
-			note.Author = n.Author.Name
+			// Author is a value struct in client-go; zero value (empty Name)
+			// occurs for system notes or notes from deleted users.
+			if n.Author.Name != "" {
+				note.Author = n.Author.Name
+			}
 			if n.CreatedAt != nil {
 				note.CreatedAt = *n.CreatedAt
 			}
@@ -143,10 +147,16 @@ func (c *Client) AddMergeRequestDiscussionNote(ctx context.Context, projectID, m
 
 // GetMergeRequestDiffRefs fetches the diff refs (base, head, start SHAs) for a
 // merge request. These are needed to create line-level positioned comments.
+//
+// Returns an error if diff refs are unavailable, which can happen for MRs
+// that haven't been prepared yet or MRs on projects with missing source branches.
 func (c *Client) GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error) {
 	mr, _, err := c.api.MergeRequests.GetMergeRequest(projectID, mrIID, nil, gl.WithContext(ctx))
 	if err != nil {
 		return MRDiffRefs{}, fmt.Errorf("get MR diff refs: %w", err)
+	}
+	if mr.DiffRefs.BaseSha == "" && mr.DiffRefs.HeadSha == "" && mr.DiffRefs.StartSha == "" {
+		return MRDiffRefs{}, fmt.Errorf("get MR diff refs: diff refs not available")
 	}
 	return MRDiffRefs{
 		BaseSHA:  mr.DiffRefs.BaseSha,
