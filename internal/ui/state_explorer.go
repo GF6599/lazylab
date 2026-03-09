@@ -164,6 +164,10 @@ func (m *Model) copyExplorerURL() {
 		m.status = "No file selected"
 		return
 	}
+	if m.explorer.project.WebURL == "" {
+		m.status = "Project has no URL"
+		return
+	}
 	ref := displayRef(m.explorer)
 	var kind string
 	if entry.IsDir() {
