@@ -1,14 +1,9 @@
 package ui
 
 import (
-	"fmt"
-	"hash/fnv"
-	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -111,15 +106,26 @@ func (m *Model) isLoading() bool {
 	return false
 }
 
-// truncate shortens s to max runes, appending "..." if truncated.
-func truncate(s string, max int) string {
-	if max <= 0 || len(s) <= max {
+var pipelineStatusStyles = map[string]lipgloss.Style{
+	"success":              pipelineSuccess,
+	"failed":               pipelineFailed,
+	"running":              pipelineRunning,
+	"pending":              pipelinePending,
+	"created":              pipelinePending,
+	"waiting_for_resource": pipelinePending,
+	"scheduled":            pipelinePending,
+	"canceled":             pipelineCanceled,
+	"canceled?":            pipelineCanceled,
+	"skipped":              pipelineSkipped,
+	"manual":               pipelinePending,
+	"blocked":              pipelinePending,
+}
+
+func pipelineStatusStyle(status string) lipgloss.Style {
+	if s, ok := pipelineStatusStyles[strings.ToLower(status)]; ok {
 		return s
 	}
-	if max <= 1 {
-		return s[:max]
-	}
-	return s[:max-1] + "…"
+	return pipelineUnknown
 }
 
 func pipelineRefLabel(project gitlab.ProjectNode, state pipelineState) string {
@@ -138,27 +144,6 @@ func pipelineRefLabel(project gitlab.ProjectNode, state pipelineState) string {
 	return "all refs"
 }
 
-func pipelineStatusStyle(status string) lipgloss.Style {
-	switch strings.ToLower(status) {
-	case "success":
-		return pipelineSuccess
-	case "failed":
-		return pipelineFailed
-	case "running":
-		return pipelineRunning
-	case "pending", "created", "waiting_for_resource", "scheduled":
-		return pipelinePending
-	case "canceled", "canceled?":
-		return pipelineCanceled
-	case "skipped":
-		return pipelineSkipped
-	case "manual", "blocked":
-		return pipelinePending
-	default:
-		return pipelineUnknown
-	}
-}
-
 func (m *Model) pipelineLogJob() *gitlab.PipelineJob {
 	if m.pipelineView.logJobID == 0 {
 		return nil
@@ -174,289 +159,6 @@ func (m *Model) pipelineLogJob() *gitlab.PipelineJob {
 		}
 	}
 	return nil
-}
-
-func wrapText(s string, width int) string {
-	if width <= 0 {
-		return s
-	}
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return s
-	}
-	var lines []string
-	line := words[0]
-	for _, word := range words[1:] {
-		if len(line)+1+len(word) > width {
-			lines = append(lines, line)
-			line = word
-		} else {
-			line += " " + word
-		}
-	}
-	lines = append(lines, line)
-	return strings.Join(lines, "\n")
-}
-
-type previewHighlightEntry struct {
-	content     string
-	highlighted bool
-}
-
-// glamourRendererCache pools glamour.TermRenderer instances by terminal width.
-// Glamour renderers are expensive to create (they compile markdown styles) but
-// safe to reuse, so we cache one per distinct width. The cache is global and
-// mutex-protected because terminal resize events can trigger concurrent access.
-var glamourRendererCache = struct {
-	mu      sync.Mutex
-	byWidth map[int]*glamour.TermRenderer
-}{
-	byWidth: make(map[int]*glamour.TermRenderer),
-}
-
-// highlightPreview applies glamour syntax highlighting to file content and
-// caches the result. The cache is a bounded LRU (maxPreviewHighlightEntries)
-// keyed by path+width+content-hash, so re-selecting an already-viewed file
-// avoids re-rendering. Entries larger than maxPreviewHighlightBytes are not
-// cached to avoid memory pressure from large files.
-func (m *Model) highlightPreview(path, content string, width int) (string, bool, error) {
-	if content == "" {
-		return "", false, nil
-	}
-	if width <= 0 {
-		width = 80
-	}
-	key := previewHighlightKey(path, width, content)
-	if entry, ok := m.previewHighlightCache[key]; ok {
-		return entry.content, entry.highlighted, nil
-	}
-	highlighted, err := highlightWithGlamour(path, content, width)
-	if err != nil {
-		return "", false, err
-	}
-	if highlighted == "" {
-		return content, false, nil
-	}
-	entry := previewHighlightEntry{content: highlighted, highlighted: true}
-	if len(entry.content) <= maxPreviewHighlightBytes {
-		m.storePreviewHighlight(key, entry)
-	}
-	return highlighted, true, nil
-}
-
-func previewHighlightKey(path string, width int, content string) string {
-	hasher := fnv.New64a()
-	_, _ = hasher.Write([]byte(content))
-	return fmt.Sprintf("%s:%d:%x", path, width, hasher.Sum64())
-}
-
-func (m *Model) storePreviewHighlight(key string, entry previewHighlightEntry) {
-	if m.previewHighlightCache == nil {
-		m.previewHighlightCache = make(map[string]previewHighlightEntry)
-		m.previewHighlightOrder = make([]string, 0, maxPreviewHighlightEntries)
-	}
-	if _, exists := m.previewHighlightCache[key]; exists {
-		m.previewHighlightCache[key] = entry
-		return
-	}
-	m.previewHighlightCache[key] = entry
-	m.previewHighlightOrder = append(m.previewHighlightOrder, key)
-	for len(m.previewHighlightOrder) > maxPreviewHighlightEntries {
-		oldest := m.previewHighlightOrder[0]
-		m.previewHighlightOrder = m.previewHighlightOrder[1:]
-		delete(m.previewHighlightCache, oldest)
-	}
-}
-
-// highlightWithGlamour wraps content in a fenced code block with language
-// detection and renders it through glamour. The fence delimiter is extended
-// if the content itself contains triple-backticks to avoid parsing ambiguity.
-func highlightWithGlamour(path, content string, width int) (string, error) {
-	lang := languageFromPath(path)
-	fence := "```"
-	for strings.Contains(content, fence) {
-		fence += "`"
-	}
-	header := fence
-	if lang != "" {
-		header += lang
-	}
-	markdown := header + "\n" + content + "\n" + fence + "\n"
-	renderer, err := cachedGlamourRenderer(width)
-	if err != nil {
-		return "", err
-	}
-	out, err := renderer.Render(markdown)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(out, "\n"), nil
-}
-
-func cachedGlamourRenderer(width int) (*glamour.TermRenderer, error) {
-	if width <= 0 {
-		width = 80
-	}
-	glamourRendererCache.mu.Lock()
-	renderer := glamourRendererCache.byWidth[width]
-	glamourRendererCache.mu.Unlock()
-	if renderer != nil {
-		return renderer, nil
-	}
-	newRenderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(width),
-	)
-	if err != nil {
-		return nil, err
-	}
-	glamourRendererCache.mu.Lock()
-	if existing := glamourRendererCache.byWidth[width]; existing != nil {
-		glamourRendererCache.mu.Unlock()
-		return existing, nil
-	}
-	glamourRendererCache.byWidth[width] = newRenderer
-	glamourRendererCache.mu.Unlock()
-	return newRenderer, nil
-}
-
-func languageFromPath(path string) string {
-	base := filepath.Base(path)
-	switch base {
-	case "Dockerfile":
-		return "dockerfile"
-	case "Makefile":
-		return "makefile"
-	}
-	ext := strings.TrimPrefix(filepath.Ext(base), ".")
-	return ext
-}
-
-// wrapPreviewLine hard-wraps a single line at width boundaries, respecting
-// multi-byte character widths. Used for unhighlighted preview content where
-// glamour's built-in wrapping is not available.
-func wrapPreviewLine(line string, width int) []string {
-	if width <= 0 {
-		return []string{line}
-	}
-	if line == "" {
-		return []string{""}
-	}
-	var segments []string
-	var b strings.Builder
-	currentWidth := 0
-	for _, r := range line {
-		rw := lipgloss.Width(string(r))
-		if currentWidth+rw > width && b.Len() > 0 {
-			segments = append(segments, b.String())
-			b.Reset()
-			currentWidth = 0
-		}
-		if rw > width {
-			segments = append(segments, string(r))
-			continue
-		}
-		b.WriteRune(r)
-		currentWidth += rw
-		if currentWidth == width {
-			segments = append(segments, b.String())
-			b.Reset()
-			currentWidth = 0
-		}
-	}
-	if b.Len() > 0 {
-		segments = append(segments, b.String())
-	}
-	if len(segments) == 0 {
-		return []string{""}
-	}
-	return segments
-}
-
-// fuzzyMatch performs a case-insensitive subsequence match: every rune in
-// pattern must appear in target in order, but not necessarily contiguously.
-// For example, "llb" matches "lazylab". This is intentionally simple (no
-// scoring or gap penalties) because the project list is small enough that
-// subsequence filtering is sufficient.
-func fuzzyMatch(target, pattern string) bool {
-	targetRunes := []rune(strings.ToLower(target))
-	patternRunes := []rune(strings.ToLower(pattern))
-	if len(patternRunes) == 0 {
-		return true
-	}
-	tIdx := 0
-	for _, r := range patternRunes {
-		found := false
-		for tIdx < len(targetRunes) {
-			if targetRunes[tIdx] == r {
-				found = true
-				tIdx++
-				break
-			}
-			tIdx++
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
-}
-
-// listPageStep calculates how many items to skip for half-page scrolling,
-// based on the visible terminal height minus chrome.
-func listPageStep(height int) int {
-	visible := max(height-headerFooterLines, 1)
-	step := max(visible/halfPageScrollFactor, 1)
-	return step
-}
-
-// renderWithBottomHint pins a single hint line at the bottom of a pane,
-// truncating content from the middle if it exceeds the available height.
-func renderWithBottomHint(content, hint string, height int) string {
-	if hint == "" {
-		return content
-	}
-	return renderWithBottomLines(content, []string{hint}, height)
-}
-
-// renderWithBottomLines pins multiple status/hint lines at the bottom of a
-// pane. Content above is truncated to fit; empty lines fill any remaining
-// gap so the hints are always flush with the pane bottom.
-func renderWithBottomLines(content string, hints []string, height int) string {
-	filtered := make([]string, 0, len(hints))
-	for _, hint := range hints {
-		if strings.TrimSpace(hint) != "" {
-			filtered = append(filtered, hint)
-		}
-	}
-	if len(filtered) == 0 {
-		return content
-	}
-	if height <= 0 {
-		trimmed := strings.TrimSuffix(content, "\n")
-		lines := filtered
-		if trimmed != "" {
-			lines = append([]string{trimmed}, lines...)
-		}
-		return strings.Join(lines, "\n")
-	}
-	if height <= len(filtered) {
-		return strings.Join(filtered[len(filtered)-height:], "\n")
-	}
-	trimmed := strings.TrimSuffix(content, "\n")
-	var lines []string
-	if trimmed != "" {
-		lines = strings.Split(trimmed, "\n")
-	}
-	available := height - len(filtered)
-	if len(lines) > available {
-		lines = lines[:available]
-	}
-	for len(lines) < available {
-		lines = append(lines, "")
-	}
-	lines = append(lines, filtered...)
-	return strings.Join(lines, "\n")
 }
 
 // displayRef returns the git ref shown in the explorer header, defaulting
@@ -487,155 +189,6 @@ func (m *Model) findDirIndex(path string) int {
 		}
 	}
 	return -1
-}
-
-// normalizeColumn pads or truncates content to exactly width x height cells.
-// This ensures all panes in a horizontal join have identical dimensions,
-// preventing lipgloss.JoinHorizontal from producing ragged layouts.
-func normalizeColumn(content string, width, height int) []string {
-	width = max(width, 1)
-	lines := strings.Split(content, "\n")
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	result := make([]string, height)
-	for i := range height {
-		line := ""
-		if i < len(lines) {
-			line = lines[i]
-		}
-		result[i] = fitLine(line, width)
-	}
-	return result
-}
-
-// fitLine truncates or right-pads a line to exactly width visible characters.
-func fitLine(line string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if ansi.StringWidth(line) > width {
-		line = ansi.Truncate(line, width, "")
-	}
-	pad := width - ansi.StringWidth(line)
-	if pad > 0 {
-		line += strings.Repeat(" ", pad)
-	}
-	return line
-}
-
-// clampLine truncates a styled line to fit within width, appending "..." if
-// needed. Uses lipgloss.Width to account for wide/combining characters.
-func clampLine(line string, width int) string {
-	if width <= 0 {
-		return line
-	}
-	if lipgloss.Width(line) <= width {
-		return line
-	}
-	if width == 1 {
-		return "…"
-	}
-	var b strings.Builder
-	currentWidth := 0
-	for _, r := range line {
-		rw := lipgloss.Width(string(r))
-		if currentWidth+rw > width-1 {
-			break
-		}
-		b.WriteRune(r)
-		currentWidth += rw
-	}
-	return b.String() + "…"
-}
-
-func clampLines(text string, width int) string {
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		lines[i] = clampLine(line, width)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// clampLineANSI truncates a line that may contain ANSI escape sequences,
-// preserving escape codes while respecting visible character width.
-func clampLineANSI(line string, width int) string {
-	if width <= 0 {
-		return line
-	}
-	if ansi.StringWidth(line) <= width {
-		return line
-	}
-	if width == 1 {
-		return "…"
-	}
-	return ansi.Truncate(line, width, "…")
-}
-
-// overlayCentered composites a modal (overlay) on top of an existing rendered
-// view (base), centering it both horizontally and vertically. Uses ANSI-aware
-// string slicing so that base content styling is preserved around the overlay
-// edges. This is how confirmation dialogs and action menus appear "on top of"
-// the underlying view without re-rendering it.
-func overlayCentered(base, overlay string, width int) string {
-	base = strings.TrimSuffix(base, "\n")
-	overlay = strings.TrimSuffix(overlay, "\n")
-	baseLines := strings.Split(base, "\n")
-	if len(baseLines) == 0 {
-		baseLines = []string{""}
-	}
-	if width <= 0 {
-		for _, line := range baseLines {
-			width = max(width, ansi.StringWidth(line))
-		}
-		if width == 0 {
-			width = 1
-		}
-	}
-	for i, line := range baseLines {
-		baseLines[i] = padLineANSI(line, width)
-	}
-	overlayLines := strings.Split(overlay, "\n")
-	if len(overlayLines) == 0 {
-		return strings.Join(baseLines, "\n")
-	}
-	overlayWidth := 0
-	for _, line := range overlayLines {
-		overlayWidth = max(overlayWidth, ansi.StringWidth(line))
-	}
-	if overlayWidth == 0 {
-		return strings.Join(baseLines, "\n")
-	}
-	overlayWidth = min(overlayWidth, width)
-	overlayHeight := min(len(overlayLines), len(baseLines))
-	x := max(0, (width-overlayWidth)/2)
-	y := max(0, (len(baseLines)-overlayHeight)/2)
-	for i := 0; i < overlayHeight && y+i < len(baseLines); i++ {
-		line := padLineANSI(overlayLines[i], overlayWidth)
-		end := min(width, x+overlayWidth)
-		if end <= x {
-			continue
-		}
-		baseLine := baseLines[y+i]
-		left := ansi.Cut(baseLine, 0, x)
-		right := ansi.Cut(baseLine, end, width)
-		baseLines[y+i] = left + padLineANSI(line, end-x) + right
-	}
-	return strings.Join(baseLines, "\n")
-}
-
-func padLineANSI(line string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if ansi.StringWidth(line) > width {
-		line = ansi.Truncate(line, width, "")
-	}
-	pad := width - ansi.StringWidth(line)
-	if pad > 0 {
-		line += strings.Repeat(" ", pad)
-	}
-	return line
 }
 
 // previewContentWidth estimates the inner width of the explorer preview pane
@@ -703,40 +256,34 @@ func (m *Model) setLogViewportContent(content string) {
 	m.pipelineView.logViewport.SetContent(wrapped)
 }
 
-// refreshPreviewHighlight re-renders syntax highlighting when terminal width changes
-func (m *Model) refreshPreviewHighlight() {
-	if m.mode != modeExplorer {
-		return
-	}
-	preview := &m.explorer.preview
-	if preview.raw == "" || preview.loading || !preview.highlighted {
-		return
-	}
-	width := previewContentWidth(m.width)
-	if preview.highlightWidth == width {
-		return
-	}
-	highlighted, isHighlighted, err := m.highlightPreview(preview.path, preview.raw, width)
-	if err != nil && m.opts.Logger != nil {
-		m.opts.Logger.Debug("rehighlight preview", "err", err)
-		return
-	}
-	if isHighlighted {
-		preview.content = highlighted
-		preview.highlighted = true
-		preview.highlightWidth = width
-		preview.viewport.SetContent(highlighted)
-		return
-	}
-	preview.content = preview.raw
-	preview.highlighted = false
-	preview.highlightWidth = 0
-	preview.viewport.SetContent(preview.raw)
+// listPageStep calculates how many items to skip for half-page scrolling,
+// based on the visible terminal height minus chrome.
+func listPageStep(height int) int {
+	visible := max(height-headerFooterLines, 1)
+	step := max(visible/halfPageScrollFactor, 1)
+	return step
 }
 
 // Pipeline log scrolling now handled by viewport directly in key handlers
 
-// joinLines joins non-empty lines with newlines.
-func joinLines(lines []string) string {
-	return strings.Join(lines, "\n")
+// logError logs an error if the logger is configured. This eliminates the
+// repeated `if m.opts.Logger != nil { m.opts.Logger.Error(...) }` pattern.
+func (m *Model) logError(msg string, args ...any) {
+	if m.opts.Logger != nil {
+		m.opts.Logger.Error(msg, args...)
+	}
+}
+
+// logDebug logs a debug message if the logger is configured.
+func (m *Model) logDebug(msg string, args ...any) {
+	if m.opts.Logger != nil {
+		m.opts.Logger.Debug(msg, args...)
+	}
+}
+
+// logInfo logs an info message if the logger is configured.
+func (m *Model) logInfo(msg string, args ...any) {
+	if m.opts.Logger != nil {
+		m.opts.Logger.Info(msg, args...)
+	}
 }
