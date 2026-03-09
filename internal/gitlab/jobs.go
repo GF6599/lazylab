@@ -35,6 +35,9 @@ func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int
 // GetJobTrace returns the full log output for a job as a single string.
 // For running jobs this returns whatever output has been captured so far;
 // the TUI polls this periodically to simulate live log tailing.
+//
+// Traces are capped at 10 MB to prevent OOM on jobs with massive output.
+// Returns an error if the trace exceeds this limit.
 func (c *Client) GetJobTrace(ctx context.Context, projectID, jobID int) (string, error) {
 	trace, _, err := c.api.Jobs.GetTraceFile(projectID, jobID, gl.WithContext(ctx))
 	if err != nil {
@@ -43,9 +46,13 @@ func (c *Client) GetJobTrace(ctx context.Context, projectID, jobID int) (string,
 	if trace == nil {
 		return "", fmt.Errorf("no trace data available")
 	}
-	data, err := io.ReadAll(trace)
+	const maxTraceSize = 10 * 1024 * 1024 // 10 MB
+	data, err := io.ReadAll(io.LimitReader(trace, maxTraceSize+1))
 	if err != nil {
 		return "", fmt.Errorf("read job trace: %w", err)
+	}
+	if len(data) > maxTraceSize {
+		return "", fmt.Errorf("job trace too large: exceeds %d bytes", maxTraceSize)
 	}
 	return string(data), nil
 }
@@ -84,6 +91,8 @@ func (c *Client) PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob
 }
 
 // mapJob converts a client-go Job to our flat PipelineJob, nil-safe.
+// Runner is a value struct in client-go; a zero ID indicates no runner is
+// assigned (pending, manual, or created jobs).
 func mapJob(job *gl.Job) PipelineJob {
 	if job == nil {
 		return PipelineJob{}
@@ -104,7 +113,9 @@ func mapJob(job *gl.Job) PipelineJob {
 	if job.FinishedAt != nil {
 		pj.FinishedAt = *job.FinishedAt
 	}
-	pj.RunnerDescription = job.Runner.Description
+	if job.Runner.ID != 0 {
+		pj.RunnerDescription = job.Runner.Description
+	}
 	if job.Artifacts != nil {
 		pj.ArtifactsCount = len(job.Artifacts)
 		for _, a := range job.Artifacts {
