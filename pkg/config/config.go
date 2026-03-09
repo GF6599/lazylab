@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -102,6 +103,7 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 		}
 	}
 	if configPath != "" {
+		configPath = filepath.Clean(configPath)
 		v.SetConfigFile(configPath)
 		if err := v.ReadInConfig(); err != nil {
 			return cfg, fmt.Errorf("load config %s: %w", configPath, err)
@@ -170,7 +172,8 @@ func overrideFromFlags(fs *pflag.FlagSet, cfg *Config) {
 		cfg.LogLevel = strings.ToLower(mustString(fs.GetString(FlagLogLevel)))
 	}
 	if fs.Changed(FlagConfig) {
-		cfg.ConfigFile, _ = fs.GetString(FlagConfig)
+		v, _ := fs.GetString(FlagConfig)
+		cfg.ConfigFile = filepath.Clean(v)
 	}
 	if fs.Changed(FlagDemo) {
 		cfg.Demo, _ = fs.GetBool(FlagDemo)

@@ -159,6 +159,58 @@ func TestLoad_ProjectsPerPageRange(t *testing.T) {
 	}
 }
 
+func TestLoad_ConfigPathNormalization(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	tests := []struct {
+		name     string
+		path     string
+		wantFile string
+	}{
+		{
+			"dotdot segment",
+			filepath.Join("testdata", "subdir", "..", "sample.yaml"),
+			filepath.Join("testdata", "sample.yaml"),
+		},
+		{
+			"trailing slash removed",
+			filepath.Join("testdata", "sample.yaml") + string(filepath.Separator),
+			filepath.Join("testdata", "sample.yaml"),
+		},
+		{
+			"double separator",
+			"testdata" + string(filepath.Separator) + string(filepath.Separator) + "sample.yaml",
+			filepath.Join("testdata", "sample.yaml"),
+		},
+		{
+			"dot current dir",
+			filepath.Join(".", "testdata", "sample.yaml"),
+			filepath.Join("testdata", "sample.yaml"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+			RegisterFlags(fs)
+			if err := fs.Parse([]string{"--" + FlagConfig, tt.path}); err != nil {
+				t.Fatalf("parse flags: %v", err)
+			}
+
+			cfg, err := Load(fs)
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+
+			if cfg.ConfigFile != tt.wantFile {
+				t.Fatalf("config file path mismatch: got %q, want %q", cfg.ConfigFile, tt.wantFile)
+			}
+			// Verify the config was actually loaded correctly.
+			if cfg.Token != "file-token" {
+				t.Fatalf("config not loaded from normalized path: token = %q", cfg.Token)
+			}
+		})
+	}
+}
+
 func TestLoad_InvalidLogLevel(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "tok")
 	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
