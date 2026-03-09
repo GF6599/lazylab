@@ -628,9 +628,9 @@ func newMultiPanelModel(active PanelID) Model {
 		{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha"},
 		{ID: 2, Name: "beta", PathWithNamespace: "team/beta"},
 	}
-	pipelineStatus := make(map[int]pipelineState)
+	pipelineStatus := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
 	favorites := make(map[int]bool)
-	delegate := projectDelegate{pipelineStatus: pipelineStatus, favorites: favorites}
+	delegate := projectDelegate{pipelineStatus: &pipelineStatus, favorites: favorites}
 	items := make([]list.Item, len(projects))
 	for i, p := range projects {
 		items[i] = projectItem{project: p}
@@ -653,7 +653,7 @@ func newMultiPanelModel(active PanelID) Model {
 		page:           1,
 		projectTab:     projectTabAll,
 		favorites:      favorites,
-		pipelineStatus: pipelineStatus,
+		pipelineStatus: &pipelineStatus,
 		projectList:    pl,
 		focus:          FocusState{Active: active},
 		search:         searchState{input: ti},
@@ -979,8 +979,9 @@ func TestRenderPipelineLogPaneWrapsLongLines(t *testing.T) {
 func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 	proj := projectItem{project: gitlab.ProjectNode{ID: 1, PathWithNamespace: "team/app"}}
 	items := []list.Item{proj}
+	psCache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
 	delegate := projectDelegate{
-		pipelineStatus: map[int]pipelineState{},
+		pipelineStatus: &psCache,
 		favorites:      map[int]bool{},
 	}
 	m := list.New(items, delegate, 60, 10)
@@ -1005,7 +1006,7 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			delegate.pipelineStatus[1] = tt.state
+			delegate.pipelineStatus.Set(1, tt.state)
 			out := render(delegate)
 			if !strings.Contains(out, tt.wantIcon) {
 				t.Fatalf("expected icon %q in output %q", tt.wantIcon, out)
@@ -1015,8 +1016,9 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 
 	// No state at all — no icon
 	t.Run("no state", func(t *testing.T) {
+		emptyCache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
 		d := projectDelegate{
-			pipelineStatus: map[int]pipelineState{},
+			pipelineStatus: &emptyCache,
 			favorites:      map[int]bool{},
 		}
 		out := render(d)
@@ -1094,36 +1096,29 @@ func TestVisibleProjects_CacheInvalidation(t *testing.T) {
 	}
 }
 
-func TestEvictOldPipelineStatusCache_BelowMax(t *testing.T) {
-	m := Model{
-		pipelineStatus: map[int]pipelineState{
-			1: {hasInfo: true},
-			2: {hasInfo: true},
-		},
-	}
-	m.evictOldPipelineStatusCache()
-	if len(m.pipelineStatus) != 2 {
-		t.Fatalf("should not evict when below max, got %d", len(m.pipelineStatus))
+func TestLRUPipelineStatusCache_BelowMax(t *testing.T) {
+	cache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
+	cache.Set(1, pipelineState{hasInfo: true})
+	cache.Set(2, pipelineState{hasInfo: true})
+	if cache.Len() != 2 {
+		t.Fatalf("should not evict when below max, got %d", cache.Len())
 	}
 }
 
-func TestEvictOldPipelineStatusCache_RemovesOldest(t *testing.T) {
-	m := Model{
-		pipelineStatus: make(map[int]pipelineState),
-	}
+func TestLRUPipelineStatusCache_RemovesOldest(t *testing.T) {
+	cache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
 	// Fill beyond max
 	for i := 0; i <= maxPipelineStatusCacheSize; i++ {
-		m.pipelineStatus[i] = pipelineState{
+		cache.Set(i, pipelineState{
 			hasInfo:      true,
 			lastAccessed: time.Now().Add(time.Duration(i) * time.Second),
-		}
+		})
 	}
-	m.evictOldPipelineStatusCache()
-	if len(m.pipelineStatus) != maxPipelineStatusCacheSize {
-		t.Fatalf("expected %d entries after eviction, got %d", maxPipelineStatusCacheSize, len(m.pipelineStatus))
+	if cache.Len() != maxPipelineStatusCacheSize {
+		t.Fatalf("expected %d entries after eviction, got %d", maxPipelineStatusCacheSize, cache.Len())
 	}
 	// Oldest (ID=0) should have been evicted
-	if _, exists := m.pipelineStatus[0]; exists {
+	if _, exists := cache.Get(0); exists {
 		t.Fatal("expected oldest entry (ID=0) to be evicted")
 	}
 }

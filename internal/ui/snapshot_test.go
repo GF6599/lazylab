@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/golden"
 )
 
@@ -19,10 +20,10 @@ func newSnapshotModel(active PanelID, width, height int) Model {
 	m.status = "Ready"
 
 	// Add pipeline status for first project so info bar and detail pane render content
-	m.pipelineStatus[1] = pipelineState{
+	m.pipelineStatus.Set(1, pipelineState{
 		hasInfo: true,
 		info:    gitlab.PipelineSummary{ID: 100, Ref: "main", Status: "success", WebURL: "https://gitlab.com/team/alpha/-/pipelines/100"},
-	}
+	})
 
 	// Initialize pipeline list with proper delegate (required for SetSize)
 	pipelineItems := []list.Item{
@@ -139,4 +140,38 @@ func TestSnapshot_InfoBar(t *testing.T) {
 	m := newSnapshotModel(PanelProjects, 120, 40)
 	output := renderInfoBar(&m, 120)
 	golden.RequireEqual(t, output)
+}
+
+func TestSnapshot_View_TooSmall(t *testing.T) {
+	m := newSnapshotModel(PanelProjects, 40, 8)
+	output := m.View()
+	golden.RequireEqual(t, output)
+}
+
+func TestUpdate_TooSmall_BlocksKeys(t *testing.T) {
+	m := newSnapshotModel(PanelProjects, 40, 8)
+
+	// Normal keys should be swallowed
+	for _, k := range []string{"j", "k", "enter", "/", "r"} {
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		got := updated.(Model)
+		if cmd != nil {
+			t.Fatalf("key %q produced a command when terminal too small", k)
+		}
+		if got.mode != m.mode {
+			t.Fatalf("key %q changed mode when terminal too small", k)
+		}
+	}
+
+	// q should quit
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if cmd == nil {
+		t.Fatal("q did not produce a quit command")
+	}
+
+	// ctrl+c should quit
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("ctrl+c did not produce a quit command")
+	}
 }

@@ -121,7 +121,7 @@ func (i projectItem) FilterValue() string {
 // pipelineStatus and favorites maps so that status icons update in-place
 // without rebuilding the delegate on every tick.
 type projectDelegate struct {
-	pipelineStatus map[int]pipelineState
+	pipelineStatus *LRUCache[int, pipelineState]
 	favorites      map[int]bool
 }
 
@@ -141,7 +141,7 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 
 	// Add pipeline status icon if available
 	statusIcon := ""
-	if state, ok := d.pipelineStatus[proj.project.ID]; ok {
+	if state, ok := d.pipelineStatus.Get(proj.project.ID); ok {
 		switch {
 		case state.hasInfo:
 			statusIcon = pipelineStatusIcon(state.info.Status) + " "
@@ -322,7 +322,7 @@ type Model struct {
 	mode              Mode
 	focus             FocusState // Multi-panel focus tracking
 	explorer          explorerState
-	pipelineStatus    map[int]pipelineState
+	pipelineStatus    *LRUCache[int, pipelineState]
 	actionMenu        actionMenuState
 	pipelineView      pipelineViewState
 	mrView            mrViewState
@@ -360,8 +360,7 @@ type Model struct {
 	detailCacheHeight      int
 	detailCacheOutput      string
 
-	previewHighlightCache map[string]previewHighlightEntry
-	previewHighlightOrder []string
+	previewHighlightCache *LRUCache[string, previewHighlightEntry]
 
 	// commitCache and commitLoading track per-project recent commits, keyed
 	// by project ID. Fetched lazily when a project is selected in the multi-panel
@@ -383,6 +382,11 @@ type searchState struct {
 	input         textinput.Model
 }
 
+// dirState represents a single directory level in the explorer's navigation
+// stack. The explorer maintains a []dirState where stack[0] is the repository
+// root (path ""); descending into a subdirectory pushes a new dirState, and
+// ascending pops from the stack. Each level tracks its own selection cursor
+// so that returning to a parent directory restores the previous position.
 type dirState struct {
 	path     string
 	entries  []gitlab.TreeNode
@@ -513,8 +517,13 @@ const (
 // favorites. Cache initialization errors are logged but non-fatal — the app
 // falls back to API-only mode.
 //
+// The provided ctx is stored in the Model and used as the base context for all
+// subsequent API calls. Callers should pass a context derived from
+// [signal.NotifyContext] or similar so that in-flight requests are cancelled
+// on shutdown.
+//
 // The returned Model starts in modeMultiPanel and begins loading on [Model.Init].
-func NewModel(client gitlab.Service, opts Options) Model {
+func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 	if opts.ProjectsPerPage <= 0 {
 		opts.ProjectsPerPage = 30
 	}
@@ -553,51 +562,53 @@ func NewModel(client gitlab.Service, opts Options) Model {
 	p.ActiveDot = lipgloss.NewStyle().Foreground(rosePineFoam).Render("•")
 	p.InactiveDot = lipgloss.NewStyle().Foreground(rosePineMuted).Render("•")
 
-	// Initialize pipeline status map (shared with delegate)
-	pipelineStatus := make(map[int]pipelineState)
+	// Initialize pipeline status cache (shared with delegate)
+	pipelineStatus := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
 	favorites := make(map[int]bool)
 
 	// Initialize project list
-	delegate := projectDelegate{pipelineStatus: pipelineStatus, favorites: favorites}
+	delegate := projectDelegate{pipelineStatus: &pipelineStatus, favorites: favorites}
 	projectList := newBareList(nil, delegate, 0, 0)
 	projectList.Styles.Title = titleStyle
 
 	m := Model{
-		ctx:            context.Background(),
+		ctx:            ctx,
 		client:         client,
 		opts:           opts,
 		page:           1,
 		mode:           modeMultiPanel,
 		focus:          FocusState{Active: PanelProjects},
-		pipelineStatus: pipelineStatus,
+		pipelineStatus: &pipelineStatus,
 		search: searchState{
 			active: false,
 			input:  input,
 		},
-		loading:               true,
-		pagesReady:            make(map[int]bool),
-		keys:                  newKeyMap(),
-		help:                  h,
-		spinner:               s,
-		paginator:             p,
-		projectList:           projectList,
-		favorites:             favorites,
-		projectTab:            projectTabFavorites,
-		recentProjects:        make([]int, 0, 10),
-		previewHighlightCache: make(map[string]previewHighlightEntry),
-		previewHighlightOrder: make([]string, 0, maxPreviewHighlightEntries),
-		commitCache:           make(map[int][]gitlab.CommitSummary),
-		commitLoading:         make(map[int]bool),
+		loading:        true,
+		pagesReady:     make(map[int]bool),
+		keys:           newKeyMap(),
+		help:           h,
+		spinner:        s,
+		paginator:      p,
+		projectList:    projectList,
+		favorites:      favorites,
+		projectTab:     projectTabFavorites,
+		recentProjects: make([]int, 0, 10),
+		previewHighlightCache: func() *LRUCache[string, previewHighlightEntry] {
+			c := NewLRUCache[string, previewHighlightEntry](maxPreviewHighlightEntries)
+			return &c
+		}(),
+		commitCache:   make(map[int][]gitlab.CommitSummary),
+		commitLoading: make(map[int]bool),
 	}
 	if cache, err := newProjectCache(opts.Host); err == nil {
 		m.cache = cache
-	} else if opts.Logger != nil {
-		opts.Logger.Error("init cache", "err", err)
+	} else {
+		m.logError("init cache", "err", err)
 	}
 	if store, err := newFavoritesStore(opts.Host); err == nil {
 		m.favStore = store
-	} else if opts.Logger != nil {
-		opts.Logger.Error("init favorites store", "err", err)
+	} else {
+		m.logError("init favorites store", "err", err)
 	}
 	return m
 }
@@ -648,6 +659,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateProjectListSize()
 		return m, spinnerCmd
 	case tea.KeyMsg:
+		// Block all keys except quit when terminal is too small
+		if m.width < MinTerminalWidth || m.height < MinTerminalHeight {
+			if msg.String() == "ctrl+c" || msg.String() == "q" {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 		// Handle help toggle globally
 		if key.Matches(msg, m.keys.Help) {
 			m.showHelp = !m.showHelp
@@ -703,8 +721,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cacheLoadedMsg:
 		return m.handleCacheLoaded(msg)
 	case cacheSavedMsg:
-		if msg.err != nil && m.opts.Logger != nil {
-			m.opts.Logger.Error("save cache", "err", msg.err)
+		if msg.err != nil {
+			m.logError("save cache", "err", msg.err)
 		}
 		return m, nil
 	case treeLoadedMsg:
@@ -768,9 +786,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleCommitsLoaded(msg)
 	case favoritesLoadedMsg:
 		if msg.err != nil {
-			if m.opts.Logger != nil {
-				m.opts.Logger.Error("load favorites", "err", msg.err)
-			}
+			m.logError("load favorites", "err", msg.err)
 		} else {
 			m.favOrder = msg.favOrder
 			// Rebuild the map from the ordered slice
@@ -803,8 +819,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case favoritesSavedMsg:
-		if msg.err != nil && m.opts.Logger != nil {
-			m.opts.Logger.Error("save favorites", "err", msg.err)
+		if msg.err != nil {
+			m.logError("save favorites", "err", msg.err)
 		}
 		return m, nil
 	}
