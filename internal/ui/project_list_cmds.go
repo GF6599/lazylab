@@ -355,22 +355,23 @@ func pipelineTickCmd() tea.Cmd {
 	})
 }
 
-// pipelineDebounceTickCmd sleeps for delay then fires a debounce tick. The
-// timestamp acts as a generation counter — the handler ignores stale ticks
+// pipelineDebounceTickCmd fires a debounce tick after delay using tea.Tick.
+// The timestamp acts as a generation counter — the handler ignores stale ticks
 // whose timestamp does not match the current timer, avoiding redundant API
 // calls when the user scrolls through projects quickly.
 func pipelineDebounceTickCmd(projectID int, timestamp time.Time, delay time.Duration) tea.Cmd {
-	return func() tea.Msg {
-		time.Sleep(delay)
+	return tea.Tick(delay, func(time.Time) tea.Msg {
 		return pipelineDebounceTickMsg{projectID: projectID, timestamp: timestamp}
-	}
+	})
 }
 
+// searchDebounceTickCmd fires a debounce tick after searchDebounceDelay using
+// tea.Tick. The timestamp/query are compared against current state to discard
+// stale ticks when the user is still typing.
 func searchDebounceTickCmd(query string, timestamp time.Time) tea.Cmd {
-	return func() tea.Msg {
-		time.Sleep(searchDebounceDelay)
+	return tea.Tick(searchDebounceDelay, func(time.Time) tea.Msg {
 		return searchDebounceTickMsg{query: query, timestamp: timestamp}
-	}
+	})
 }
 
 type mrsLoadedMsg struct {
