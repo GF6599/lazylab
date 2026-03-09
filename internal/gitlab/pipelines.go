@@ -94,43 +94,16 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 		}
 		summaries = append(summaries, summary)
 	}
-	if len(summaries) == 0 {
-		if opts.Page <= 1 {
-			return PipelinePage{}, ErrNoPipelines
-		}
-		if resp == nil {
-			return PipelinePage{
-				Pipelines:  []PipelineSummary{},
-				Page:       opts.Page,
-				PrevPage:   0,
-				NextPage:   0,
-				TotalPages: 0,
-			}, nil
-		}
-		return PipelinePage{
-			Pipelines:  summaries,
-			Page:       opts.Page,
-			PrevPage:   resp.PreviousPage,
-			NextPage:   resp.NextPage,
-			TotalPages: resp.TotalPages,
-		}, nil
+	if len(summaries) == 0 && opts.Page <= 1 {
+		return PipelinePage{}, ErrNoPipelines
 	}
-	if resp == nil {
-		return PipelinePage{
-			Pipelines:  summaries,
-			Page:       opts.Page,
-			PrevPage:   0,
-			NextPage:   0,
-			TotalPages: 0,
-		}, nil
+	page := PipelinePage{Pipelines: summaries, Page: opts.Page}
+	if resp != nil {
+		page.PrevPage = resp.PreviousPage
+		page.NextPage = resp.NextPage
+		page.TotalPages = resp.TotalPages
 	}
-	return PipelinePage{
-		Pipelines:  summaries,
-		Page:       opts.Page,
-		PrevPage:   resp.PreviousPage,
-		NextPage:   resp.NextPage,
-		TotalPages: resp.TotalPages,
-	}, nil
+	return page, nil
 }
 
 // RetryPipeline retries all failed jobs in a pipeline. When GitLab returns a
@@ -252,7 +225,7 @@ func (c *Client) GetPipelineTestReport(ctx context.Context, projectID, pipelineI
 			ErrorCount:   suite.ErrorCount,
 		}
 		for _, tc := range suite.TestCases {
-			c := TestCase{
+			testCase := TestCase{
 				Status:        tc.Status,
 				Name:          tc.Name,
 				Classname:     tc.Classname,
@@ -262,12 +235,12 @@ func (c *Client) GetPipelineTestReport(ctx context.Context, projectID, pipelineI
 			}
 			if tc.SystemOutput != nil {
 				if s, ok := tc.SystemOutput.(string); ok {
-					c.SystemOutput = s
+					testCase.SystemOutput = s
 				} else {
-					c.SystemOutput = fmt.Sprintf("%v", tc.SystemOutput)
+					testCase.SystemOutput = fmt.Sprintf("%v", tc.SystemOutput)
 				}
 			}
-			ts.Cases = append(ts.Cases, c)
+			ts.Cases = append(ts.Cases, testCase)
 		}
 		tr.Suites = append(tr.Suites, ts)
 	}
