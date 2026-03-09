@@ -9,10 +9,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/pflag"
@@ -71,7 +74,10 @@ func main() {
 		client = c
 	}
 
-	model := ui.NewModel(client, ui.Options{ProjectsPerPage: cfg.ProjectsPerPage, Logger: logger, Host: cfg.Host})
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	model := ui.NewModel(ctx, client, ui.Options{ProjectsPerPage: cfg.ProjectsPerPage, Logger: logger, Host: cfg.Host})
 	program := tea.NewProgram(model, tea.WithAltScreen())
 
 	if cfg.ConfigFile != "" {
