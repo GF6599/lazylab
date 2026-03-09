@@ -215,11 +215,90 @@ func TestAccordionLayout_EmptyPanels(t *testing.T) {
 
 func TestAccordionLayout_TinyTerminal(t *testing.T) {
 	// 4 panels * (minPanelHeight + borderCharsV) = 4*(4+2) = 24
-	// Give less than that
+	// Give less than that — panels should shrink to fit, not overflow.
 	heights := accordionLayout(SidebarPanels, PanelProjects, ScreenNormal, 20)
+	total := 0
 	for _, p := range SidebarPanels {
-		if heights[p] != minPanelHeight {
-			t.Errorf("panel %d: expected minPanelHeight %d, got %d", p, minPanelHeight, heights[p])
+		total += heights[p] + borderCharsV
+	}
+	if total > 20 {
+		t.Errorf("total rendered height %d exceeds available 20", total)
+	}
+	// Focused panel should get at least as much as others
+	for _, p := range SidebarPanels {
+		if p != PanelProjects && heights[p] > heights[PanelProjects] {
+			t.Errorf("non-focused panel %d (%d) taller than focused (%d)", p, heights[p], heights[PanelProjects])
 		}
 	}
+}
+
+func TestAccordionLayout_VeryTinyTerminal(t *testing.T) {
+	// Only 10 rows: budget = 10 - 8 borders = 2. Can't give each panel 1 row.
+	// Focused panel should get everything, others 0.
+	heights := accordionLayout(SidebarPanels, PanelStages, ScreenNormal, 10)
+	if heights[PanelStages] != 2 {
+		t.Errorf("focused panel: expected 2, got %d", heights[PanelStages])
+	}
+	for _, p := range SidebarPanels {
+		if p != PanelStages && heights[p] != 0 {
+			t.Errorf("non-focused panel %d: expected 0, got %d", p, heights[p])
+		}
+	}
+}
+
+func TestAccordionLayout_HeightBudgetExact(t *testing.T) {
+	// For all heights in the usable range and all screen modes, the sum of
+	// (panel content height + borders) must exactly equal totalHeight.
+	modes := []struct {
+		name string
+		mode ScreenMode
+	}{
+		{"ScreenNormal", ScreenNormal},
+		{"ScreenHalf", ScreenHalf},
+		{"ScreenFull", ScreenFull},
+	}
+	n := len(SidebarPanels)
+	for _, tc := range modes {
+		t.Run(tc.name, func(t *testing.T) {
+			for h := MinTerminalHeight; h <= 50; h++ {
+				heights := accordionLayout(SidebarPanels, PanelProjects, tc.mode, h)
+				total := 0
+				for _, p := range SidebarPanels {
+					total += heights[p] + borderCharsV
+				}
+				if total != h {
+					t.Errorf("height=%d: total rendered %d != available %d (content heights: %v)",
+						h, total, h, heightSlice(heights, SidebarPanels))
+				}
+				// Every panel must have non-negative height.
+				for _, p := range SidebarPanels {
+					if heights[p] < 0 {
+						t.Errorf("height=%d: panel %d has negative height %d", h, p, heights[p])
+					}
+				}
+			}
+		})
+	}
+
+	// Also verify the guard path (tiny terminals below minimum threshold).
+	// Start from n*borderCharsV since below that even borders alone overflow.
+	for h := n * borderCharsV; h < n*(minPanelHeight+borderCharsV); h++ {
+		heights := accordionLayout(SidebarPanels, PanelProjects, ScreenNormal, h)
+		total := 0
+		for _, p := range SidebarPanels {
+			total += heights[p] + borderCharsV
+		}
+		if total > h {
+			t.Errorf("guard path height=%d: total rendered %d > available %d", h, total, h)
+		}
+	}
+}
+
+// heightSlice extracts panel heights into a slice for readable error messages.
+func heightSlice(heights map[PanelID]int, panels []PanelID) []int {
+	out := make([]int, len(panels))
+	for i, p := range panels {
+		out[i] = heights[p]
+	}
+	return out
 }

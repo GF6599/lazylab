@@ -3,16 +3,16 @@
 │  team/beta                 │ │                                               │
 │                            │ │ Project                                       │
 │                            │ │───────────────────────────────────────────────│
-╰──────────────────── 1 of 2 ╯ │ Name: alpha                                   │
-╭─ 2 Pipelines───────────── ─╮ │ Path: team/alpha                              │
-│> ✓ #10 unknown main        │ │ Visibility: 📦                                │
+│                            │ │ Name: alpha                                   │
+│                            │ │ Path: team/alpha                              │
+╰──────────────────── 1 of 2 ╯ │ Visibility: 📦                                │
+╭─ 2 Pipelines───────────── ─╮ │───────────────────────────────────────────────│
+│> ✓ #10 unknown main        │ │ Links                                         │
 │                            │ │───────────────────────────────────────────────│
-│                            │ │ Links                                         │
 │                            │ │───────────────────────────────────────────────│
-╰──────────────────── 1 of 1 ╯ │───────────────────────────────────────────────│
-╭─ 3 Stages──────────────── ─╮ │ Pipeline                                      │
-│ No stages available        │ │───────────────────────────────────────────────│
-│                            │ │ Pipeline (all refs):                          │
+╰──────────────────── 1 of 1 ╯ │ Pipeline                                      │
+╭─ 3 Stages──────────────── ─╮ │───────────────────────────────────────────────│
+│ No stages available        │ │ Pipeline (all refs):                          │
 │                            │ │  Status: success (#100)                       │
 │                            │ │  URL: https://gitlab.com/team/alpha/-/pipelin…│
 ╰────────────────────────────╯ │───────────────────────────────────────────────│
@@ -20,6 +20,5 @@
 │> !42 Add dark mode support │ │───────────────────────────────────────────────│
 │  !41 Fix login redirect    │ │ No commits loaded.                            │
 │                            │ │                                               │
-│                            │ ╰───────────────────────────────────────────────╯
-╰──────────────────── 1 of 2 ╯                                                  
-Ready j/k nav · / search · f fav · t tab · e explorer · Enter pipe…   team/alpha
+╰──────────────────── 1 of 2 ╯ ╰───────────────────────────────────────────────╯
+Ready / search · f fav · e explorer · t tab · r refresh · Ctrl+O c…   team/alpha

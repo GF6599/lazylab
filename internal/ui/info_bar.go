@@ -44,7 +44,7 @@ func renderInfoBar(m *Model, width int) string {
 	}
 
 	// Center: contextual keybindings
-	hints := panelKeyHints(m.focus.Active)
+	hints := panelKeyHints(m.focus.Active, m)
 	center := centerStyle.Render(hints)
 
 	// Layout: left ... center ... right
@@ -74,21 +74,38 @@ func renderInfoBar(m *Model, width int) string {
 
 // panelKeyHints returns a compact keybinding cheat-sheet for the focused panel.
 // These are intentionally terse — full help is available via '?'.
-func panelKeyHints(panel PanelID) string {
+func panelKeyHints(panel PanelID, m *Model) string {
 	switch panel {
 	case PanelProjects:
-		return "j/k nav · / search · f fav · t tab · e explorer · Enter pipelines · r refresh"
+		return "/ search · f fav · e explorer · t tab · r refresh · Ctrl+O copy · ? help"
 	case PanelPipelines:
-		return "j/k nav · l stages · [ ] page · R retry · C cancel · t tab · r refresh"
+		return "j/k nav · l stages · R retry · C cancel · [ ] page · t tab · Ctrl+O copy · ? help"
 	case PanelStages:
-		return "j/k nav · J/K log · R retry · C cancel · P play · t tab"
+		return "j/k nav · J/K log · R retry · C cancel · P play · t tab · Ctrl+O copy · ? help"
 	case PanelMRs:
-		return "j/k nav · J/K scroll · [ ] filter · t tab · Ctrl+O copy URL"
+		return "j/k nav · J/K scroll · c comment · [ ] page · t tab · Ctrl+O copy · ? help"
 	case PanelDetail:
-		return "J/K scroll · Tab switch panels"
+		return detailPanelKeyHints(m)
 	default:
-		return "Tab switch · 1-5 jump · -/+ layout · = screen mode · ? help"
+		return "Tab switch · 1-4 jump · +/- layout · = screen mode · ? help"
 	}
+}
+
+// detailPanelKeyHints returns context-dependent hints for the Detail pane,
+// varying by whether the user came from a pipeline or MR panel and which
+// MR tab is active.
+func detailPanelKeyHints(m *Model) string {
+	if m.focus.PrevActive == PanelMRs {
+		switch m.mrView.detailTab {
+		case mrDetailTabComments:
+			return "j/k discussions · r resolve · Enter reply · c comment · t tab · ? help"
+		case mrDetailTabDiff:
+			return "j/k lines · c comment · t tab · h back · Ctrl+O copy · ? help"
+		default:
+			return "J/K scroll · c comment · t tab · h back · Ctrl+O copy · ? help"
+		}
+	}
+	return "J/K scroll · R retry · t tab · h back · Ctrl+O copy · ? help"
 }
 
 // panelFooter returns the "N of M" position indicator rendered in the bottom

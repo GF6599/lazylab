@@ -29,14 +29,23 @@ type keyMap struct {
 	Bottom   key.Binding
 
 	// Actions
-	Enter   key.Binding
-	Back    key.Binding
-	Quit    key.Binding
-	Search  key.Binding
-	Refresh key.Binding
-	Retry   key.Binding
-	Copy    key.Binding
-	Yank    key.Binding
+	Enter      key.Binding
+	Back       key.Binding
+	Quit       key.Binding
+	Search     key.Binding
+	Refresh    key.Binding
+	Retry      key.Binding
+	Copy       key.Binding
+	Yank       key.Binding
+	Favorite   key.Binding
+	Explorer   key.Binding
+	Cancel     key.Binding
+	Play       key.Binding
+	Comment    key.Binding
+	CycleTab   key.Binding
+	CycleTabRv key.Binding
+	MoveFavUp  key.Binding
+	MoveFavDn  key.Binding
 
 	// Pagination
 	NextPage key.Binding
@@ -125,12 +134,48 @@ func newKeyMap() keyMap {
 			key.WithHelp("R", "retry pipeline/job"),
 		),
 		Copy: key.NewBinding(
-			key.WithKeys("c"),
-			key.WithHelp("c", "copy URL"),
+			key.WithKeys("ctrl+o"),
+			key.WithHelp("Ctrl+O", "copy URL"),
 		),
 		Yank: key.NewBinding(
 			key.WithKeys("y"),
 			key.WithHelp("y", "yank/copy"),
+		),
+		Favorite: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "toggle favorite"),
+		),
+		Explorer: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "file explorer"),
+		),
+		Cancel: key.NewBinding(
+			key.WithKeys("C"),
+			key.WithHelp("C", "cancel pipeline/job"),
+		),
+		Play: key.NewBinding(
+			key.WithKeys("P"),
+			key.WithHelp("P", "play manual job"),
+		),
+		Comment: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "new comment"),
+		),
+		CycleTab: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "next tab"),
+		),
+		CycleTabRv: key.NewBinding(
+			key.WithKeys("T"),
+			key.WithHelp("T", "prev tab"),
+		),
+		MoveFavUp: key.NewBinding(
+			key.WithKeys("{"),
+			key.WithHelp("{", "move fav up"),
+		),
+		MoveFavDn: key.NewBinding(
+			key.WithKeys("}"),
+			key.WithHelp("}", "move fav down"),
 		),
 
 		// Pagination
@@ -186,7 +231,24 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Enter, k.Back, k.Refresh, k.Retry},
 		{k.Search, k.Copy, k.NextPage, k.PrevPage},
 		{k.ScrollUp, k.ScrollDown, k.ClearError, k.Quit},
+		{k.Favorite, k.Explorer, k.CycleTab, k.Comment},
+		{k.Cancel, k.Play, k.MoveFavUp, k.MoveFavDn},
 	}
+}
+
+// projectsShortHelp returns the minimal binding set for the projects mode help bar.
+func projectsShortHelp(k keyMap) []key.Binding {
+	return []key.Binding{k.Search, k.Enter, k.Refresh, k.Copy, k.Help, k.Quit}
+}
+
+// explorerShortHelp returns the minimal binding set for the explorer mode help bar.
+func explorerShortHelp(k keyMap) []key.Binding {
+	return []key.Binding{k.Enter, k.Back, k.ScrollDown, k.Refresh, k.Copy, k.Help, k.Quit}
+}
+
+// pipelinesShortHelp returns the minimal binding set for the pipelines mode help bar.
+func pipelinesShortHelp(k keyMap) []key.Binding {
+	return []key.Binding{k.Retry, k.Refresh, k.ScrollDown, k.NextPage, k.Copy, k.Help, k.Quit}
 }
 
 // projectsKeyMap returns keybindings for projects mode
@@ -206,7 +268,7 @@ func explorerKeyMap() []key.Binding {
 	return []key.Binding{
 		k.Up, k.Down, k.Left, k.Right,
 		k.HalfUp, k.HalfDown, k.Top, k.Bottom,
-		k.ScrollUp, k.ScrollDown, k.Back,
+		k.ScrollUp, k.ScrollDown, k.Refresh, k.Back,
 		k.Copy, k.Help, k.Quit,
 	}
 }
@@ -218,7 +280,84 @@ func pipelinesKeyMap() []key.Binding {
 		k.Up, k.Down, k.Left, k.Right,
 		k.HalfUp, k.HalfDown, k.Top, k.Bottom,
 		k.ScrollUp, k.ScrollDown, k.Refresh, k.Retry,
-		k.NextPage, k.PrevPage, k.Back,
+		k.Cancel, k.NextPage, k.PrevPage, k.Copy, k.Back,
 		k.Help, k.Quit,
+	}
+}
+
+// multiPanelKeyMap returns the full binding list for the ? help overlay
+// in multi-panel mode, tailored to the currently focused panel.
+func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding {
+	k := newKeyMap()
+	resolve := key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "resolve discussion"),
+	)
+	switch panel {
+	case PanelProjects:
+		return []key.Binding{
+			k.Up, k.Down, k.HalfUp, k.HalfDown,
+			k.Top, k.Bottom, k.Enter, k.Search,
+			k.Favorite, k.Explorer, k.CycleTab,
+			k.NextPage, k.PrevPage, k.Refresh,
+			k.MoveFavUp, k.MoveFavDn,
+			k.Copy, k.Help, k.Quit,
+		}
+	case PanelPipelines:
+		return []key.Binding{
+			k.Up, k.Down, k.HalfUp, k.HalfDown,
+			k.Top, k.Bottom, k.Left, k.Right,
+			k.ScrollUp, k.ScrollDown, k.Retry, k.Cancel,
+			k.CycleTab, k.NextPage, k.PrevPage,
+			k.Refresh, k.Copy, k.Help, k.Quit,
+		}
+	case PanelStages:
+		return []key.Binding{
+			k.Up, k.Down, k.HalfUp, k.HalfDown,
+			k.Top, k.Bottom, k.Left, k.Right,
+			k.ScrollUp, k.ScrollDown, k.Retry, k.Cancel,
+			k.Play, k.CycleTab, k.Refresh, k.Copy,
+			k.Help, k.Quit,
+		}
+	case PanelMRs:
+		return []key.Binding{
+			k.Up, k.Down, k.HalfUp, k.HalfDown,
+			k.Top, k.Bottom, k.Left, k.Right,
+			k.ScrollUp, k.ScrollDown, k.Comment,
+			k.CycleTab, k.NextPage, k.PrevPage,
+			k.Copy, k.Help, k.Quit,
+		}
+	case PanelDetail:
+		isMR := prevActive == PanelMRs
+		if isMR && m != nil {
+			switch m.mrView.detailTab {
+			case mrDetailTabComments:
+				return []key.Binding{
+					k.Up, k.Down, k.ScrollUp, k.ScrollDown,
+					k.Top, k.Bottom, resolve, k.Enter,
+					k.Comment, k.CycleTab, k.Left, k.Copy,
+					k.Help, k.Quit,
+				}
+			case mrDetailTabDiff:
+				return []key.Binding{
+					k.Up, k.Down, k.ScrollUp, k.ScrollDown,
+					k.Top, k.Bottom, k.Comment, k.CycleTab,
+					k.Left, k.Copy, k.Help, k.Quit,
+				}
+			default:
+				return []key.Binding{
+					k.ScrollUp, k.ScrollDown, k.Top, k.Bottom,
+					k.Comment, k.CycleTab, k.Left, k.Copy,
+					k.Help, k.Quit,
+				}
+			}
+		}
+		return []key.Binding{
+			k.ScrollUp, k.ScrollDown, k.Top, k.Bottom,
+			k.Retry, k.CycleTab, k.Left, k.Copy,
+			k.Help, k.Quit,
+		}
+	default:
+		return []key.Binding{k.Help, k.Quit}
 	}
 }

@@ -18,6 +18,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -33,6 +34,12 @@ const (
 	detailMinWidth  = 30 // Detail pane won't shrink below this
 	borderCharsH    = 2  // Left + right border chars per pane
 	borderCharsV    = 2  // Top + bottom border chars per pane
+
+	// MinTerminalWidth and MinTerminalHeight define the smallest terminal
+	// dimensions where the TUI can render usefully. Below these thresholds
+	// all modes show a "too small" message and block key input.
+	MinTerminalWidth  = 63 // minSidebarWidth + detailMinWidth + paneGap + borderCharsH*2
+	MinTerminalHeight = 10 // practical floor for any useful rendering
 )
 
 // layoutResult holds the computed dimensions for every element of the
@@ -51,8 +58,20 @@ type layoutResult struct {
 // computeLayout calculates sidebar/detail widths and per-panel heights for the
 // current terminal size and focus state. Returns OK=false if the terminal is
 // too small to render the layout meaningfully.
+// renderTooSmallView returns a centered, styled message telling the user that
+// the terminal is below the minimum usable dimensions.
+func renderTooSmallView(width, height int) string {
+	msg := fmt.Sprintf("Terminal too small: %dx%d\nMinimum required:  %dx%d", width, height, MinTerminalWidth, MinTerminalHeight)
+	styled := lipgloss.NewStyle().
+		Foreground(rosePineGold).
+		Bold(true).
+		Align(lipgloss.Center).
+		Render(msg)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, styled)
+}
+
 func computeLayout(width, height int, focus FocusState) layoutResult {
-	if width < minSidebarWidth+detailMinWidth+paneGap+borderCharsH*2 || height < 10 {
+	if width < MinTerminalWidth || height < MinTerminalHeight {
 		return layoutResult{OK: false}
 	}
 
@@ -109,11 +128,30 @@ func computeLayout(width, height int, focus FocusState) layoutResult {
 func accordionLayout(panels []PanelID, focused PanelID, mode ScreenMode, totalHeight int) map[PanelID]int {
 	heights := make(map[PanelID]int, len(panels))
 	n := len(panels)
-	// Bail out when total height can't satisfy minimum constraints — give
-	// every panel its floor height and let the caller clip or scroll.
-	if n == 0 || totalHeight < n*(minPanelHeight+borderCharsV) {
-		for _, p := range panels {
-			heights[p] = minPanelHeight
+	if n == 0 {
+		return heights
+	}
+	// When total height can't satisfy minimum constraints, distribute what
+	// we have so rendered panels (content + borders) fit within totalHeight.
+	// The focused panel gets leftover rows; in extreme cases only it renders.
+	if totalHeight < n*(minPanelHeight+borderCharsV) {
+		budget := totalHeight - n*borderCharsV // content rows after borders
+		if budget < n {
+			// Can't give every panel even 1 row; focus gets everything.
+			for _, p := range panels {
+				heights[p] = 0
+			}
+			heights[focused] = max(0, budget)
+		} else {
+			perPanel := budget / n
+			leftover := budget - perPanel*n
+			for _, p := range panels {
+				if p == focused {
+					heights[p] = perPanel + leftover
+				} else {
+					heights[p] = perPanel
+				}
+			}
 		}
 		return heights
 	}
@@ -167,6 +205,17 @@ func accordionLayout(panels []PanelID, focused PanelID, mode ScreenMode, totalHe
 				heights[p] = otherHeight
 			}
 		}
+	}
+
+	// Reconcile: ensure sum of panel heights exactly equals contentBudget.
+	// Integer division rounding and minPanelHeight clamping can cause the
+	// total to drift. Absorb the difference into the focused panel.
+	total := 0
+	for _, p := range panels {
+		total += heights[p]
+	}
+	if diff := total - contentBudget; diff != 0 {
+		heights[focused] = max(0, heights[focused]-diff)
 	}
 
 	return heights

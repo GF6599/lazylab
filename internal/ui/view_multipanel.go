@@ -22,7 +22,7 @@ import (
 func renderMultiPanelView(m *Model, width, height int) string {
 	layout := computeLayout(width, height, m.focus)
 	if !layout.OK {
-		return lipgloss.NewStyle().Width(width).Render(" Terminal too small for multi-panel view.")
+		return renderTooSmallView(width, height)
 	}
 
 	// Render sidebar panels
@@ -52,7 +52,9 @@ func renderSidebar(m *Model, layout layoutResult) string {
 		footer := panelFooter(panelID, m)
 		scroll := panelScrollInfo(panelID, m)
 		rendered := renderBorderedPane(content, layout.SidebarWidth+borderCharsH, h, focused, panelLabel(panelID), tabs, activeTab, footer, scroll)
-		panels = append(panels, rendered)
+		if rendered != "" {
+			panels = append(panels, rendered)
+		}
 	}
 	return strings.Join(panels, "\n")
 }
