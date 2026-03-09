@@ -297,7 +297,7 @@ func TestProjectCache_TTLExpiration(t *testing.T) {
 	// Set timestamp to 25 hours ago (beyond TTL)
 	file.CachedAt = time.Now().Add(-25 * time.Hour)
 
-	data, err = json.MarshalIndent(file, "", "  ")
+	data, err = json.Marshal(file)
 	if err != nil {
 		t.Fatalf("Failed to marshal cache: %v", err)
 	}

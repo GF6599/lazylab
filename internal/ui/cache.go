@@ -118,7 +118,7 @@ func (c *projectCache) Save(projects []gitlab.ProjectNode) error {
 		CachedAt: time.Now(),
 		Projects: projects,
 	}
-	data, err := json.MarshalIndent(payload, "", "  ")
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode cache: %w", err)
 	}
