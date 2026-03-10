@@ -8,7 +8,7 @@ A terminal UI for browsing GitLab projects, pipelines, merge requests, and repos
 
 Navigate your GitLab instance the way lazygit navigates git: with a multi-panel TUI, instant keyboard shortcuts, and real-time updates.
 
-<!-- TODO: Add demo GIF or screenshot here -->
+![Lazylab Demo](doc/demo.gif)
 
 ## Features
 
