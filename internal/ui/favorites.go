@@ -93,7 +93,7 @@ func (s *favoritesStore) Save(ids []int) error {
 	tmpPath := tmpFile.Name()
 
 	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write favorites tmp: %w", err)
 	}

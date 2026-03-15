@@ -133,7 +133,7 @@ func (c *projectCache) Save(projects []gitlab.ProjectNode) error {
 
 	// Write data and close
 	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write cache tmp: %w", err)
 	}
