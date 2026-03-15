@@ -4,10 +4,15 @@ Thumbs.db
 
 /build/
 /lazylab
-justfile
 .claude
-CLAUDE.md
 *.out
 debug.log
 debug.log,
 /dist/
+
+# Environment / secrets
+.env
+.env.*
+
+# IDE
+.idea/
