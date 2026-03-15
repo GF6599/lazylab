@@ -337,6 +337,7 @@ type Model struct {
 	favorites      map[int]bool
 	favOrder       []int // User-defined ordering of favorite project IDs
 	favStore       *favoritesStore
+	prefStore      *preferencesStore
 	projectTab     projectTab
 
 	// visibleProjects cache — avoids recomputing the filtered/paged project
@@ -610,6 +611,11 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 	} else {
 		m.logError("init favorites store", "err", err)
 	}
+	if store, err := newPreferencesStore(opts.Host); err == nil {
+		m.prefStore = store
+	} else {
+		m.logError("init preferences store", "err", err)
+	}
 	return m
 }
 
@@ -626,6 +632,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.favStore != nil {
 		cmds = append(cmds, loadFavoritesCmd(m.favStore))
+	}
+	if m.prefStore != nil {
+		cmds = append(cmds, loadPreferencesCmd(m.prefStore))
 	}
 	cmds = append(cmds, m.spinner.Tick)
 	return tea.Batch(cmds...)
@@ -821,6 +830,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case favoritesSavedMsg:
 		if msg.err != nil {
 			m.logError("save favorites", "err", msg.err)
+		}
+		return m, nil
+	case preferencesLoadedMsg:
+		if msg.err != nil {
+			m.logError("load preferences", "err", msg.err)
+		} else {
+			m.focus.LayoutMode = msg.layoutMode
+			m.focus.ScreenMode = msg.screenMode
+			m.updateViewportSizes()
+		}
+		return m, nil
+	case preferencesSavedMsg:
+		if msg.err != nil {
+			m.logError("save preferences", "err", msg.err)
 		}
 		return m, nil
 	}

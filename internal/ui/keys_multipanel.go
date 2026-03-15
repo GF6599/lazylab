@@ -57,10 +57,18 @@ func (m Model) handleMultiPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.onPanelFocusChanged()
 	case "+", "-":
 		m.focus.ToggleLayoutMode()
-		return m, nil
+		var cmd tea.Cmd
+		if m.prefStore != nil {
+			cmd = savePreferencesCmd(m.prefStore, m.focus.LayoutMode, m.focus.ScreenMode)
+		}
+		return m, cmd
 	case "=":
 		m.focus.NextScreenMode()
-		return m, nil
+		var cmd tea.Cmd
+		if m.prefStore != nil {
+			cmd = savePreferencesCmd(m.prefStore, m.focus.LayoutMode, m.focus.ScreenMode)
+		}
+		return m, cmd
 	case "1", "2", "3", "4", "5":
 		n := int(key[0] - '0')
 		if panel, ok := panelByShortcut(n); ok {

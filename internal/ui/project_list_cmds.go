@@ -139,6 +139,27 @@ func saveFavoritesCmd(store *favoritesStore, favOrder []int) tea.Cmd {
 	}
 }
 
+type preferencesLoadedMsg struct {
+	layoutMode LayoutMode
+	screenMode ScreenMode
+	err        error
+}
+
+type preferencesSavedMsg struct{ err error }
+
+func loadPreferencesCmd(store *preferencesStore) tea.Cmd {
+	return func() tea.Msg {
+		layout, screen, err := store.Load()
+		return preferencesLoadedMsg{layoutMode: layout, screenMode: screen, err: err}
+	}
+}
+
+func savePreferencesCmd(store *preferencesStore, layout LayoutMode, screen ScreenMode) tea.Cmd {
+	return func() tea.Msg {
+		return preferencesSavedMsg{err: store.Save(layout, screen)}
+	}
+}
+
 type batchPipelineStatusMsg struct {
 	results map[int]pipelineStatusResult // projectID -> result
 }
