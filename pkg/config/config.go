@@ -43,7 +43,7 @@ const (
 
 	defaultHost            = "https://gitlab.com"
 	defaultProjectsPerPage = 30
-	defaultLogLevel        = "info"
+	defaultLogLevel        = "error"
 )
 
 // Config holds the fully-resolved runtime settings after all sources have
