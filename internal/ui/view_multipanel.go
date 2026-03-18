@@ -144,7 +144,7 @@ func renderStagesPanelContent(m *Model, width, height int) string {
 
 	// Render stage table (height minus header row and its border)
 	m.pipelineView.stageTable.SetHeight(max(1, height-2))
-	return colorizeStatusIcons(m.pipelineView.stageTable.View())
+	return colorizeStatusIcons(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor())
 }
 
 // renderRightArea renders the detail pane.
@@ -561,9 +561,10 @@ func panelTabs(panel PanelID, m *Model) ([]string, int) {
 }
 
 // colorizeStatusIcons replaces plain status icon characters in rendered table
-// output with their colored equivalents. This works around the bubbles table
-// using runewidth.Truncate (not ANSI-aware) for cell content.
-func colorizeStatusIcons(s string) string {
+// output with their colored equivalents, skipping the selected row to avoid
+// nested ANSI that breaks the selection background. The cursor parameter is the
+// table's selected row index; data rows start at line offset 2 (header + border).
+func colorizeStatusIcons(s string, cursor int) string {
 	replacements := []struct {
 		plain   string
 		colored string
@@ -578,8 +579,16 @@ func colorizeStatusIcons(s string) string {
 		{iconManual + " MANUAL", pipelineStatusStyle("manual").Render(iconManual) + " MANUAL"},
 		{iconBlocked + " BLOCKED", pipelineStatusStyle("manual").Render(iconBlocked) + " BLOCKED"},
 	}
-	for _, r := range replacements {
-		s = strings.ReplaceAll(s, r.plain, r.colored)
+	lines := strings.Split(s, "\n")
+	selectedLine := cursor + 2 // header + border = 2 offset lines
+	for i, line := range lines {
+		if i == selectedLine {
+			continue
+		}
+		for _, r := range replacements {
+			line = strings.ReplaceAll(line, r.plain, r.colored)
+		}
+		lines[i] = line
 	}
-	return s
+	return strings.Join(lines, "\n")
 }

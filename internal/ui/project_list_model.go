@@ -229,8 +229,15 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 	}
 
 	cursor, style := listCursorStyle(index, m.Index())
+	isSelected := index == m.Index()
 
-	icon := pipelineStatusStyle(pItem.summary.Status).Render(pipelineStatusIcon(pItem.summary.Status))
+	// Use plain icon when selected so the selection background applies
+	// uniformly; colored icon otherwise for at-a-glance status.
+	icon := pipelineStatusIcon(pItem.summary.Status)
+	if !isSelected {
+		icon = pipelineStatusStyle(pItem.summary.Status).Render(icon)
+	}
+
 	timestamp := unknownStatus
 	if !pItem.summary.UpdatedAt.IsZero() {
 		timestamp = pItem.summary.UpdatedAt.Local().Format(timestampFormat)
@@ -242,7 +249,11 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 
 	line := fmt.Sprintf("%s %s #%d %s %s", cursor, icon, pItem.summary.ID, timestamp, ref)
 	width := m.Width()
-	fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
+	if isSelected {
+		fmt.Fprint(w, style.Render(clampLine(line, width)))
+	} else {
+		fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
+	}
 }
 
 // treeEntryItem wraps a GitLab tree entry for use with bubbles/list
