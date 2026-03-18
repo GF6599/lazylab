@@ -25,11 +25,8 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 	m.mode = modePipelines
 
 	// Initialize stage table (job-per-row layout)
-	columns := []table.Column{
-		{Title: "Job", Width: 24},
-		{Title: "Stage", Width: 16},
-		{Title: "Status", Width: 16},
-	}
+	_, stagesInner, _, _, _ := pipelinePaneLayout(m.width, m.height)
+	columns := stageTableColumns(max(stagesInner, 56))
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(false),

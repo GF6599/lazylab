@@ -206,11 +206,11 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 	m.pipelineView.pipelineList.Styles.Title = titleStyle
 
 	// Initialize stage table (job-per-row layout)
-	columns := []table.Column{
-		{Title: "Job", Width: 24},
-		{Title: "Stage", Width: 16},
-		{Title: "Status", Width: 16},
+	stageWidth := 56
+	if layout := computeLayout(m.width, m.height, m.focus); layout.OK {
+		stageWidth = layout.SidebarWidth
 	}
+	columns := stageTableColumns(stageWidth)
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(false),

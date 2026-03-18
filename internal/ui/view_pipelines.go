@@ -175,7 +175,11 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 		return finalize()
 	}
 
-	// Render the table
+	// Sync table columns to current pane width and render
+	headerLines := strings.Count(b.String(), "\n")
+	m.pipelineView.stageTable.SetColumns(stageTableColumns(width))
+	m.pipelineView.stageTable.SetWidth(width)
+	m.pipelineView.stageTable.SetHeight(max(1, height-headerLines-1))
 	b.WriteString(m.pipelineView.stageTable.View())
 	b.WriteString("\n")
 

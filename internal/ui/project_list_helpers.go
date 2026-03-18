@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -66,6 +67,36 @@ const (
 	minTreeCurrent  = 12
 	minInnerWidth   = 20
 )
+
+// stageTableColumns computes column widths for the pipeline stage table based
+// on available pane width. The bubbles table applies 1-char padding per side
+// per cell (2 chars/cell), so 3 columns consume 6 chars of padding.
+func stageTableColumns(width int) []table.Column {
+	const cellPadding = 2
+	const numCols = 3
+	const statusWidth = 12
+	const minStage = 8
+	const minJob = 8
+
+	usable := width - numCols*cellPadding
+	if usable < minJob+minStage+statusWidth {
+		usable = max(usable, numCols)
+		third := usable / numCols
+		return []table.Column{
+			{Title: "Job", Width: max(1, usable-third*2)},
+			{Title: "Stage", Width: third},
+			{Title: "Status", Width: third},
+		}
+	}
+	remaining := usable - statusWidth
+	stageW := max(minStage, remaining*25/100)
+	jobW := remaining - stageW
+	return []table.Column{
+		{Title: "Job", Width: jobW},
+		{Title: "Stage", Width: stageW},
+		{Title: "Status", Width: statusWidth},
+	}
+}
 
 // isLoading returns true if anything is currently loading that should animate the spinner.
 func (m *Model) isLoading() bool {

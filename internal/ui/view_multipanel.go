@@ -142,7 +142,9 @@ func renderStagesPanelContent(m *Model, width, height int) string {
 		return explorerHintStyle.Render(clampLine(" "+msgNoStages, width))
 	}
 
-	// Render stage table (height minus header row and its border)
+	// Sync table columns to current pane width and render
+	m.pipelineView.stageTable.SetColumns(stageTableColumns(width))
+	m.pipelineView.stageTable.SetWidth(width)
 	m.pipelineView.stageTable.SetHeight(max(1, height-2))
 	return colorizeStatusIcons(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor())
 }

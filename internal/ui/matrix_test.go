@@ -251,13 +251,8 @@ func newMatrixPipelineModel() Model {
 		{ID: 6, Name: "deploy", Stage: "deploy", Status: "pending"},
 	})
 
-	columns := []table.Column{
-		{Title: "Job", Width: 24},
-		{Title: "Stage", Width: 16},
-		{Title: "Status", Width: 16},
-	}
 	tbl := table.New(
-		table.WithColumns(columns),
+		table.WithColumns(stageTableColumns(56)),
 		table.WithFocused(false),
 		table.WithHeight(10),
 	)
@@ -537,12 +532,7 @@ func TestUpdateStageTable_NoMatrixJobs_BackwardsCompatible(t *testing.T) {
 		{ID: 3, Name: "lint", Stage: "test", Status: "success"},
 	})
 
-	columns := []table.Column{
-		{Title: "Job", Width: 24},
-		{Title: "Stage", Width: 16},
-		{Title: "Status", Width: 16},
-	}
-	tbl := table.New(table.WithColumns(columns), table.WithHeight(10))
+	tbl := table.New(table.WithColumns(stageTableColumns(56)), table.WithHeight(10))
 
 	m := Model{
 		pipelineView: pipelineViewState{
@@ -859,12 +849,7 @@ func TestUpdateStageTable_BridgeOnlyStageInjected(t *testing.T) {
 		},
 	})
 
-	columns := []table.Column{
-		{Title: "Job", Width: 30},
-		{Title: "Stage", Width: 16},
-		{Title: "Status", Width: 16},
-	}
-	tbl := table.New(table.WithColumns(columns), table.WithHeight(10))
+	tbl := table.New(table.WithColumns(stageTableColumns(56)), table.WithHeight(10))
 
 	m := Model{
 		mode:   modeMultiPanel,
@@ -1123,13 +1108,8 @@ func newBridgePipelineModel() Model {
 		},
 	})
 
-	columns := []table.Column{
-		{Title: "Job", Width: 24},
-		{Title: "Stage", Width: 16},
-		{Title: "Status", Width: 16},
-	}
 	tbl := table.New(
-		table.WithColumns(columns),
+		table.WithColumns(stageTableColumns(56)),
 		table.WithFocused(false),
 		table.WithHeight(10),
 	)

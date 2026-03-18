@@ -427,6 +427,49 @@ func TestFormatTimeAgo(t *testing.T) {
 	}
 }
 
+func TestStageTableColumns(t *testing.T) {
+	tests := []struct {
+		name  string
+		width int
+	}{
+		{"narrow 20", 20},
+		{"minimum 28", 28},
+		{"typical sidebar 40", 40},
+		{"default 56", 56},
+		{"wide 100", 100},
+		{"very wide 200", 200},
+		{"tiny 10", 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cols := stageTableColumns(tt.width)
+			if len(cols) != 3 {
+				t.Fatalf("expected 3 columns, got %d", len(cols))
+			}
+			if cols[0].Title != "Job" || cols[1].Title != "Stage" || cols[2].Title != "Status" {
+				t.Errorf("unexpected column titles: %v", cols)
+			}
+			// Sum of widths + padding (2 per col) must not exceed input width
+			sum := cols[0].Width + cols[1].Width + cols[2].Width + 6
+			if sum > tt.width {
+				t.Errorf("columns overflow: sum=%d (widths %d+%d+%d + 6 padding) > width=%d",
+					sum, cols[0].Width, cols[1].Width, cols[2].Width, tt.width)
+			}
+			// All widths must be positive
+			for i, c := range cols {
+				if c.Width < 1 {
+					t.Errorf("column %d (%s) width=%d, want >= 1", i, c.Title, c.Width)
+				}
+			}
+			// For reasonable widths, Job should be the widest column
+			if tt.width >= 40 && cols[0].Width <= cols[1].Width {
+				t.Errorf("Job (%d) should be wider than Stage (%d) at width=%d",
+					cols[0].Width, cols[1].Width, tt.width)
+			}
+		})
+	}
+}
+
 func TestWrapText(t *testing.T) {
 	tests := []struct {
 		name  string
