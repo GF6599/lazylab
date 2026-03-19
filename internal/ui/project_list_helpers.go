@@ -98,6 +98,32 @@ func stageTableColumns(width int) []table.Column {
 	}
 }
 
+// stageTableSelectedHint returns a styled hint line showing the full job name
+// of the selected stage row when it would be truncated by the table column
+// width. Returns "" when the name fits or no row is selected.
+//
+// Unlike list delegates (which can emit extra lines), the bubbles table
+// enforces single-line cells with Inline(true), so we show the full name
+// in a separate hint line below the table instead.
+func stageTableSelectedHint(m *Model, width int) string {
+	rows := m.pipelineView.stageTable.Rows()
+	cursor := m.pipelineView.stageTable.Cursor()
+	if cursor < 0 || cursor >= len(rows) {
+		return ""
+	}
+	jobName := rows[cursor][0]
+	// Strip tree-drawing prefixes so the hint shows only the meaningful name.
+	clean := strings.TrimLeft(jobName, " ")
+	for _, p := range []string{"├─ ", "└─ ", iconTreeExpanded + " ", iconTreeCollapsed + " "} {
+		clean = strings.TrimPrefix(clean, p)
+	}
+	cols := stageTableColumns(width)
+	if len(cols) == 0 || lipgloss.Width(jobName) <= cols[0].Width {
+		return ""
+	}
+	return explorerHintStyle.Render(clampLine(" "+clean, width))
+}
+
 // isLoading returns true if anything is currently loading that should animate the spinner.
 func (m *Model) isLoading() bool {
 	// Project list loading

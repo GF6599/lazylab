@@ -175,13 +175,23 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 		return finalize()
 	}
 
-	// Sync table columns to current pane width and render
+	// Sync table columns to current pane width and render.
+	// Reserve 1 line for the selected job name hint when it would be truncated.
+	jobHint := stageTableSelectedHint(&m, width)
 	headerLines := strings.Count(b.String(), "\n")
+	tableHeight := height - headerLines - 1
+	if jobHint != "" {
+		tableHeight--
+	}
 	m.pipelineView.stageTable.SetColumns(stageTableColumns(width))
 	m.pipelineView.stageTable.SetWidth(width)
-	m.pipelineView.stageTable.SetHeight(max(1, height-headerLines-1))
+	m.pipelineView.stageTable.SetHeight(max(1, tableHeight))
 	b.WriteString(m.pipelineView.stageTable.View())
 	b.WriteString("\n")
+	if jobHint != "" {
+		b.WriteString(jobHint)
+		b.WriteString("\n")
+	}
 
 	return finalize()
 }

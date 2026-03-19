@@ -142,11 +142,21 @@ func renderStagesPanelContent(m *Model, width, height int) string {
 		return explorerHintStyle.Render(clampLine(" "+msgNoStages, width))
 	}
 
-	// Sync table columns to current pane width and render
+	// Sync table columns to current pane width and render.
+	// Reserve 1 line for the selected job name hint when it would be truncated.
+	hint := stageTableSelectedHint(m, width)
+	tableHeight := height - 2
+	if hint != "" {
+		tableHeight--
+	}
 	m.pipelineView.stageTable.SetColumns(stageTableColumns(width))
 	m.pipelineView.stageTable.SetWidth(width)
-	m.pipelineView.stageTable.SetHeight(max(1, height-2))
-	return colorizeStatusIcons(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor())
+	m.pipelineView.stageTable.SetHeight(max(1, tableHeight))
+	content := colorizeStatusIcons(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor())
+	if hint != "" {
+		return renderWithBottomHint(content, hint, height)
+	}
+	return content
 }
 
 // renderRightArea renders the detail pane.
