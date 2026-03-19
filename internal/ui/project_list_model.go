@@ -160,8 +160,22 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	}
 
 	width := m.Width()
-	line := clampLine(fmt.Sprintf("%s %s%s%s", cursor, favIcon, statusIcon, proj.project.PathWithNamespace), width)
-	fmt.Fprint(w, style.Render(line))
+	fullLine := fmt.Sprintf("%s %s%s%s", cursor, favIcon, statusIcon, proj.project.PathWithNamespace)
+	if index == m.Index() && lipgloss.Width(fullLine) > width {
+		// Wrap the selected item onto multiple lines instead of truncating.
+		// The bubbles list does not enforce Height() per delegate render call,
+		// so extra newlines push subsequent items down without corruption.
+		// The last item on the page may be clipped by the height constraint.
+		indent := lipgloss.Width(fmt.Sprintf("%s %s%s", cursor, favIcon, statusIcon))
+		for i, line := range wrapSelectedItem(fullLine, width, indent, 3) {
+			if i > 0 {
+				fmt.Fprint(w, "\n")
+			}
+			fmt.Fprint(w, style.Render(fitLine(line, width)))
+		}
+	} else {
+		fmt.Fprint(w, style.Render(clampLine(fullLine, width)))
+	}
 }
 
 // actionMenuItem wraps an action menu option for use with bubbles/list
@@ -249,7 +263,16 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 
 	line := fmt.Sprintf("%s %s #%d %s %s", cursor, icon, pItem.summary.ID, timestamp, ref)
 	width := m.Width()
-	if isSelected {
+	if isSelected && lipgloss.Width(line) > width {
+		// Wrap instead of truncate — see projectDelegate.Render for rationale.
+		indent := lipgloss.Width(fmt.Sprintf("%s %s ", cursor, icon))
+		for i, wl := range wrapSelectedItem(line, width, indent, 3) {
+			if i > 0 {
+				fmt.Fprint(w, "\n")
+			}
+			fmt.Fprint(w, style.Render(fitLine(wl, width)))
+		}
+	} else if isSelected {
 		fmt.Fprint(w, style.Render(clampLine(line, width)))
 	} else {
 		fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
@@ -293,8 +316,20 @@ func (d treeEntryDelegate) Render(w io.Writer, m list.Model, index int, item lis
 		name += "/"
 	}
 
+	width := m.Width()
 	line := fmt.Sprintf("%s%s %s", cursor, icon, name)
-	fmt.Fprint(w, style.Render(line))
+	if index == m.Index() && lipgloss.Width(line) > width {
+		// Wrap instead of truncate — see projectDelegate.Render for rationale.
+		indent := lipgloss.Width(fmt.Sprintf("%s%s ", cursor, icon))
+		for i, wl := range wrapSelectedItem(line, width, indent, 3) {
+			if i > 0 {
+				fmt.Fprint(w, "\n")
+			}
+			fmt.Fprint(w, style.Render(fitLine(wl, width)))
+		}
+	} else {
+		fmt.Fprint(w, style.Render(clampLine(line, width)))
+	}
 }
 
 // Model is the root Bubble Tea model. It is a value type following Bubble Tea
