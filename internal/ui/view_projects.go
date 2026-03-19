@@ -1,6 +1,5 @@
-// view_projects.go renders the project list mode: the filterable project list
-// pane, the detail sidebar (project metadata + pipeline status), the search
-// bar, the action menu modal, and the pagination progress bar.
+// view_projects.go renders the project list pane, the detail sidebar (project
+// metadata + pipeline status), the search bar, and the pagination progress bar.
 package ui
 
 import (
@@ -12,49 +11,6 @@ import (
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
-
-// projectPaneLayout calculates inner widths and content height for the
-// two-pane project view (list + detail). Returns (listInner, detailInner,
-// contentHeight, ok). ok is false if the terminal is too narrow.
-//
-// Height budget: terminal height - 4 = content height.
-// The 4 reserved lines are: 2 pane borders (top+bottom) + 1 help bar + 1 newline separator.
-func projectPaneLayout(width, height int) (int, int, int, bool) {
-	if width <= 0 {
-		width = 80
-	}
-	minInnerWidth := 22
-	minTotalWidth := minInnerWidth*2 + 4 + paneGap
-	if width < minTotalWidth {
-		return 0, 0, 0, false
-	}
-	if height <= 5 {
-		height = 5
-	}
-	contentHeight := height - 4
-	innerTotal := width - paneGap - 4
-	listInner := max(minInnerWidth, innerTotal*45/100)
-	detailInner := innerTotal - listInner
-	if detailInner < minInnerWidth {
-		detailInner = minInnerWidth
-		listInner = max(minInnerWidth, innerTotal-detailInner)
-	}
-	return listInner, detailInner, contentHeight, true
-}
-
-// renderProjectsView renders the two-pane project view: a scrollable project
-// list on the left (45% width) and a detail pane on the right showing metadata,
-// pipeline status, and recent commits for the selected project.
-func renderProjectsView(m Model, width int) string {
-	listInner, detailInner, contentHeight, ok := projectPaneLayout(width, m.height)
-	if !ok {
-		return renderTooSmallView(width, m.height)
-	}
-	listPane := renderPane(renderListPane(m, listInner, contentHeight, true), listInner, contentHeight, true)
-	detailPane := renderPane((&m).cachedDetailPane(detailInner, contentHeight), detailInner, contentHeight, false)
-	gap := renderPaneGap(paneGap, contentHeight+2)
-	return lipgloss.JoinHorizontal(lipgloss.Top, listPane, gap, detailPane)
-}
 
 // renderListPane builds the project list pane content: header with page/search
 // info, the bubbles list component, and bottom status lines (errors, loading
@@ -238,38 +194,6 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 		b.WriteString(detailLabelStyle.Render("  Checked: ") + detailValueStyle.Render(state.lastFetched.Format(time.RFC1123)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
-}
-
-// renderProjectActionModal renders the "View pipelines / Browse files" chooser
-// as a centered bordered box, intended to be composited via overlayCentered.
-func renderProjectActionModal(m Model, width int) string {
-	if width <= 0 {
-		width = 80
-	}
-	innerWidth := min(60, width-10)
-	if innerWidth < 20 {
-		innerWidth = max(12, width-6)
-	}
-	b := &strings.Builder{}
-	title := fmt.Sprintf("Project Actions · %s", m.actionMenu.project.PathWithNamespace)
-	b.WriteString(detailHeaderStyle.Render(clampLine(title, innerWidth)))
-	b.WriteString("\n")
-	b.WriteString(explorerHintStyle.Render(clampLine("Choose what to open:", innerWidth)))
-	b.WriteString("\n\n")
-
-	// Render action menu using bubbles list
-	m.actionMenu.menuList.SetSize(innerWidth, len(projectActionOptions))
-	b.WriteString(m.actionMenu.menuList.View())
-
-	b.WriteString("\n")
-	b.WriteString(explorerHintStyle.Render(clampLine("Enter to select · Esc to cancel", innerWidth)))
-	modal := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(rosePineSubtle).
-		Padding(1, 2).
-		Width(innerWidth).
-		Render(strings.TrimSuffix(b.String(), "\n"))
-	return modal
 }
 
 func renderListTitle(m Model) string {

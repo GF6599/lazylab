@@ -124,10 +124,11 @@ func (m Model) openRetryModal() (tea.Model, tea.Cmd) {
 		m.status = msgNoPipeline
 		return m, nil
 	}
-	m.pipelineView.confirmRetry = true
-	m.pipelineView.confirmRetryIsJob = false
-	m.pipelineView.confirmRetryID = pipeline.ID
-	m.pipelineView.confirmRetryRef = pipeline.Ref
+	m.pipelineView.retryConfirm = retryConfirmState{
+		active: true,
+		id:     pipeline.ID,
+		ref:    pipeline.Ref,
+	}
 	return m, nil
 }
 

@@ -152,15 +152,16 @@ func (m Model) openRetryModalForJob() (tea.Model, tea.Cmd) {
 		m.status = "No job selected"
 		return m, nil
 	}
-	m.pipelineView.confirmRetry = true
-	m.pipelineView.confirmRetryIsJob = true
-	m.pipelineView.confirmRetryID = pipeline.ID
-	m.pipelineView.confirmRetryRef = ""
-	m.pipelineView.confirmRetryJobID = job.ID
-	m.pipelineView.confirmRetryJobName = job.Name
-	m.pipelineView.confirmRetryJobStage = job.Stage
+	m.pipelineView.retryConfirm = retryConfirmState{
+		active:   true,
+		isJob:    true,
+		id:       pipeline.ID,
+		jobID:    job.ID,
+		jobName:  job.Name,
+		jobStage: job.Stage,
+	}
 	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.ChildProjectID != 0 {
-		m.pipelineView.confirmRetryProjectID = row.ChildProjectID
+		m.pipelineView.retryConfirm.projectID = row.ChildProjectID
 	}
 	return m, nil
 }

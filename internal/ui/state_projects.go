@@ -9,40 +9,19 @@ import (
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
-// openProjectActions transitions to the action menu modal for a project.
-// The modal offers "View pipelines" or "Browse files" — it does not fetch
-// any data, so it returns no command.
-func (m Model) openProjectActions(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
-	m.mode = modeProjectActions
-
-	// Initialize action menu list
-	items := make([]list.Item, len(projectActionOptions))
-	for i, option := range projectActionOptions {
-		items[i] = actionMenuItem{label: option, index: i}
-	}
-
-	delegate := actionMenuDelegate{}
-	menuList := newBareList(items, delegate, 0, 0)
-	menuList.Styles.Title = titleStyle
-
-	m.actionMenu = actionMenuState{
-		project:  project,
-		menuList: menuList,
-		selected: 0,
-	}
-	m.status = fmt.Sprintf("Actions for %s", project.PathWithNamespace)
-	return m, nil
-}
-
-func (m *Model) closeActionMenu() {
-	m.mode = modeProjects
-	m.actionMenu = actionMenuState{}
-	m.updateProjectListSize()
+// startSearch activates the search input and returns the blink command.
+func (m Model) startSearch() (tea.Model, tea.Cmd) {
+	m.search.active = true
+	m.search.query = ""
+	m.search.input.SetValue("")
+	m.search.input.Focus()
+	return m, textinput.Blink
 }
 
 func (m Model) selectedProject() (gitlab.ProjectNode, bool) {
@@ -453,21 +432,8 @@ func (m *Model) updateViewportSizes() {
 }
 
 // updateProjectListSize recalculates the bubbles list dimensions from the
-// current terminal size. No-ops in modeMultiPanel where the list size is set
-// during render (the sidebar width depends on focus/layout mode).
+// current terminal size. In modeMultiPanel the list size is set during render
+// (the sidebar width depends on focus/layout mode), so this is a no-op.
 func (m *Model) updateProjectListSize() {
-	if m.mode != modeProjects && m.mode != modeMultiPanel {
-		return
-	}
-	if m.mode == modeMultiPanel {
-		// In multi-panel mode, project list size is set during render
-		return
-	}
-	listWidth, _, contentHeight, ok := projectPaneLayout(m.width, m.height)
-	if !ok {
-		return
-	}
-	listHeight := max(1, contentHeight-2)
-	m.projectList.SetSize(listWidth, listHeight)
-	m.projectList.SetWidth(listWidth)
+	// In multi-panel mode, project list size is set during render
 }

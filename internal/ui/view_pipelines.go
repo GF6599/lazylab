@@ -252,9 +252,10 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 		innerWidth = max(12, width-6)
 	}
 	b := &strings.Builder{}
-	isDownstream := m.pipelineView.confirmRetryProjectID != 0
+	rc := m.pipelineView.retryConfirm
+	isDownstream := rc.projectID != 0
 	title := fmt.Sprintf("Retry Pipeline · %s", m.pipelineView.project.PathWithNamespace)
-	if m.pipelineView.confirmRetryIsJob {
+	if rc.isJob {
 		if isDownstream {
 			title = fmt.Sprintf("Retry Downstream Job · %s", m.pipelineView.project.PathWithNamespace)
 		} else {
@@ -263,27 +264,27 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 	}
 	b.WriteString(detailHeaderStyle.Render(clampLine(title, innerWidth)))
 	b.WriteString("\n")
-	if m.pipelineView.confirmRetryIsJob {
+	if rc.isJob {
 		jobLabel := "Job: (unknown)"
-		if m.pipelineView.confirmRetryJobID != 0 {
-			if name := strings.TrimSpace(m.pipelineView.confirmRetryJobName); name != "" {
-				jobLabel = fmt.Sprintf("Job: %s (#%d)", name, m.pipelineView.confirmRetryJobID)
+		if rc.jobID != 0 {
+			if name := strings.TrimSpace(rc.jobName); name != "" {
+				jobLabel = fmt.Sprintf("Job: %s (#%d)", name, rc.jobID)
 			} else {
-				jobLabel = fmt.Sprintf("Job: #%d", m.pipelineView.confirmRetryJobID)
+				jobLabel = fmt.Sprintf("Job: #%d", rc.jobID)
 			}
 		}
 		b.WriteString(explorerPathStyle.Render(clampLine(jobLabel, innerWidth)))
 		b.WriteString("\n")
-		if stage := strings.TrimSpace(m.pipelineView.confirmRetryJobStage); stage != "" {
+		if stage := strings.TrimSpace(rc.jobStage); stage != "" {
 			b.WriteString(explorerPathStyle.Render(clampLine("Stage: "+stage, innerWidth)))
 			b.WriteString("\n")
 		}
-		if m.pipelineView.confirmRetryID != 0 {
-			b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Pipeline: #%d", m.pipelineView.confirmRetryID), innerWidth)))
+		if rc.id != 0 {
+			b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Pipeline: #%d", rc.id), innerWidth)))
 			b.WriteString("\n")
 		}
 		if isDownstream {
-			b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Project: %d (downstream)", m.pipelineView.confirmRetryProjectID), innerWidth)))
+			b.WriteString(explorerPathStyle.Render(clampLine(fmt.Sprintf("Project: %d (downstream)", rc.projectID), innerWidth)))
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
@@ -296,12 +297,12 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 		b.WriteString(explorerHintStyle.Render(clampLine("Enter to retry job · Esc to cancel", innerWidth)))
 	} else {
 		pipelineLabel := "Pipeline: (unknown)"
-		if m.pipelineView.confirmRetryID != 0 {
-			pipelineLabel = fmt.Sprintf("Pipeline: #%d", m.pipelineView.confirmRetryID)
+		if rc.id != 0 {
+			pipelineLabel = fmt.Sprintf("Pipeline: #%d", rc.id)
 		}
 		b.WriteString(explorerPathStyle.Render(clampLine(pipelineLabel, innerWidth)))
 		b.WriteString("\n")
-		if ref := strings.TrimSpace(m.pipelineView.confirmRetryRef); ref != "" {
+		if ref := strings.TrimSpace(rc.ref); ref != "" {
 			b.WriteString(explorerPathStyle.Render(clampLine("Ref: "+ref, innerWidth)))
 			b.WriteString("\n")
 		}

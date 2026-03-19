@@ -16,7 +16,7 @@ import (
 // three-pane explorer view (parent, current, preview). Returns ok=false
 // if the terminal is too narrow.
 //
-// Height budget matches projectPaneLayout: terminal height - 4.
+// Height budget: terminal height - 4.
 // Width budget: total - 2 gaps - 6 border chars (3 panes x 2 borders each).
 func explorerPaneLayout(width, height int) (parentInner, currentInner, previewInner, contentHeight int, ok bool) {
 	if width <= 0 {

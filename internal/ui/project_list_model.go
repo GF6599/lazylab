@@ -40,11 +40,10 @@ import (
 type Mode int
 
 const (
-	modeProjects       Mode = iota // Paginated project list with search
-	modeExplorer                   // Three-pane file browser (parent / current / preview)
-	modeProjectActions             // Modal overlay to choose "pipelines" or "browse files"
-	modePipelines                  // Pipeline list with stages/jobs and log preview
-	modeMultiPanel                 // Lazygit-style layout: projects + pipelines + detail side-by-side
+	modeProjects   Mode = iota // Paginated project list with search
+	modeExplorer               // Three-pane file browser (parent / current / preview)
+	modePipelines              // Pipeline list with stages/jobs and log preview
+	modeMultiPanel             // Lazygit-style layout: projects + pipelines + detail side-by-side
 )
 
 const (
@@ -61,12 +60,12 @@ const (
 	maxPipelineStatusCacheSize = 100       // Keep last 100 pipeline statuses
 	maxPreviewHighlightEntries = 25        // Keep last 25 syntax highlights
 	maxPreviewHighlightBytes   = 200_000   // 200KB max per highlight
-)
 
-var projectActionOptions = []string{
-	"View pipelines",
-	"Browse files",
-}
+	// UI layout constants
+	stageTableDefaultHeight = 10 // Default row count for the pipeline stage table
+	projectTabCount         = 2  // Number of project tabs (Favorites, All)
+	pipelineDetailTabCount  = 3  // Number of pipeline detail tabs (Log, Info, Tests)
+)
 
 // projectTab selects the active tab in the projects panel.
 type projectTab int
@@ -160,50 +159,9 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	}
 
 	width := m.Width()
-	fullLine := fmt.Sprintf("%s %s%s%s", cursor, favIcon, statusIcon, proj.project.PathWithNamespace)
-	if index == m.Index() && lipgloss.Width(fullLine) > width {
-		// Wrap the selected item onto multiple lines instead of truncating.
-		// The bubbles list does not enforce Height() per delegate render call,
-		// so extra newlines push subsequent items down without corruption.
-		// The last item on the page may be clipped by the height constraint.
-		indent := lipgloss.Width(fmt.Sprintf("%s %s%s", cursor, favIcon, statusIcon))
-		for i, line := range wrapSelectedItem(fullLine, width, indent, 3) {
-			if i > 0 {
-				fmt.Fprint(w, "\n")
-			}
-			fmt.Fprint(w, style.Render(fitLine(line, width)))
-		}
-	} else {
-		fmt.Fprint(w, style.Render(clampLine(fullLine, width)))
-	}
-}
-
-// actionMenuItem wraps an action menu option for use with bubbles/list
-type actionMenuItem struct {
-	label string
-	index int
-}
-
-func (i actionMenuItem) Title() string       { return i.label }
-func (i actionMenuItem) Description() string { return "" }
-func (i actionMenuItem) FilterValue() string { return i.label }
-
-// actionMenuDelegate renders action menu items in the list
-type actionMenuDelegate struct{}
-
-func (d actionMenuDelegate) Height() int                               { return 1 }
-func (d actionMenuDelegate) Spacing() int                              { return 0 }
-func (d actionMenuDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
-func (d actionMenuDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	aItem, ok := item.(actionMenuItem)
-	if !ok {
-		return
-	}
-
-	cursor, style := listCursorStyle(index, m.Index())
-
-	line := fmt.Sprintf("%s %s", cursor, aItem.label)
-	fmt.Fprint(w, style.Render(line))
+	line := fmt.Sprintf("%s %s%s%s", cursor, favIcon, statusIcon, proj.project.PathWithNamespace)
+	indent := lipgloss.Width(fmt.Sprintf("%s %s%s", cursor, favIcon, statusIcon))
+	renderListItem(w, style, line, indent, width, index == m.Index(), false)
 }
 
 // pipelineItem wraps a GitLab pipeline for use with bubbles/list
@@ -263,20 +221,8 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 
 	line := fmt.Sprintf("%s %s #%d %s %s", cursor, icon, pItem.summary.ID, timestamp, ref)
 	width := m.Width()
-	if isSelected && lipgloss.Width(line) > width {
-		// Wrap instead of truncate — see projectDelegate.Render for rationale.
-		indent := lipgloss.Width(fmt.Sprintf("%s %s ", cursor, icon))
-		for i, wl := range wrapSelectedItem(line, width, indent, 3) {
-			if i > 0 {
-				fmt.Fprint(w, "\n")
-			}
-			fmt.Fprint(w, style.Render(fitLine(wl, width)))
-		}
-	} else if isSelected {
-		fmt.Fprint(w, style.Render(clampLine(line, width)))
-	} else {
-		fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
-	}
+	indent := lipgloss.Width(fmt.Sprintf("%s %s ", cursor, icon))
+	renderListItem(w, style, line, indent, width, isSelected, true)
 }
 
 // treeEntryItem wraps a GitLab tree entry for use with bubbles/list
@@ -318,15 +264,30 @@ func (d treeEntryDelegate) Render(w io.Writer, m list.Model, index int, item lis
 
 	width := m.Width()
 	line := fmt.Sprintf("%s%s %s", cursor, icon, name)
-	if index == m.Index() && lipgloss.Width(line) > width {
-		// Wrap instead of truncate — see projectDelegate.Render for rationale.
-		indent := lipgloss.Width(fmt.Sprintf("%s%s ", cursor, icon))
-		for i, wl := range wrapSelectedItem(line, width, indent, 3) {
+	indent := lipgloss.Width(fmt.Sprintf("%s%s ", cursor, icon))
+	renderListItem(w, style, line, indent, width, index == m.Index(), false)
+}
+
+// maxWrapLines is the maximum number of lines a selected list item can wrap to.
+const maxWrapLines = 3
+
+// renderListItem writes a list item to w, wrapping the selected item when it
+// exceeds the available width. The bubbles list does not enforce Height() per
+// delegate render call, so extra newlines push subsequent items down without
+// corruption. When ansiClamp is true, unselected items use ANSI-aware clamping
+// to preserve inline color sequences (e.g. pipeline status icons).
+func renderListItem(w io.Writer, style lipgloss.Style, line string, indent, width int, isSelected, ansiClamp bool) {
+	if isSelected && lipgloss.Width(line) > width {
+		for i, wl := range wrapSelectedItem(line, width, indent, maxWrapLines) {
 			if i > 0 {
 				fmt.Fprint(w, "\n")
 			}
 			fmt.Fprint(w, style.Render(fitLine(wl, width)))
 		}
+		return
+	}
+	if ansiClamp && !isSelected {
+		fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
 	} else {
 		fmt.Fprint(w, style.Render(clampLine(line, width)))
 	}
@@ -369,7 +330,6 @@ type Model struct {
 	focus             FocusState // Multi-panel focus tracking
 	explorer          explorerState
 	pipelineStatus    *LRUCache[int, pipelineState]
-	actionMenu        actionMenuState
 	pipelineView      pipelineViewState
 	mrView            mrViewState
 	// Bubble components
@@ -470,18 +430,12 @@ type explorerState struct {
 	currentList list.Model // Bubbles list for current directory
 }
 
-type actionMenuState struct {
-	project  gitlab.ProjectNode
-	menuList list.Model
-	selected int // Keep for backward compatibility
-}
-
 // pipelineViewState holds all state for the pipeline browsing mode. Fields
 // are grouped by concern:
 //   - List/page: project, pipelines, selected, loading, err, page, totalPages, perPage
 //   - Stages/matrix: stages, stageSelected, stageTable, jobRows, stageJobRows, matrixExpanded
 //   - Logs: logs, logPreview, logViewport, logJobID, pendingLogJobID, logAutoFollow
-//   - Retry: confirmRetry*, retrying, retryErr
+//   - Retry: retryConfirm, retrying, retryErr
 //   - Bridges/children: bridges, childJobs
 //   - Test reports: testReport*
 //
@@ -489,47 +443,54 @@ type actionMenuState struct {
 // matrixExpanded which is preserved across refreshes so bridge expand/collapse
 // state survives auto-refresh ticks.
 type pipelineViewState struct {
-	project               gitlab.ProjectNode
-	pipelines             []gitlab.PipelineSummary
-	pipelineList          list.Model // Bubbles list for pipeline display
-	selected              int
-	loading               bool
-	err                   error
-	page                  int
-	totalPages            int
-	perPage               int
-	stages                AsyncCache[int, []gitlab.PipelineStage]
-	stageSelected         int
-	stageTable            table.Model          // Table for displaying stages
-	jobRows               []gitlab.PipelineJob // Maps table cursor index → job
-	stageJobRows          []stageJobRow        // Rich row model with matrix grouping
-	matrixExpanded        map[string]bool      // Expand/collapse state per matrix group key
-	jobs                  AsyncCache[int, []gitlab.PipelineJob]
-	logs                  AsyncCache[int, string]
-	logPreview            previewState
-	logViewport           viewport.Model
-	logJobID              int
-	pendingLogJobID       int
-	logAutoFollow         bool
-	focus                 pipelineFocus
-	confirmRetry          bool
-	confirmRetryID        int
-	confirmRetryRef       string
-	confirmRetryIsJob     bool
-	confirmRetryJobID     int
-	confirmRetryJobName   string
-	confirmRetryJobStage  string
-	confirmRetryProjectID int // Non-zero for bridge child jobs (downstream project)
-	retrying              bool
-	retryErr              error
-	pendingSelectID       int
-	bridges               AsyncCache[int, []gitlab.PipelineBridge]
-	childJobs             AsyncCache[int, []gitlab.PipelineJob]
-	testReport            *gitlab.TestReport
-	testReportLoading     bool
-	testReportErr         error
-	testReportPipelineID  int
-	detailTab             pipelineDetailTab
+	project              gitlab.ProjectNode
+	pipelines            []gitlab.PipelineSummary
+	pipelineList         list.Model // Bubbles list for pipeline display
+	selected             int
+	loading              bool
+	err                  error
+	page                 int
+	totalPages           int
+	perPage              int
+	stages               AsyncCache[int, []gitlab.PipelineStage]
+	stageSelected        int
+	stageTable           table.Model          // Table for displaying stages
+	jobRows              []gitlab.PipelineJob // Maps table cursor index → job
+	stageJobRows         []stageJobRow        // Rich row model with matrix grouping
+	matrixExpanded       map[string]bool      // Expand/collapse state per matrix group key
+	jobs                 AsyncCache[int, []gitlab.PipelineJob]
+	logs                 AsyncCache[int, string]
+	logPreview           previewState
+	logViewport          viewport.Model
+	logJobID             int
+	pendingLogJobID      int
+	logAutoFollow        bool
+	focus                pipelineFocus
+	retryConfirm         retryConfirmState
+	retrying             bool
+	retryErr             error
+	pendingSelectID      int
+	bridges              AsyncCache[int, []gitlab.PipelineBridge]
+	childJobs            AsyncCache[int, []gitlab.PipelineJob]
+	testReport           *gitlab.TestReport
+	testReportLoading    bool
+	testReportErr        error
+	testReportPipelineID int
+	detailTab            pipelineDetailTab
+}
+
+// retryConfirmState groups the retry confirmation modal fields into a single
+// struct so that dismissing the modal is a zero-value assignment rather than
+// clearing 8 individual fields. Zero value means no confirmation is active.
+type retryConfirmState struct {
+	active    bool
+	id        int    // Pipeline ID
+	ref       string // Pipeline ref (for new pipeline runs)
+	isJob     bool   // True if retrying a specific job, false for whole pipeline
+	jobID     int
+	jobName   string
+	jobStage  string
+	projectID int // Non-zero for bridge child jobs (downstream project)
 }
 
 // pipelineState is a tri-state model for a project's latest pipeline status:
@@ -752,7 +713,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return newModel, tea.Batch(spinnerCmd, cmd)
 			}
 			// Retry confirmation modal
-			if m.pipelineView.confirmRetry {
+			if m.pipelineView.retryConfirm.active {
 				newModel, cmd := m.handlePipelineRetryConfirmKey(msg)
 				return newModel, tea.Batch(spinnerCmd, cmd)
 			}
@@ -761,15 +722,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeExplorer:
 			newModel, cmd := m.handleExplorerKey(msg)
 			return newModel, tea.Batch(spinnerCmd, cmd)
-		case modeProjectActions:
-			newModel, cmd := m.handleProjectActionKey(msg)
-			return newModel, tea.Batch(spinnerCmd, cmd)
 		case modePipelines:
 			newModel, cmd := m.handlePipelineViewKey(msg)
 			return newModel, tea.Batch(spinnerCmd, cmd)
 		default:
-			newModel, cmd := m.handleProjectKey(msg)
-			return newModel, tea.Batch(spinnerCmd, cmd)
+			return m, spinnerCmd
 		}
 	case projectsLoadedMsg:
 		return m.handleProjectsLoaded(msg)

@@ -129,16 +129,9 @@ func (m Model) cycleDetailTab() (tea.Model, tea.Cmd) {
 	if ctx == PanelMRs {
 		return m.cycleMRDetailTab()
 	}
-	m.pipelineView.detailTab = (m.pipelineView.detailTab + 1) % 3
-	// Fetch test report when switching to Tests tab
-	if m.pipelineView.detailTab == detailTabTests {
-		pipeline := m.selectedPipeline()
-		if pipeline != nil && m.pipelineView.testReportPipelineID != pipeline.ID {
-			m.pipelineView.testReportLoading = true
-			m.pipelineView.testReport = nil
-			m.pipelineView.testReportErr = nil
-			return m, fetchTestReportCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipeline.ID)
-		}
+	m.pipelineView.detailTab = (m.pipelineView.detailTab + 1) % pipelineDetailTabCount
+	if cmd := m.ensureTestReportLoaded(); cmd != nil {
+		return m, cmd
 	}
 	return m, nil
 }
@@ -149,17 +142,27 @@ func (m Model) cycleDetailTabReverse() (tea.Model, tea.Cmd) {
 	if ctx == PanelMRs {
 		return m.cycleMRDetailTabReverse()
 	}
-	m.pipelineView.detailTab = (m.pipelineView.detailTab + 2) % 3
-	if m.pipelineView.detailTab == detailTabTests {
-		pipeline := m.selectedPipeline()
-		if pipeline != nil && m.pipelineView.testReportPipelineID != pipeline.ID {
-			m.pipelineView.testReportLoading = true
-			m.pipelineView.testReport = nil
-			m.pipelineView.testReportErr = nil
-			return m, fetchTestReportCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipeline.ID)
-		}
+	m.pipelineView.detailTab = (m.pipelineView.detailTab + pipelineDetailTabCount - 1) % pipelineDetailTabCount
+	if cmd := m.ensureTestReportLoaded(); cmd != nil {
+		return m, cmd
 	}
 	return m, nil
+}
+
+// ensureTestReportLoaded fetches the test report if the Tests tab is active
+// and the report hasn't been loaded for the current pipeline yet.
+func (m *Model) ensureTestReportLoaded() tea.Cmd {
+	if m.pipelineView.detailTab != detailTabTests {
+		return nil
+	}
+	pipeline := m.selectedPipeline()
+	if pipeline == nil || m.pipelineView.testReportPipelineID == pipeline.ID {
+		return nil
+	}
+	m.pipelineView.testReportLoading = true
+	m.pipelineView.testReport = nil
+	m.pipelineView.testReportErr = nil
+	return fetchTestReportCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipeline.ID)
 }
 
 // cycleMRDetailTab cycles through MR detail pane tabs (Info → Comments → Diff).

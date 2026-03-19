@@ -42,7 +42,7 @@ func (m Model) View() string {
 			return overlayCentered(base, modal, width)
 		}
 		// Retry confirmation modal overlay
-		if m.pipelineView.confirmRetry {
+		if m.pipelineView.retryConfirm.active {
 			base := renderMultiPanelView(&m, width, m.height)
 			modal := renderPipelineRetryConfirmModal(m, width)
 			return overlayCentered(base, modal, width)
@@ -50,24 +50,20 @@ func (m Model) View() string {
 		return renderMultiPanelView(&m, width, m.height)
 	}
 
-	// Legacy modes (kept for backward compatibility during transition)
+	// Standalone modes (used by tests and legacy paths)
 	var mainView string
 	switch m.mode {
 	case modeExplorer:
 		mainView = renderExplorerView(m, width)
-	case modeProjectActions:
-		base := renderProjectsView(m, width)
-		modal := renderProjectActionModal(m, width)
-		return overlayCentered(base, modal, width)
 	case modePipelines:
 		base := renderPipelineView(m, width)
-		if m.pipelineView.confirmRetry {
+		if m.pipelineView.retryConfirm.active {
 			modal := renderPipelineRetryConfirmModal(m, width)
 			return overlayCentered(base, modal, width)
 		}
 		mainView = base
 	default:
-		mainView = renderProjectsView(m, width)
+		return ""
 	}
 
 	// Add help bar at bottom
@@ -79,8 +75,6 @@ func (m Model) View() string {
 func (m Model) renderHelpView(width int) string {
 	var keys []key.Binding
 	switch m.mode {
-	case modeProjects:
-		keys = projectsKeyMap()
 	case modeExplorer:
 		keys = explorerKeyMap()
 	case modePipelines:

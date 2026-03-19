@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -61,129 +60,6 @@ func (m Model) handleProjectSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, debounceCmd
 	}
-}
-
-// handleProjectKey handles navigation and actions in the project list mode.
-// Selection changes trigger a debounced pipeline status fetch so the detail
-// pane stays current without overwhelming the API during fast scrolling.
-// Page changes (h/l) batch a page-load command with pipeline prefetch.
-func (m Model) handleProjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	prevID, prevOK := m.currentSelectedProjectID()
-	key := msg.String()
-	if m.search.active {
-		return m.handleProjectSearchKey(msg)
-	}
-
-	switch key {
-	case "ctrl+c", "q":
-		return m, tea.Quit
-	case "/":
-		m.search.active = true
-		m.search.query = ""
-		m.search.input.SetValue("")
-		m.search.input.Focus()
-		return m, textinput.Blink
-	case "enter":
-		if project, ok := m.selectedProject(); ok {
-			return m.openProjectActions(project)
-		}
-	case "down", "j", "up", "k":
-		// Let Bubbles list handle navigation
-		var cmd tea.Cmd
-		m.projectList, cmd = m.projectList.Update(msg)
-		m.selected = m.projectList.Index()
-		return m, cmd
-	case "ctrl+d":
-		// Page down - move by half screen
-		visible := m.visibleProjects()
-		if len(visible) > 0 {
-			step := listPageStep(m.height)
-			newIdx := min(m.projectList.Index()+step, len(visible)-1)
-			m.projectList.Select(newIdx)
-			m.selected = newIdx
-		}
-	case "ctrl+u":
-		// Page up - move by half screen
-		visible := m.visibleProjects()
-		if len(visible) > 0 {
-			step := listPageStep(m.height)
-			newIdx := max(m.projectList.Index()-step, 0)
-			m.projectList.Select(newIdx)
-			m.selected = newIdx
-		}
-	case "<", "g":
-		// Go to start
-		if len(m.visibleProjects()) > 0 {
-			m.projectList.Select(0)
-			m.selected = 0
-		}
-	case ">", "G":
-		// Go to end
-		visible := m.visibleProjects()
-		if len(visible) > 0 {
-			m.projectList.Select(len(visible) - 1)
-			m.selected = len(visible) - 1
-		}
-	case "l", "right":
-		pageCmd := m.movePage(1)
-		prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
-		return m, tea.Batch(pageCmd, prefetchCmd)
-	case "h", "left":
-		pageCmd := m.movePage(-1)
-		prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
-		return m, tea.Batch(pageCmd, prefetchCmd)
-	case "r", "ctrl+r":
-		m.loading = true
-		m.err = nil
-		m.status = "Refreshing projects..."
-		m.backgroundLoading = false
-		m.page = 1
-		m.paginator.Page = 0 // Reset to first page (0-indexed)
-		return m, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, 1, false)
-	case "ctrl+o":
-		m.copyCloneCommand()
-	}
-	currID, currOK := m.currentSelectedProjectID()
-	if prevID != currID || prevOK != currOK {
-		(&m).invalidateDetailCache()
-		currProject, ok := m.selectedProject()
-		if !ok {
-			return m, nil
-		}
-		now := time.Now()
-		m.pipelinePendingFetch = &currProject
-		m.pipelineDebounceTimer = &now
-		return m, pipelineDebounceTickCmd(currProject.ID, now, pipelineDebounceDelay)
-	}
-	return m, nil
-}
-
-// handleProjectActionKey handles the project action modal (pipelines vs files).
-// Enter opens the selected action; Esc/left returns to the project list.
-func (m Model) handleProjectActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-	switch key {
-	case "ctrl+c", "q":
-		return m, tea.Quit
-	case "esc", "left", "h", "backspace":
-		m.closeActionMenu()
-		return m, nil
-	case "down", "j", "up", "k":
-		// Let Bubbles list handle navigation
-		var cmd tea.Cmd
-		m.actionMenu.menuList, cmd = m.actionMenu.menuList.Update(msg)
-		m.actionMenu.selected = m.actionMenu.menuList.Index()
-		return m, cmd
-	case "enter":
-		// Use Bubbles list selection index
-		switch m.actionMenu.menuList.Index() {
-		case 0:
-			return m.openPipelineView(m.actionMenu.project)
-		case 1:
-			return m.openExplorer(m.actionMenu.project)
-		}
-	}
-	return m, nil
 }
 
 // handleExplorerKey handles the ranger-style file explorer. J/K scroll the
@@ -271,7 +147,7 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // the log preview. Navigation within each pane triggers async loading of
 // stages, jobs, and log traces. R opens the retry confirmation modal.
 func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.pipelineView.confirmRetry {
+	if m.pipelineView.retryConfirm.active {
 		return m.handlePipelineRetryConfirmKey(msg)
 	}
 	key := msg.String()
@@ -497,25 +373,24 @@ func (m Model) handlePipelineRetryRequest() (tea.Model, tea.Cmd) {
 			m.status = "No job selected"
 			return m, nil
 		}
-		m.pipelineView.confirmRetry = true
-		m.pipelineView.confirmRetryIsJob = true
-		m.pipelineView.confirmRetryID = pipeline.ID
-		m.pipelineView.confirmRetryRef = ""
-		m.pipelineView.confirmRetryJobID = job.ID
-		m.pipelineView.confirmRetryJobName = job.Name
-		m.pipelineView.confirmRetryJobStage = job.Stage
+		m.pipelineView.retryConfirm = retryConfirmState{
+			active:   true,
+			isJob:    true,
+			id:       pipeline.ID,
+			jobID:    job.ID,
+			jobName:  job.Name,
+			jobStage: job.Stage,
+		}
 		if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.ChildProjectID != 0 {
-			m.pipelineView.confirmRetryProjectID = row.ChildProjectID
+			m.pipelineView.retryConfirm.projectID = row.ChildProjectID
 		}
 		return m, nil
 	}
-	m.pipelineView.confirmRetry = true
-	m.pipelineView.confirmRetryIsJob = false
-	m.pipelineView.confirmRetryID = pipeline.ID
-	m.pipelineView.confirmRetryRef = pipeline.Ref
-	m.pipelineView.confirmRetryJobID = 0
-	m.pipelineView.confirmRetryJobName = ""
-	m.pipelineView.confirmRetryJobStage = ""
+	m.pipelineView.retryConfirm = retryConfirmState{
+		active: true,
+		id:     pipeline.ID,
+		ref:    pipeline.Ref,
+	}
 	return m, nil
 }
 
@@ -532,12 +407,13 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		(&m).clearRetryConfirm()
 		return m, nil
 	case "enter":
-		isJob := m.pipelineView.confirmRetryIsJob
-		pipelineID := m.pipelineView.confirmRetryID
-		ref := strings.TrimSpace(m.pipelineView.confirmRetryRef)
-		jobID := m.pipelineView.confirmRetryJobID
-		jobName := m.pipelineView.confirmRetryJobName
-		retryProjectID := m.pipelineView.confirmRetryProjectID
+		rc := m.pipelineView.retryConfirm
+		isJob := rc.isJob
+		pipelineID := rc.id
+		ref := strings.TrimSpace(rc.ref)
+		jobID := rc.jobID
+		jobName := rc.jobName
+		retryProjectID := rc.projectID
 		(&m).clearRetryConfirm()
 		if m.pipelineView.project.ID == 0 || m.pipelineView.retrying {
 			return m, nil

@@ -408,7 +408,7 @@ func TestStagesPanel_RetryBlockedOnMatrixGroup(t *testing.T) {
 	updated, _ := m.handleStagesPanelKey(retryMsg)
 	got := updated.(Model)
 
-	if got.pipelineView.confirmRetry {
+	if got.pipelineView.retryConfirm.active {
 		t.Fatal("R on matrix group header should not open retry modal")
 	}
 	if !strings.Contains(got.status, "Select an individual job") {
@@ -461,11 +461,11 @@ func TestStagesPanel_RetryAllowedOnMatrixChild(t *testing.T) {
 	got := updated.(Model)
 
 	// Retry modal should open for the child job
-	if !got.pipelineView.confirmRetry {
+	if !got.pipelineView.retryConfirm.active {
 		t.Fatal("R on matrix child should open retry modal")
 	}
-	if got.pipelineView.confirmRetryJobID != 3 {
-		t.Errorf("expected retry for job ID 3, got %d", got.pipelineView.confirmRetryJobID)
+	if got.pipelineView.retryConfirm.jobID != 3 {
+		t.Errorf("expected retry for job ID 3, got %d", got.pipelineView.retryConfirm.jobID)
 	}
 }
 

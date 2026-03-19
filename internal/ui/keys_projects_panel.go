@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -27,15 +26,11 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "/":
-		m.search.active = true
-		m.search.query = ""
-		m.search.input.SetValue("")
-		m.search.input.Focus()
-		return m, textinput.Blink
+		return m.startSearch()
 	case "e":
 		// Open explorer overlay
 		if project, ok := m.selectedProject(); ok {
-			return m.openExplorerOverlay(project)
+			return m.openExplorer(project)
 		}
 	case "enter":
 		// Drill into Pipelines panel for selected project
@@ -129,7 +124,7 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, saveCmd
 		}
 	case "t":
-		m.projectTab = (m.projectTab + 1) % 2
+		m.projectTab = (m.projectTab + 1) % projectTabCount
 		m.selected = 0
 		m.invalidateVisibleCache()
 		m.updateProjectList()
@@ -214,7 +209,7 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(false),
-		table.WithHeight(10),
+		table.WithHeight(stageTableDefaultHeight),
 	)
 	s := table.DefaultStyles()
 	s.Header = s.Header.
@@ -284,31 +279,6 @@ func (m *Model) autoLoadSelectedProjectData() tea.Cmd {
 	}
 	cmds = append(cmds, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage))
 	return tea.Batch(cmds...)
-}
-
-// openExplorerOverlay opens the explorer as a full-screen overlay.
-func (m Model) openExplorerOverlay(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
-	ref := project.DefaultBranch
-	if ref == "" {
-		ref = "main"
-	}
-
-	delegate := treeEntryDelegate{}
-	parentList := newBareList(nil, delegate, 0, 0)
-	currentList := newBareList(nil, delegate, 0, 0)
-
-	previewVp := viewport.New(previewContentWidth(m.width), previewContentHeight(m.height))
-
-	m.explorer = explorerState{
-		project:     project,
-		ref:         ref,
-		stack:       []dirState{{path: "", loading: true}},
-		parentList:  parentList,
-		currentList: currentList,
-		preview:     previewState{viewport: previewVp},
-	}
-	m.status = fmt.Sprintf("Browsing %s", project.PathWithNamespace)
-	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, ref, "")
 }
 
 // moveFavorite swaps the currently selected favorite with an adjacent entry

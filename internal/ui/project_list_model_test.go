@@ -309,11 +309,11 @@ func TestPipelineView_RetryModalOpens(t *testing.T) {
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")}
 	updated, _ := m.handlePipelineViewKey(msg)
 	got := updated.(Model).pipelineView
-	if !got.confirmRetry {
+	if !got.retryConfirm.active {
 		t.Fatalf("expected retry modal to open")
 	}
-	if got.confirmRetryID != 42 || got.confirmRetryRef != "main" {
-		t.Fatalf("expected confirm data to match selection, got id=%d ref=%q", got.confirmRetryID, got.confirmRetryRef)
+	if got.retryConfirm.id != 42 || got.retryConfirm.ref != "main" {
+		t.Fatalf("expected confirm data to match selection, got id=%d ref=%q", got.retryConfirm.id, got.retryConfirm.ref)
 	}
 }
 
@@ -324,9 +324,8 @@ func TestPipelineView_RetryConfirmStartsRetry(t *testing.T) {
 	m := Model{
 		mode: modePipelines,
 		pipelineView: pipelineViewState{
-			project:        gitlab.ProjectNode{ID: 1},
-			confirmRetry:   true,
-			confirmRetryID: 55,
+			project:      gitlab.ProjectNode{ID: 1},
+			retryConfirm: retryConfirmState{active: true, id: 55},
 		},
 	}
 
@@ -336,7 +335,7 @@ func TestPipelineView_RetryConfirmStartsRetry(t *testing.T) {
 	if got.retrying != true {
 		t.Fatalf("expected retrying to be true")
 	}
-	if got.confirmRetry {
+	if got.retryConfirm.active {
 		t.Fatalf("expected retry modal to close")
 	}
 	if cmd == nil {

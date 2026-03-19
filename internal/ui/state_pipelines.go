@@ -30,7 +30,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(false),
-		table.WithHeight(10),
+		table.WithHeight(stageTableDefaultHeight),
 	)
 
 	// Style the table with Rose Pine colors (matching pane borders)
@@ -81,14 +81,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 // clearRetryConfirm resets the retry confirmation modal fields only,
 // without affecting the retrying flag or retry error.
 func (m *Model) clearRetryConfirm() {
-	m.pipelineView.confirmRetry = false
-	m.pipelineView.confirmRetryID = 0
-	m.pipelineView.confirmRetryRef = ""
-	m.pipelineView.confirmRetryIsJob = false
-	m.pipelineView.confirmRetryJobID = 0
-	m.pipelineView.confirmRetryJobName = ""
-	m.pipelineView.confirmRetryJobStage = ""
-	m.pipelineView.confirmRetryProjectID = 0
+	m.pipelineView.retryConfirm = retryConfirmState{}
 }
 
 // clearAllRetryState resets all retry-related fields including the confirmation
@@ -104,7 +97,6 @@ func (m *Model) clearAllRetryState() {
 func (m *Model) closePipelineView() {
 	m.mode = modeProjects
 	m.pipelineView = pipelineViewState{}
-	m.actionMenu = actionMenuState{}
 	m.updateProjectListSize()
 }
 

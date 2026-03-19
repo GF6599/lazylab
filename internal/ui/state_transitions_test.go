@@ -61,81 +61,7 @@ func newTestModel() Model {
 	}
 }
 
-// --- openProjectActions tests ---
-
-func TestOpenProjectActions_SetsMode(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, cmd := m.openProjectActions(project)
-	got := result.(Model)
-
-	if got.mode != modeProjectActions {
-		t.Fatalf("expected mode=modeProjectActions, got %d", got.mode)
-	}
-	if cmd != nil {
-		t.Fatal("openProjectActions should not return a command")
-	}
-}
-
-func TestOpenProjectActions_SetsProject(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[1]
-	result, _ := m.openProjectActions(project)
-	got := result.(Model)
-
-	if got.actionMenu.project.ID != project.ID {
-		t.Fatalf("expected action menu project ID=%d, got %d",
-			project.ID, got.actionMenu.project.ID)
-	}
-}
-
-func TestOpenProjectActions_SetsStatus(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openProjectActions(project)
-	got := result.(Model)
-
-	if got.status == "" {
-		t.Fatal("expected non-empty status after openProjectActions")
-	}
-}
-
-func TestOpenProjectActions_InitializesMenuList(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openProjectActions(project)
-	got := result.(Model)
-
-	menuItems := got.actionMenu.menuList.Items()
-	if len(menuItems) != len(projectActionOptions) {
-		t.Fatalf("expected %d menu items, got %d",
-			len(projectActionOptions), len(menuItems))
-	}
-}
-
-func TestOpenProjectActions_SelectedDefaultsToZero(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openProjectActions(project)
-	got := result.(Model)
-
-	if got.actionMenu.selected != 0 {
-		t.Fatalf("expected selected=0, got %d", got.actionMenu.selected)
-	}
-}
-
 // --- openExplorer tests ---
-
-func TestOpenExplorer_SetsMode(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openExplorer(project)
-	got := result.(Model)
-
-	if got.mode != modeExplorer {
-		t.Fatalf("expected mode=modeExplorer, got %d", got.mode)
-	}
-}
 
 func TestOpenExplorer_SetsProject(t *testing.T) {
 	m := newTestModel()
@@ -305,33 +231,6 @@ func TestOpenPipelineView_SetsStatus(t *testing.T) {
 	}
 }
 
-// --- closeActionMenu tests ---
-
-func TestCloseActionMenu_ReturnsToProjects(t *testing.T) {
-	m := newTestModel()
-	// First open the action menu
-	project := m.allProjects[0]
-	result, _ := m.openProjectActions(project)
-	m = result.(Model)
-
-	m.closeActionMenu()
-	if m.mode != modeProjects {
-		t.Fatalf("expected mode=modeProjects after close, got %d", m.mode)
-	}
-}
-
-func TestCloseActionMenu_ClearsState(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openProjectActions(project)
-	m = result.(Model)
-
-	m.closeActionMenu()
-	if m.actionMenu.project.ID != 0 {
-		t.Fatal("expected actionMenu to be cleared")
-	}
-}
-
 // --- closePipelineView tests ---
 
 func TestClosePipelineView_ReturnsToProjects(t *testing.T) {
@@ -358,20 +257,6 @@ func TestClosePipelineView_ClearsState(t *testing.T) {
 	}
 	if m.pipelineView.loading {
 		t.Fatal("expected loading=false after close")
-	}
-}
-
-func TestClosePipelineView_ClearsActionMenu(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openProjectActions(project)
-	m = result.(Model)
-	result, _ = m.openPipelineView(project)
-	m = result.(Model)
-
-	m.closePipelineView()
-	if m.actionMenu.project.ID != 0 {
-		t.Fatal("expected actionMenu to be cleared on pipeline view close")
 	}
 }
 
@@ -527,21 +412,14 @@ func TestEnsureSelectionBounds_OneOverMax(t *testing.T) {
 
 // --- Round-trip state transition tests ---
 
-func TestRoundTrip_Projects_Actions_Pipelines_Close(t *testing.T) {
+func TestRoundTrip_MultiPanel_Pipelines(t *testing.T) {
 	m := newTestModel()
 	if m.mode != modeMultiPanel {
 		t.Fatalf("initial mode should be modeMultiPanel, got %d", m.mode)
 	}
 
-	// Open project actions
+	// Open pipeline view
 	project := m.allProjects[0]
-	result, _ := m.openProjectActions(project)
-	m = result.(Model)
-	if m.mode != modeProjectActions {
-		t.Fatalf("expected modeProjectActions, got %d", m.mode)
-	}
-
-	// Open pipeline view from actions
 	result, cmd := m.openPipelineView(project)
 	m = result.(Model)
 	if m.mode != modePipelines {
@@ -559,30 +437,20 @@ func TestRoundTrip_Projects_Actions_Pipelines_Close(t *testing.T) {
 
 	// Close pipeline view
 	m.closePipelineView()
-	if m.mode != modeProjects {
-		t.Fatalf("expected modeProjects after close, got %d", m.mode)
-	}
 	if m.pipelineView.project.ID != 0 {
 		t.Fatal("pipeline view state should be cleared after close")
 	}
 }
 
-func TestRoundTrip_Projects_Actions_Explorer_Close(t *testing.T) {
+func TestRoundTrip_MultiPanel_Explorer(t *testing.T) {
 	m := newTestModel()
 
-	// Open project actions
+	// Open explorer as overlay (mode stays modeMultiPanel)
 	project := m.allProjects[0]
-	result, _ := m.openProjectActions(project)
-	m = result.(Model)
-	if m.mode != modeProjectActions {
-		t.Fatalf("expected modeProjectActions, got %d", m.mode)
-	}
-
-	// Open explorer from actions
 	result, cmd := m.openExplorer(project)
 	m = result.(Model)
-	if m.mode != modeExplorer {
-		t.Fatalf("expected modeExplorer, got %d", m.mode)
+	if m.mode != modeMultiPanel {
+		t.Fatalf("expected mode to stay modeMultiPanel, got %d", m.mode)
 	}
 	if cmd == nil {
 		t.Fatal("expected fetch command from openExplorer")
@@ -597,10 +465,10 @@ func TestRoundTrip_Projects_Actions_Explorer_Close(t *testing.T) {
 		t.Fatalf("explorer ref should be 'main', got %q", m.explorer.ref)
 	}
 
-	// Close explorer
+	// Close explorer — stays in multi-panel
 	m.closeExplorer("Back to projects")
-	if m.mode != modeProjects {
-		t.Fatalf("expected modeProjects after close, got %d", m.mode)
+	if m.mode != modeMultiPanel {
+		t.Fatalf("expected modeMultiPanel after close, got %d", m.mode)
 	}
 	if m.explorer.project.ID != 0 {
 		t.Fatal("explorer state should be cleared after close")
@@ -797,13 +665,13 @@ func TestOpenPipelineView_InitializesLogViewport(t *testing.T) {
 func TestMultipleOpens_DoNotCorrupt(t *testing.T) {
 	m := newTestModel()
 
-	// Open explorer then immediately open pipeline view (simulating rapid switching)
+	// Open explorer as overlay then immediately open pipeline view
 	result, _ := m.openExplorer(m.allProjects[0])
 	m = result.(Model)
 
-	// The mode should be explorer
-	if m.mode != modeExplorer {
-		t.Fatalf("expected modeExplorer, got %d", m.mode)
+	// Explorer overlay is active (mode stays modeMultiPanel)
+	if m.explorer.project.ID != 1 {
+		t.Fatalf("expected explorer for project 1, got %d", m.explorer.project.ID)
 	}
 
 	// Now open pipeline view on a different project

@@ -12,24 +12,25 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
-// openExplorer transitions to the three-pane file browser. It resets all
-// explorer state (stack, preview, bubbles lists) and starts a root tree
+// openExplorer initializes the three-pane file browser for a project. It resets
+// all explorer state (stack, preview, bubbles lists) and starts a root tree
 // fetch for the project's default branch. The preview viewport is initialized
 // here with proper dimensions — all subsequent preview resets must preserve
-// this viewport instance to avoid zero-sized rendering (see queueExplorerPreview).
+// this viewport instance to avoid zero-sized rendering (see resetPreview).
+//
+// The caller's mode is not changed; in multi-panel mode the explorer appears
+// as an overlay (detected via m.explorer.project.ID != 0), while standalone
+// callers can set modeExplorer explicitly.
 func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 	ref := project.DefaultBranch
 	if ref == "" {
 		ref = "main"
 	}
-	m.mode = modeExplorer
 
-	// Initialize bubbles lists for explorer panes
 	delegate := treeEntryDelegate{}
 	parentList := newBareList(nil, delegate, 0, 0)
 	currentList := newBareList(nil, delegate, 0, 0)
 
-	// Initialize preview viewport with proper dimensions
 	previewVp := viewport.New(previewContentWidth(m.width), previewContentHeight(m.height))
 
 	m.explorer = explorerState{
@@ -47,11 +48,7 @@ func (m Model) openExplorer(project gitlab.ProjectNode) (tea.Model, tea.Cmd) {
 // descendDirectory pushes a new dirState onto the explorer stack and fetches
 // its tree listing. Before descending, it copies the current list items into
 // the parent list so the left pane shows the correct context.
-//
-// The preview viewport is preserved across the state reset — see
-// queueExplorerPreview for the rationale.
 func (m Model) descendDirectory(entry gitlab.TreeNode) (tea.Model, tea.Cmd) {
-	// Copy current list items to parent list before descending
 	m.explorer.parentList.SetItems(m.explorer.currentList.Items())
 	if cur := m.currentDirState(); cur != nil {
 		m.explorer.parentList.Select(cur.selected)
@@ -61,7 +58,7 @@ func (m Model) descendDirectory(entry gitlab.TreeNode) (tea.Model, tea.Cmd) {
 		loading: true,
 	}
 	m.explorer.stack = append(m.explorer.stack, newState)
-	m.explorer.preview = previewState{viewport: m.explorer.preview.viewport}
+	m.explorer.resetPreview()
 	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
 }
 
@@ -71,7 +68,7 @@ func (m Model) navigateExplorerUp() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.explorer.stack = m.explorer.stack[:len(m.explorer.stack)-1]
-	m.explorer.preview = previewState{viewport: m.explorer.preview.viewport}
+	m.explorer.resetPreview()
 	return m, m.queueExplorerPreview()
 }
 
@@ -86,7 +83,7 @@ func (m Model) reloadExplorerPath() (tea.Model, tea.Cmd) {
 	cur.loading = true
 	cur.err = nil
 	cur.entries = nil
-	m.explorer.preview = previewState{viewport: m.explorer.preview.viewport}
+	m.explorer.resetPreview()
 	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, m.explorer.project.ID, displayRef(m.explorer), cur.path)
 }
 
@@ -100,18 +97,21 @@ func (m *Model) closeExplorer(status string) {
 	}
 }
 
+// resetPreview clears the preview content while preserving the viewport
+// dimensions. The viewport is initialized once in openExplorer with proper
+// dimensions; replacing it with a zero-valued viewport causes View() to
+// return empty content since Width/Height would be 0.
+func (e *explorerState) resetPreview() {
+	e.preview = previewState{viewport: e.preview.viewport}
+}
+
 // queueExplorerPreview starts an async fetch for the currently selected entry's
 // preview (directory listing or file content). It skips redundant fetches if
 // the preview is already loading or cached for the same path.
-//
-// IMPORTANT: Every previewState reset must preserve the viewport field.
-// The viewport is initialized once in openExplorer with proper dimensions;
-// replacing it with a zero-valued viewport causes View() to return empty
-// content since Width/Height would be 0.
 func (m *Model) queueExplorerPreview() tea.Cmd {
 	entry := m.selectedEntry()
 	if entry == nil {
-		m.explorer.preview = previewState{viewport: m.explorer.preview.viewport}
+		m.explorer.resetPreview()
 		return nil
 	}
 	if entry.IsDir() {
