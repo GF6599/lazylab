@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -355,9 +356,17 @@ type Model struct {
 	visibleCachePage  int
 	visibleCacheTab   projectTab
 
-	// Pipeline fetch debouncing
-	pipelinePendingFetch  *gitlab.ProjectNode // Project awaiting fetch
-	pipelineDebounceTimer *time.Time          // When to trigger fetch
+	// Selection debounce — delays all eager data loading (pipelines, commits,
+	// MRs) until the user pauses navigation for pipelineDebounceDelay (300ms).
+	// Without this, rapid j/k navigation spawns one full fetch batch per
+	// keystroke, overwhelming the GitLab API rate limit.
+	selectionPending  *gitlab.ProjectNode
+	selectionDebounce *time.Time
+
+	// batchInFlight prevents overlapping batch pipeline status fetches.
+	// Shared via pointer so Bubble Tea value copies and the cmd goroutine
+	// see the same flag. Must be accessed atomically.
+	batchInFlight *atomic.Bool
 
 	// Detail pane render cache
 	detailCacheProjectID   int
@@ -607,6 +616,7 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 		}(),
 		commitCache:   make(map[int][]gitlab.CommitSummary),
 		commitLoading: make(map[int]bool),
+		batchInFlight: &atomic.Bool{},
 	}
 	if cache, err := newProjectCache(opts.Host); err == nil {
 		m.cache = cache
@@ -764,8 +774,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, pipelineTickCmd())
 	case batchPipelineStatusMsg:
 		return m.handleBatchPipelineStatus(msg)
-	case pipelineDebounceTickMsg:
-		return m.handlePipelineDebounceTickMsg(msg)
+	case selectionDebounceTickMsg:
+		return m.handleSelectionDebounce(msg)
 	case searchDebounceTickMsg:
 		return m.handleSearchDebounceTickMsg(msg)
 	case mrsLoadedMsg:

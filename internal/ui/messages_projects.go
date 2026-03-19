@@ -280,23 +280,20 @@ func (m Model) handlePipelineTick() (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m Model) handlePipelineDebounceTickMsg(msg pipelineDebounceTickMsg) (tea.Model, tea.Cmd) {
-	// Ignore stale ticks
-	if m.pipelineDebounceTimer == nil || !msg.timestamp.Equal(*m.pipelineDebounceTimer) {
+// handleSelectionDebounce fires the full data load for the selected project
+// after the debounce timer expires. Stale ticks (from earlier selections)
+// are discarded by comparing timestamps.
+func (m Model) handleSelectionDebounce(msg selectionDebounceTickMsg) (tea.Model, tea.Cmd) {
+	if m.selectionDebounce == nil || !msg.timestamp.Equal(*m.selectionDebounce) {
 		return m, nil
 	}
-
-	// Verify project still selected
-	if m.pipelinePendingFetch == nil || m.pipelinePendingFetch.ID != msg.projectID {
+	if m.selectionPending == nil || m.selectionPending.ID != msg.projectID {
 		return m, nil
 	}
-
-	// Execute fetch
-	m.pipelineDebounceTimer = nil
-	project := *m.pipelinePendingFetch
-	m.pipelinePendingFetch = nil
-
-	return m, (&m).queuePipelineFetch(project, true)
+	project := *m.selectionPending
+	m.selectionDebounce = nil
+	m.selectionPending = nil
+	return m, (&m).loadSelectedProjectData(project)
 }
 
 // handleCommitsLoaded stores fetched commits and invalidates the detail pane

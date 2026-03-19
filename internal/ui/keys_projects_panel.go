@@ -245,39 +245,60 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, 1, pipelinePerPage)
 }
 
-// autoLoadSelectedProjectData eagerly fetches pipelines, commits, and MRs for
-// the currently selected project so sidebar panels are ready before the user
-// navigates to them. Called on startup after cache/API load and whenever the
-// project selection changes. Uses debouncing for pipeline status to avoid
-// hammering the API during rapid j/k navigation.
+// autoLoadSelectedProjectData debounces eager data loading (pipelines, commits,
+// MRs) for the selected project. On rapid j/k navigation, only the final
+// selection triggers API calls after pipelineDebounceDelay (300ms).
+//
+// When no project data has been loaded yet (first selection after startup),
+// the debounce is skipped for instant feedback.
 func (m *Model) autoLoadSelectedProjectData() tea.Cmd {
 	project, ok := m.selectedProject()
 	if !ok {
 		return nil
 	}
-	cmds := []tea.Cmd{m.loadProjectPipelines(project)}
+	// Skip debounce on first load for instant startup feedback
+	if m.pipelineView.project.ID == 0 {
+		return m.loadSelectedProjectData(project)
+	}
 	now := time.Now()
-	m.pipelinePendingFetch = &project
-	m.pipelineDebounceTimer = &now
-	cmds = append(cmds, pipelineDebounceTickCmd(project.ID, now, pipelineDebounceDelay))
-	// Eagerly load commits for selected project
+	m.selectionPending = &project
+	m.selectionDebounce = &now
+	return selectionDebounceTickCmd(project.ID, now)
+}
+
+// loadSelectedProjectData performs the actual data loading for a project.
+// Called either directly (first load) or after the debounce timer fires.
+func (m *Model) loadSelectedProjectData(project gitlab.ProjectNode) tea.Cmd {
+	var cmds []tea.Cmd
+	if cmd := m.loadProjectPipelines(project); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	// Pipeline status badge (uses its own lastFetched guard)
+	if cmd := m.queuePipelineFetch(project, false); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if _, cached := m.commitCache[project.ID]; !cached && !m.commitLoading[project.ID] {
 		m.commitLoading[project.ID] = true
 		cmds = append(cmds, fetchCommitsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, project.DefaultBranch))
 	}
-	// Eagerly load MRs for selected project
-	mrVp := viewport.New(0, 0)
-	if layout := computeLayout(m.width, m.height, m.focus); layout.OK {
-		mrVp = viewport.New(layout.DetailWidth, layout.DetailHeight)
+	// Only reload MRs if the project changed
+	if m.mrView.project.ID != project.ID {
+		mrVp := viewport.New(0, 0)
+		if layout := computeLayout(m.width, m.height, m.focus); layout.OK {
+			mrVp = viewport.New(layout.DetailWidth, layout.DetailHeight)
+		}
+		m.mrView = mrViewState{
+			project:     project,
+			loading:     true,
+			discussions: NewAsyncCache[int, []gitlab.MRDiscussion](),
+			diffs:       NewAsyncCache[int, []gitlab.MRDiffFile](),
+			mrViewport:  mrVp,
+		}
+		cmds = append(cmds, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage))
 	}
-	m.mrView = mrViewState{
-		project:     project,
-		loading:     true,
-		discussions: NewAsyncCache[int, []gitlab.MRDiscussion](),
-		diffs:       NewAsyncCache[int, []gitlab.MRDiffFile](),
-		mrViewport:  mrVp,
+	if len(cmds) == 0 {
+		return nil
 	}
-	cmds = append(cmds, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage))
 	return tea.Batch(cmds...)
 }
 

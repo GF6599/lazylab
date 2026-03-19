@@ -12,12 +12,19 @@ package ui
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
+
+// batchConcurrencyLimit caps the number of concurrent API calls in
+// batchFetchPipelineStatusCmd. Without this, ~30 goroutines fire
+// simultaneously and trigger GitLab's rate limit (429), causing retry
+// backoff that pushes requests past the 20-second timeout.
+const batchConcurrencyLimit = 5
 
 type projectsLoadedMsg struct {
 	page       gitlab.ProjectPage
@@ -104,7 +111,10 @@ type pipelineJobRetriedMsg struct {
 
 type pipelineTickMsg struct{}
 
-type pipelineDebounceTickMsg struct {
+// selectionDebounceTickMsg fires after pipelineDebounceDelay to trigger
+// eager data loading for the selected project. The timestamp acts as a
+// generation counter — stale ticks (from earlier selections) are discarded.
+type selectionDebounceTickMsg struct {
 	projectID int
 	timestamp time.Time
 }
@@ -213,14 +223,15 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 //
 // ErrNoPipelines is mapped to empty=true rather than treated as an error, so
 // the UI can distinguish "no pipeline exists" from "API call failed".
-func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projects []gitlab.ProjectNode) tea.Cmd {
+func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projects []gitlab.ProjectNode, inFlight *atomic.Bool) tea.Cmd {
 	return func() tea.Msg {
+		defer inFlight.Store(false)
+
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 
 		results := make(map[int]pipelineStatusResult)
 
-		// Use a channel to collect results from concurrent fetches
 		type fetchResult struct {
 			projectID int
 			pipeline  gitlab.PipelineSummary
@@ -229,9 +240,13 @@ func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Servic
 		}
 		resultCh := make(chan fetchResult, len(projects))
 
-		// Fetch pipeline status for each project concurrently
+		// Semaphore limits concurrent goroutines to avoid triggering
+		// GitLab's rate limit (429) which causes retry backoff storms.
+		sem := make(chan struct{}, batchConcurrencyLimit)
 		for _, project := range projects {
+			sem <- struct{}{} // acquire slot
 			go func(projectID int) {
+				defer func() { <-sem }() // release slot
 				pipeline, err := client.LatestPipeline(ctx, projectID, "")
 				if err != nil {
 					if errors.Is(err, gitlab.ErrNoPipelines) {
@@ -245,7 +260,6 @@ func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Servic
 			}(project.ID)
 		}
 
-		// Collect all results
 		for range len(projects) {
 			result := <-resultCh
 			results[result.projectID] = pipelineStatusResult{
@@ -376,13 +390,13 @@ func pipelineTickCmd() tea.Cmd {
 	})
 }
 
-// pipelineDebounceTickCmd fires a debounce tick after delay using tea.Tick.
-// The timestamp acts as a generation counter — the handler ignores stale ticks
-// whose timestamp does not match the current timer, avoiding redundant API
-// calls when the user scrolls through projects quickly.
-func pipelineDebounceTickCmd(projectID int, timestamp time.Time, delay time.Duration) tea.Cmd {
-	return tea.Tick(delay, func(time.Time) tea.Msg {
-		return pipelineDebounceTickMsg{projectID: projectID, timestamp: timestamp}
+// selectionDebounceTickCmd fires a debounce tick after delay. The timestamp
+// acts as a generation counter — the handler ignores stale ticks whose
+// timestamp does not match the current timer, avoiding redundant API calls
+// when the user scrolls through projects quickly.
+func selectionDebounceTickCmd(projectID int, timestamp time.Time) tea.Cmd {
+	return tea.Tick(pipelineDebounceDelay, func(time.Time) tea.Msg {
+		return selectionDebounceTickMsg{projectID: projectID, timestamp: timestamp}
 	})
 }
 

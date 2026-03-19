@@ -64,16 +64,19 @@ func (m *Model) ensureSelectionBounds() {
 // is marked as loading before the command fires to prevent duplicate fetches
 // from overlapping ticks.
 func (m *Model) queueBatchPrefetchPipelineStatus() tea.Cmd {
+	// Skip if a previous batch is still in-flight to prevent accumulation
+	if m.batchInFlight != nil && m.batchInFlight.Load() {
+		return nil
+	}
+
 	visible := m.visibleProjects()
 	if len(visible) == 0 {
 		return nil
 	}
 
-	// Filter to projects that need fetching (not already cached or stale)
 	var toFetch []gitlab.ProjectNode
 	for _, project := range visible {
 		state, _ := m.pipelineStatus.Get(project.ID)
-		// Fetch if: not loading, not recently fetched (or never fetched), and not cached
 		if !state.loading && (state.lastFetched.IsZero() || time.Since(state.lastFetched) > pipelineRefreshInterval) {
 			toFetch = append(toFetch, project)
 		}
@@ -83,14 +86,14 @@ func (m *Model) queueBatchPrefetchPipelineStatus() tea.Cmd {
 		return nil
 	}
 
-	// Mark as loading to prevent duplicate fetches
 	for _, project := range toFetch {
 		state, _ := m.pipelineStatus.Get(project.ID)
 		state.loading = true
 		m.pipelineStatus.Set(project.ID, state)
 	}
 
-	return batchFetchPipelineStatusCmd(m.ctx, m.client, m.opts.PipelineTimeout, toFetch)
+	m.batchInFlight.Store(true)
+	return batchFetchPipelineStatusCmd(m.ctx, m.client, m.opts.PipelineTimeout, toFetch, m.batchInFlight)
 }
 
 func (m *Model) queuePipelineFetchForSelection(force bool) tea.Cmd {
