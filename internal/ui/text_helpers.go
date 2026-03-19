@@ -84,6 +84,68 @@ func wrapPreviewLine(line string, width int) []string {
 	return segments
 }
 
+// wrapSelectedItem hard-wraps text for a selected list item so that the
+// full content is visible instead of being truncated with "…". The first
+// line uses full width; continuation lines are indented by indent visible
+// characters. Returns at most maxLines lines (default 2); the last line
+// is truncated with "…" if the text still overflows.
+//
+// This is used by list delegates to expand only the selected item while
+// keeping non-selected items single-line. The bubbles list does not enforce
+// Height() in its render loop, so extra newlines are safe.
+func wrapSelectedItem(text string, width, indent, maxLines int) []string {
+	if width <= 0 || lipgloss.Width(text) <= width {
+		return []string{text}
+	}
+	if maxLines <= 0 {
+		maxLines = 2
+	}
+	runes := []rune(text)
+	var lines []string
+	pos := 0
+	for pos < len(runes) && len(lines) < maxLines {
+		prefix := ""
+		if len(lines) > 0 {
+			prefix = strings.Repeat(" ", indent)
+		}
+		isLast := len(lines) == maxLines-1
+		if isLast {
+			// Last allowed line: pass all remaining text through clampLine
+			// so it truncates with "…" only if content overflows.
+			lines = append(lines, clampLine(prefix+string(runes[pos:]), width))
+			break
+		}
+		avail := width - lipgloss.Width(prefix)
+		if avail <= 0 {
+			avail = 1
+		}
+		// Measure how many runes fit.
+		var b strings.Builder
+		b.WriteString(prefix)
+		w := 0
+		consumed := 0
+		for _, r := range runes[pos:] {
+			rw := lipgloss.Width(string(r))
+			if w+rw > avail {
+				break
+			}
+			b.WriteRune(r)
+			w += rw
+			consumed++
+		}
+		if consumed == 0 && pos < len(runes) {
+			b.WriteRune(runes[pos])
+			consumed = 1
+		}
+		pos += consumed
+		lines = append(lines, b.String())
+	}
+	if len(lines) == 0 {
+		return []string{text}
+	}
+	return lines
+}
+
 // fuzzyMatch performs a case-insensitive subsequence match: every rune in
 // pattern must appear in target in order, but not necessarily contiguously.
 // For example, "llb" matches "lazylab". This is intentionally simple (no

@@ -470,6 +470,79 @@ func TestStageTableColumns(t *testing.T) {
 	}
 }
 
+func TestWrapSelectedItem(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		width    int
+		indent   int
+		maxLines int
+		want     []string
+	}{
+		{
+			name:     "fits in width",
+			text:     "short",
+			width:    20,
+			indent:   4,
+			maxLines: 2,
+			want:     []string{"short"},
+		},
+		{
+			name:     "wraps to two lines",
+			text:     "> group/subgroup/very-long-project-name",
+			width:    20,
+			indent:   2,
+			maxLines: 2,
+			want:     []string{"> group/subgroup/ver", "  y-long-project-na…"},
+		},
+		{
+			name:     "wraps to three lines",
+			text:     "> group/subgroup/very-long-project-name-here",
+			width:    20,
+			indent:   2,
+			maxLines: 3,
+			want:     []string{"> group/subgroup/ver", "  y-long-project-nam", "  e-here"},
+		},
+		{
+			name:     "truncates last line",
+			text:     "abcdefghijklmnopqrstuvwxyz0123456789",
+			width:    10,
+			indent:   2,
+			maxLines: 2,
+			want:     []string{"abcdefghij", "  klmnopq…"},
+		},
+		{
+			name:     "zero width returns original",
+			text:     "hello",
+			width:    0,
+			indent:   2,
+			maxLines: 2,
+			want:     []string{"hello"},
+		},
+		{
+			name:     "default maxLines when zero",
+			text:     "abcdefghijklmnop",
+			width:    10,
+			indent:   2,
+			maxLines: 0,
+			want:     []string{"abcdefghij", "  klmnop"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapSelectedItem(tt.text, tt.width, tt.indent, tt.maxLines)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d lines %v, want %d lines %v", len(got), got, len(tt.want), tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("line %d: got %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestWrapText(t *testing.T) {
 	tests := []struct {
 		name  string
