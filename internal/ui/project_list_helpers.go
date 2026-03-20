@@ -163,19 +163,25 @@ func (m *Model) isLoading() bool {
 	return false
 }
 
-var pipelineStatusStyles = map[string]lipgloss.Style{
-	"success":              pipelineSuccess,
-	"failed":               pipelineFailed,
-	"running":              pipelineRunning,
-	"pending":              pipelinePending,
-	"created":              pipelinePending,
-	"waiting_for_resource": pipelinePending,
-	"scheduled":            pipelinePending,
-	"canceled":             pipelineCanceled,
-	"canceled?":            pipelineCanceled,
-	"skipped":              pipelineSkipped,
-	"manual":               pipelinePending,
-	"blocked":              pipelinePending,
+var pipelineStatusStyles map[string]lipgloss.Style
+
+// rebuildPipelineStatusStyles populates the pipelineStatusStyles map from the
+// current pipeline style vars. Called from rebuildStyles() on every theme change.
+func rebuildPipelineStatusStyles() {
+	pipelineStatusStyles = map[string]lipgloss.Style{
+		"success":              pipelineSuccess,
+		"failed":               pipelineFailed,
+		"running":              pipelineRunning,
+		"pending":              pipelinePending,
+		"created":              pipelinePending,
+		"waiting_for_resource": pipelinePending,
+		"scheduled":            pipelinePending,
+		"canceled":             pipelineCanceled,
+		"canceled?":            pipelineCanceled,
+		"skipped":              pipelineSkipped,
+		"manual":               pipelinePending,
+		"blocked":              pipelinePending,
+	}
 }
 
 func pipelineStatusStyle(status string) lipgloss.Style {

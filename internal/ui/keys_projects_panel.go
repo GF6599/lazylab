@@ -214,19 +214,18 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(rosePineSubtle).
+		BorderForeground(colorSubtle).
 		BorderBottom(true).
 		BorderTop(false).
 		BorderLeft(false).
 		BorderRight(false).
 		Bold(false).
-		Foreground(rosePineSubtle)
-	s.Selected = s.Selected.
-		Foreground(rosePineText).
-		Background(rosePineHighlightMed).
-		Bold(false)
+		Foreground(colorSubtle)
+	s.Selected = lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorHighlightMed)
 	s.Cell = s.Cell.
-		Foreground(rosePineText)
+		Foreground(colorText)
 	t.SetStyles(s)
 	m.pipelineView.stageTable = t
 

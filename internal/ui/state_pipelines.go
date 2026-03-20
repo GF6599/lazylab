@@ -33,20 +33,21 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		table.WithHeight(stageTableDefaultHeight),
 	)
 
-	// Style the table with Rose Pine colors (matching pane borders)
+	// Style the table with theme colors (matching pane borders).
+	// Selected is built from scratch to avoid inheriting the default
+	// Color("212") (bright pink) foreground from DefaultStyles().
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(rosePineSubtle).
+		BorderForeground(colorSubtle).
 		BorderBottom(true).
 		Bold(false).
-		Foreground(rosePineSubtle)
-	s.Selected = s.Selected.
-		Foreground(rosePineText).
-		Background(rosePineHighlightMed).
-		Bold(false)
+		Foreground(colorSubtle)
+	s.Selected = lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorHighlightMed)
 	s.Cell = s.Cell.
-		Foreground(rosePineText)
+		Foreground(colorText)
 	t.SetStyles(s)
 
 	// Initialize pipeline list

@@ -25,9 +25,9 @@ func renderInfoBar(m *Model, width int) string {
 		return ""
 	}
 
-	leftStyle := lipgloss.NewStyle().Foreground(rosePineFoam)
-	centerStyle := lipgloss.NewStyle().Foreground(rosePineSubtle)
-	rightStyle := lipgloss.NewStyle().Foreground(rosePineMuted)
+	leftStyle := lipgloss.NewStyle().Foreground(colorActive)
+	centerStyle := lipgloss.NewStyle().Foreground(colorSubtle)
+	rightStyle := lipgloss.NewStyle().Foreground(colorMuted)
 
 	// Left: spinner + status
 	var left string
@@ -87,7 +87,7 @@ func panelKeyHints(panel PanelID, m *Model) string {
 	case PanelDetail:
 		return detailPanelKeyHints(m)
 	default:
-		return "Tab switch · 1-4 jump · +/- layout · = screen mode · ? help"
+		return "Tab switch · 1-4 jump · +/- layout · = screen mode · ~ theme · ? help"
 	}
 }
 

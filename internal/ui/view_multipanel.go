@@ -227,7 +227,7 @@ func renderPipelineLogContent(m *Model, width, height int) string {
 	}
 
 	if m.pipelineView.logAutoFollow && job != nil {
-		b.WriteString(lipgloss.NewStyle().Foreground(rosePineFoam).Render("[LIVE] "))
+		b.WriteString(lipgloss.NewStyle().Foreground(colorActive).Render("[LIVE] "))
 	}
 
 	if preview.loading && preview.content == "" {

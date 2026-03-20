@@ -98,7 +98,7 @@ func (m Model) renderHelpView(width int) string {
 
 	content := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(rosePineSubtle).
+		BorderForeground(colorSubtle).
 		Padding(1, 2).
 		Width(width - 4).
 		Render(title + "\n\n" + helpView)

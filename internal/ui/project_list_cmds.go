@@ -152,6 +152,7 @@ func saveFavoritesCmd(store *favoritesStore, favOrder []int) tea.Cmd {
 type preferencesLoadedMsg struct {
 	layoutMode LayoutMode
 	screenMode ScreenMode
+	theme      ThemeName
 	err        error
 }
 
@@ -159,14 +160,14 @@ type preferencesSavedMsg struct{ err error }
 
 func loadPreferencesCmd(store *preferencesStore) tea.Cmd {
 	return func() tea.Msg {
-		layout, screen, err := store.Load()
-		return preferencesLoadedMsg{layoutMode: layout, screenMode: screen, err: err}
+		layout, screen, theme, err := store.Load()
+		return preferencesLoadedMsg{layoutMode: layout, screenMode: screen, theme: theme, err: err}
 	}
 }
 
-func savePreferencesCmd(store *preferencesStore, layout LayoutMode, screen ScreenMode) tea.Cmd {
+func savePreferencesCmd(store *preferencesStore, layout LayoutMode, screen ScreenMode, theme ThemeName) tea.Cmd {
 	return func() tea.Msg {
-		return preferencesSavedMsg{err: store.Save(layout, screen)}
+		return preferencesSavedMsg{err: store.Save(layout, screen, theme)}
 	}
 }
 

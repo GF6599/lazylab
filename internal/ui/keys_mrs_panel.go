@@ -381,11 +381,11 @@ func (m Model) newMRTextarea(placeholder string) textarea.Model {
 	ta.Placeholder = placeholder
 	ta.SetWidth(50)
 	ta.SetHeight(5)
-	ta.FocusedStyle.Base = lipgloss.NewStyle().Foreground(rosePineText)
-	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(rosePineMuted)
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().Foreground(rosePineText).Background(rosePineHighlightLow)
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(rosePineSubtle)
-	ta.Cursor.Style = lipgloss.NewStyle().Foreground(rosePineFoam)
+	ta.FocusedStyle.Base = lipgloss.NewStyle().Foreground(colorText)
+	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(colorMuted)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().Foreground(colorText).Background(colorHighlightLow)
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(colorSubtle)
+	ta.Cursor.Style = lipgloss.NewStyle().Foreground(colorActive)
 	ta.BlurredStyle = ta.FocusedStyle
 	ta.Focus()
 	return ta

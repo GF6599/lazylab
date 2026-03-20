@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 )
 
-const preferencesVersion = 1
+const preferencesVersion = 2
 
 // preferencesStore manages read/write access to the per-host preferences file.
 type preferencesStore struct {
@@ -29,6 +29,7 @@ type preferencesFile struct {
 	Host       string     `json:"host"`
 	LayoutMode LayoutMode `json:"layout_mode"`
 	ScreenMode ScreenMode `json:"screen_mode"`
+	Theme      ThemeName  `json:"theme"`
 }
 
 // newPreferencesStore initializes the cache directory and returns a store
@@ -48,38 +49,43 @@ func newPreferencesStore(host string) (*preferencesStore, error) {
 // Load reads preferences from disk. Returns zero-value defaults (not an error)
 // when the file doesn't exist or the version doesn't match, so first-run
 // callers don't need special handling.
-func (s *preferencesStore) Load() (LayoutMode, ScreenMode, error) {
+func (s *preferencesStore) Load() (LayoutMode, ScreenMode, ThemeName, error) {
 	data, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
-		return LayoutDefault, ScreenNormal, nil
+		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, nil
 	}
 	if err != nil {
-		return LayoutDefault, ScreenNormal, fmt.Errorf("read preferences: %w", err)
+		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, fmt.Errorf("read preferences: %w", err)
 	}
 	var file preferencesFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return LayoutDefault, ScreenNormal, fmt.Errorf("decode preferences: %w", err)
+		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, fmt.Errorf("decode preferences: %w", err)
 	}
 	if file.Version != preferencesVersion {
-		return LayoutDefault, ScreenNormal, nil
+		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, nil
 	}
 	// Validate enum ranges
 	if file.LayoutMode < LayoutDefault || file.LayoutMode > LayoutWide {
-		return LayoutDefault, ScreenNormal, nil
+		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, nil
 	}
 	if file.ScreenMode < ScreenNormal || file.ScreenMode > ScreenFull {
-		return LayoutDefault, ScreenNormal, nil
+		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, nil
 	}
-	return file.LayoutMode, file.ScreenMode, nil
+	theme := file.Theme
+	if theme < 0 || theme >= themeCount {
+		theme = ThemeRosePineMoon
+	}
+	return file.LayoutMode, file.ScreenMode, theme, nil
 }
 
 // Save writes preferences atomically using temp+rename.
-func (s *preferencesStore) Save(layout LayoutMode, screen ScreenMode) error {
+func (s *preferencesStore) Save(layout LayoutMode, screen ScreenMode, theme ThemeName) error {
 	payload := preferencesFile{
 		Version:    preferencesVersion,
 		Host:       s.host,
 		LayoutMode: layout,
 		ScreenMode: screen,
+		Theme:      theme,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

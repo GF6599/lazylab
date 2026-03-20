@@ -264,7 +264,7 @@ func renderMRDiffText(diffs []gitlab.MRDiffFile, width, cursorLine int) string {
 	if len(diffs) == 0 {
 		return explorerHintStyle.Render("No changes")
 	}
-	cursorBg := lipgloss.NewStyle().Background(rosePineHighlightMed)
+	cursorBg := lipgloss.NewStyle().Background(colorHighlightMed)
 	lineNum := 0
 	var b strings.Builder
 	for i, d := range diffs {
@@ -373,7 +373,7 @@ func renderMRReplyModal(m Model, width int) string {
 
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(rosePineSubtle).
+		BorderForeground(colorSubtle).
 		Padding(1, 2).
 		Width(innerWidth).
 		Render(strings.TrimSuffix(b.String(), "\n"))

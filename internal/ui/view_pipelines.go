@@ -313,7 +313,7 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 	}
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(rosePineSubtle).
+		BorderForeground(colorSubtle).
 		Padding(1, 2).
 		Width(innerWidth).
 		Render(strings.TrimSuffix(b.String(), "\n"))

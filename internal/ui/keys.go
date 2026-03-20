@@ -46,6 +46,7 @@ type keyMap struct {
 	CycleTabRv key.Binding
 	MoveFavUp  key.Binding
 	MoveFavDn  key.Binding
+	Theme      key.Binding
 
 	// Pagination
 	NextPage key.Binding
@@ -177,6 +178,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("}"),
 			key.WithHelp("}", "move fav down"),
 		),
+		Theme: key.NewBinding(
+			key.WithKeys("~"),
+			key.WithHelp("~", "cycle theme"),
+		),
 
 		// Pagination
 		NextPage: key.NewBinding(
@@ -233,6 +238,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.ScrollUp, k.ScrollDown, k.ClearError, k.Quit},
 		{k.Favorite, k.Explorer, k.CycleTab, k.Comment},
 		{k.Cancel, k.Play, k.MoveFavUp, k.MoveFavDn},
+		{k.Theme},
 	}
 }
 
@@ -301,7 +307,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Favorite, k.Explorer, k.CycleTab,
 			k.NextPage, k.PrevPage, k.Refresh,
 			k.MoveFavUp, k.MoveFavDn,
-			k.Copy, k.Help, k.Quit,
+			k.Copy, k.Theme, k.Help, k.Quit,
 		}
 	case PanelPipelines:
 		return []key.Binding{
@@ -309,7 +315,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Top, k.Bottom, k.Left, k.Right,
 			k.ScrollUp, k.ScrollDown, k.Retry, k.Cancel,
 			k.CycleTab, k.NextPage, k.PrevPage,
-			k.Refresh, k.Copy, k.Help, k.Quit,
+			k.Refresh, k.Copy, k.Theme, k.Help, k.Quit,
 		}
 	case PanelStages:
 		return []key.Binding{
@@ -317,7 +323,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Top, k.Bottom, k.Left, k.Right,
 			k.ScrollUp, k.ScrollDown, k.Retry, k.Cancel,
 			k.Play, k.CycleTab, k.Refresh, k.Copy,
-			k.Help, k.Quit,
+			k.Theme, k.Help, k.Quit,
 		}
 	case PanelMRs:
 		return []key.Binding{
@@ -325,7 +331,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Top, k.Bottom, k.Left, k.Right,
 			k.ScrollUp, k.ScrollDown, k.Comment,
 			k.CycleTab, k.NextPage, k.PrevPage,
-			k.Copy, k.Help, k.Quit,
+			k.Copy, k.Theme, k.Help, k.Quit,
 		}
 	case PanelDetail:
 		isMR := prevActive == PanelMRs
@@ -336,28 +342,28 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 					k.Up, k.Down, k.ScrollUp, k.ScrollDown,
 					k.Top, k.Bottom, resolve, k.Enter,
 					k.Comment, k.CycleTab, k.Left, k.Copy,
-					k.Help, k.Quit,
+					k.Theme, k.Help, k.Quit,
 				}
 			case mrDetailTabDiff:
 				return []key.Binding{
 					k.Up, k.Down, k.ScrollUp, k.ScrollDown,
 					k.Top, k.Bottom, k.Comment, k.CycleTab,
-					k.Left, k.Copy, k.Help, k.Quit,
+					k.Left, k.Copy, k.Theme, k.Help, k.Quit,
 				}
 			default:
 				return []key.Binding{
 					k.ScrollUp, k.ScrollDown, k.Top, k.Bottom,
 					k.Comment, k.CycleTab, k.Left, k.Copy,
-					k.Help, k.Quit,
+					k.Theme, k.Help, k.Quit,
 				}
 			}
 		}
 		return []key.Binding{
 			k.ScrollUp, k.ScrollDown, k.Top, k.Bottom,
 			k.Retry, k.CycleTab, k.Left, k.Copy,
-			k.Help, k.Quit,
+			k.Theme, k.Help, k.Quit,
 		}
 	default:
-		return []key.Binding{k.Help, k.Quit}
+		return []key.Binding{k.Theme, k.Help, k.Quit}
 	}
 }

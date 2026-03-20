@@ -63,7 +63,7 @@ type layoutResult struct {
 func renderTooSmallView(width, height int) string {
 	msg := fmt.Sprintf("Terminal too small: %dx%d\nMinimum required:  %dx%d", width, height, MinTerminalWidth, MinTerminalHeight)
 	styled := lipgloss.NewStyle().
-		Foreground(rosePineGold).
+		Foreground(colorWarning).
 		Bold(true).
 		Align(lipgloss.Center).
 		Render(msg)
@@ -237,11 +237,11 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 		return ""
 	}
 
-	borderFg := rosePineSubtle
-	titleFg := rosePineIris
+	borderFg := colorSubtle
+	titleFg := colorAccent
 	if focused {
-		borderFg = rosePineFoam
-		titleFg = rosePineFoam
+		borderFg = colorActive
+		titleFg = colorActive
 	}
 
 	borderStyle := lipgloss.NewStyle().Foreground(borderFg)
@@ -269,7 +269,7 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 	contentWidth := width - borderCharsH
 	contentLines := normalizeColumn(content, contentWidth, height)
 
-	thumbStyle := lipgloss.NewStyle().Foreground(rosePineFoam)
+	thumbStyle := lipgloss.NewStyle().Foreground(colorActive)
 
 	var body strings.Builder
 	for i, line := range contentLines {
@@ -343,14 +343,14 @@ func buildTabString(tabs []string, activeTab int) string {
 	var parts []string
 	for i, tab := range tabs {
 		if i == activeTab {
-			style := lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)
+			style := lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 			parts = append(parts, style.Render(tab))
 		} else {
-			style := lipgloss.NewStyle().Foreground(rosePineMuted)
+			style := lipgloss.NewStyle().Foreground(colorMuted)
 			parts = append(parts, style.Render(tab))
 		}
 	}
-	sep := lipgloss.NewStyle().Foreground(rosePineSubtle).Render(" | ")
+	sep := lipgloss.NewStyle().Foreground(colorSubtle).Render(" | ")
 	return strings.Join(parts, sep)
 }
 
@@ -368,7 +368,7 @@ func buildBottomBorder(width int, footer string, borderStyle lipgloss.Style) str
 		return borderStyle.Render(left + strings.Repeat("─", max(0, available)) + right)
 	}
 
-	footerRendered := lipgloss.NewStyle().Foreground(rosePineMuted).Render(footer)
+	footerRendered := lipgloss.NewStyle().Foreground(colorMuted).Render(footer)
 	footerWidth := ansi.StringWidth(footerRendered)
 	fillLeft := available - footerWidth - 2 // 2 for " " padding around footer
 	if fillLeft < 1 {

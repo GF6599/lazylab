@@ -554,30 +554,30 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 	input.Placeholder = "Search projects"
 	input.CharLimit = 128
 	input.Prompt = "/ "
-	input.TextStyle = lipgloss.NewStyle().Foreground(rosePineText)
-	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(rosePineMuted)
-	input.PromptStyle = lipgloss.NewStyle().Foreground(rosePineSubtle)
-	input.Cursor.Style = lipgloss.NewStyle().Foreground(rosePineFoam)
+	input.TextStyle = lipgloss.NewStyle().Foreground(colorText)
+	input.PlaceholderStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	input.PromptStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	input.Cursor.Style = lipgloss.NewStyle().Foreground(colorActive)
 	input.Blur()
 
 	// Initialize spinner
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(rosePineFoam)
+	s.Style = lipgloss.NewStyle().Foreground(colorActive)
 
 	// Initialize help
 	h := help.New()
-	h.Styles.ShortKey = lipgloss.NewStyle().Foreground(rosePineSubtle)
-	h.Styles.ShortDesc = lipgloss.NewStyle().Foreground(rosePineMuted)
-	h.Styles.FullKey = lipgloss.NewStyle().Foreground(rosePineSubtle)
-	h.Styles.FullDesc = lipgloss.NewStyle().Foreground(rosePineMuted)
+	h.Styles.ShortKey = lipgloss.NewStyle().Foreground(colorSubtle)
+	h.Styles.ShortDesc = lipgloss.NewStyle().Foreground(colorMuted)
+	h.Styles.FullKey = lipgloss.NewStyle().Foreground(colorSubtle)
+	h.Styles.FullDesc = lipgloss.NewStyle().Foreground(colorMuted)
 
 	// Initialize paginator for projects
 	p := paginator.New()
 	p.Type = paginator.Dots
 	p.PerPage = opts.ProjectsPerPage
-	p.ActiveDot = lipgloss.NewStyle().Foreground(rosePineFoam).Render("•")
-	p.InactiveDot = lipgloss.NewStyle().Foreground(rosePineMuted).Render("•")
+	p.ActiveDot = lipgloss.NewStyle().Foreground(colorActive).Render("•")
+	p.InactiveDot = lipgloss.NewStyle().Foreground(colorMuted).Render("•")
 
 	// Initialize pipeline status cache (shared with delegate)
 	pipelineStatus := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
@@ -634,6 +634,42 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 		m.logError("init preferences store", "err", err)
 	}
 	return m
+}
+
+// refreshThemeSubComponents re-applies theme colors to Bubble Tea sub-components
+// that store their own style copies (search input, spinner, help, paginator,
+// stage table). Called after applyTheme() on theme changes.
+func (m *Model) refreshThemeSubComponents() {
+	m.search.input.TextStyle = lipgloss.NewStyle().Foreground(colorText)
+	m.search.input.PlaceholderStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	m.search.input.PromptStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	m.search.input.Cursor.Style = lipgloss.NewStyle().Foreground(colorActive)
+
+	m.spinner.Style = lipgloss.NewStyle().Foreground(colorActive)
+
+	m.help.Styles.ShortKey = lipgloss.NewStyle().Foreground(colorSubtle)
+	m.help.Styles.ShortDesc = lipgloss.NewStyle().Foreground(colorMuted)
+	m.help.Styles.FullKey = lipgloss.NewStyle().Foreground(colorSubtle)
+	m.help.Styles.FullDesc = lipgloss.NewStyle().Foreground(colorMuted)
+
+	m.paginator.ActiveDot = lipgloss.NewStyle().Foreground(colorActive).Render("•")
+	m.paginator.InactiveDot = lipgloss.NewStyle().Foreground(colorMuted).Render("•")
+
+	// Refresh stage table styles. Selected is built from scratch to avoid
+	// inheriting the default Color("212") (bright pink) from DefaultStyles().
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(colorSubtle).
+		BorderBottom(true).
+		Bold(false).
+		Foreground(colorSubtle)
+	s.Selected = lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorHighlightMed)
+	s.Cell = s.Cell.
+		Foreground(colorText)
+	m.pipelineView.stageTable.SetStyles(s)
 }
 
 // Init kicks off initial data loading. If an on-disk project cache exists, it
@@ -851,6 +887,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.focus.LayoutMode = msg.layoutMode
 			m.focus.ScreenMode = msg.screenMode
+			applyTheme(msg.theme)
+			m.refreshThemeSubComponents()
+			m.invalidateDetailCache()
 			m.updateViewportSizes()
 		}
 		return m, nil

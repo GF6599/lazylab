@@ -1,69 +1,64 @@
-// Rose Pine Moon color palette and lipgloss styles for the TUI.
+// Semantic color variables and lipgloss styles for the TUI.
 //
-// Rose Pine Moon was chosen for its low-contrast dark palette that reduces eye
-// strain during long terminal sessions. The palette provides enough semantic
-// colors (love=error, pine=success, gold=warning, foam=active/selected) to
-// convey pipeline status and navigation state without relying on icons alone.
-//
-// Styles are organized into three groups:
-//   - Palette colors: raw Rose Pine Moon hex values, used nowhere else
-//   - Component styles: general-purpose text styles (titles, items, errors, pipeline statuses)
-//   - Pane styles: borders, headers, and content styles for the multi-pane layout
+// Color vars and style vars are declared without initializers; they are set by
+// applyTheme() (called from init and at runtime when the user cycles themes).
+// Consumer files reference these globals directly — no changes needed when
+// themes are switched because View() re-reads them on every frame.
 
 package ui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Rose Pine Moon palette — see https://rosepinetheme.com/palette
+// Semantic color palette — populated by applyTheme().
 var (
-	rosePineHighlightLow = lipgloss.Color("#2a283e")
-	rosePineHighlightMed = lipgloss.Color("#44415a")
-	rosePineText         = lipgloss.Color("#e0def4")
-	rosePineMuted        = lipgloss.Color("#6e6a86")
-	rosePineSubtle       = lipgloss.Color("#908caa")
-	rosePinePine         = lipgloss.Color("#31748f")
-	rosePineFoam         = lipgloss.Color("#9ccfd8")
-	rosePineGold         = lipgloss.Color("#f6c177")
-	rosePineIris         = lipgloss.Color("#c4a7e7")
-	rosePineLove         = lipgloss.Color("#eb6f92")
+	colorHighlightLow lipgloss.Color
+	colorHighlightMed lipgloss.Color
+	colorText         lipgloss.Color
+	colorMuted        lipgloss.Color
+	colorSubtle       lipgloss.Color
+	colorSuccess      lipgloss.Color
+	colorActive       lipgloss.Color
+	colorWarning      lipgloss.Color
+	colorAccent       lipgloss.Color
+	colorError        lipgloss.Color
 )
 
 // Component styles: titles, list items, status indicators, and pipeline state colors.
-// Pipeline status styles map CI status strings to semantic colors so users can
-// scan pipeline health at a glance.
 var (
-	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)
-	itemStyle         = lipgloss.NewStyle().Foreground(rosePineText)
-	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(rosePineFoam).Background(rosePineHighlightLow)
-	statusStyle       = lipgloss.NewStyle().Faint(true).Foreground(rosePineSubtle)
-	errorStyle        = lipgloss.NewStyle().Foreground(rosePineLove)
-	searchStyle       = lipgloss.NewStyle().Faint(true).Foreground(rosePineSubtle)
-	progressStyle     = lipgloss.NewStyle().Faint(true).Foreground(rosePineMuted)
-	pipelineSuccess   = lipgloss.NewStyle().Bold(true).Foreground(rosePinePine)
-	pipelineFailed    = lipgloss.NewStyle().Bold(true).Foreground(rosePineLove)
-	pipelineRunning   = lipgloss.NewStyle().Bold(true).Foreground(rosePineFoam)
-	pipelinePending   = lipgloss.NewStyle().Bold(true).Foreground(rosePineGold)
-	pipelineCanceled  = lipgloss.NewStyle().Bold(true).Foreground(rosePineMuted)
-	pipelineSkipped   = lipgloss.NewStyle().Bold(true).Foreground(rosePineSubtle)
-	pipelineUnknown   = lipgloss.NewStyle().Bold(true).Foreground(rosePineMuted)
+	titleStyle        lipgloss.Style
+	itemStyle         lipgloss.Style
+	selectedItemStyle lipgloss.Style
+	statusStyle       lipgloss.Style
+	errorStyle        lipgloss.Style
+	searchStyle       lipgloss.Style
+	progressStyle     lipgloss.Style
+	pipelineSuccess   lipgloss.Style
+	pipelineFailed    lipgloss.Style
+	pipelineRunning   lipgloss.Style
+	pipelinePending   lipgloss.Style
+	pipelineCanceled  lipgloss.Style
+	pipelineSkipped   lipgloss.Style
+	pipelineUnknown   lipgloss.Style
 )
 
-// Pane styles: borders, headers, and content styles shared across the multi-pane
-// layouts (projects, explorer, pipelines). Focused panes use foam-colored borders
-// to indicate which pane receives keyboard input.
+// Pane styles: borders, headers, and content styles shared across the multi-pane layouts.
 var (
-	paneBorderStyle          = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(rosePineSubtle)
-	paneBorderFocusStyle     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(rosePineFoam)
-	explorerHeaderStyle      = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)
-	explorerFocusHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(rosePineFoam)
-	detailHeaderStyle        = lipgloss.NewStyle().Bold(true).Foreground(rosePineIris)
-	detailDividerStyle       = lipgloss.NewStyle().Foreground(rosePineSubtle)
-	detailLabelStyle         = lipgloss.NewStyle().Foreground(rosePineMuted)
-	detailValueStyle         = lipgloss.NewStyle().Foreground(rosePineText)
-	explorerPathStyle        = lipgloss.NewStyle().Foreground(rosePineMuted)
-	explorerHintStyle        = lipgloss.NewStyle().Foreground(rosePineSubtle)
-	explorerErrorStyle       = lipgloss.NewStyle().Foreground(rosePineLove)
-	diffAddStyle             = lipgloss.NewStyle().Foreground(rosePinePine)
-	diffDelStyle             = lipgloss.NewStyle().Foreground(rosePineLove)
-	diffHunkStyle            = lipgloss.NewStyle().Foreground(rosePineGold)
+	paneBorderStyle          lipgloss.Style
+	paneBorderFocusStyle     lipgloss.Style
+	explorerHeaderStyle      lipgloss.Style
+	explorerFocusHeaderStyle lipgloss.Style
+	detailHeaderStyle        lipgloss.Style
+	detailDividerStyle       lipgloss.Style
+	detailLabelStyle         lipgloss.Style
+	detailValueStyle         lipgloss.Style
+	explorerPathStyle        lipgloss.Style
+	explorerHintStyle        lipgloss.Style
+	explorerErrorStyle       lipgloss.Style
+	diffAddStyle             lipgloss.Style
+	diffDelStyle             lipgloss.Style
+	diffHunkStyle            lipgloss.Style
 )
+
+func init() {
+	applyTheme(ThemeRosePineMoon)
+}
