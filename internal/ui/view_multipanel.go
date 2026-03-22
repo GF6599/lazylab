@@ -448,14 +448,19 @@ func renderMRDiffPane(m *Model, width, height int) string {
 	if len(diffs) == 0 {
 		return explorerHintStyle.Render(clampLine(" No changes", width))
 	}
-	if m.mrView.mrViewport.Width != width || m.mrView.mrViewport.Height != height {
-		widthChanged := m.mrView.mrViewport.Width != width
-		m.mrView.mrViewport.Width = width
-		m.mrView.mrViewport.Height = height
-		if widthChanged {
-			content := renderMRDiffText(diffs, width, m.mrView.diffCursor)
-			m.setMRViewportContent(content)
-		}
+	// Always sync dimensions and re-render so theme changes and cursor
+	// movement are immediately visible. View() is a value receiver, so
+	// dimension mutations on the copy are lost after each frame — conditional
+	// re-rendering based on dimension changes is unreliable.
+	m.mrView.mrViewport.Width = width
+	m.mrView.mrViewport.Height = height
+	content := renderMRDiffText(diffs, width, m.mrView.diffCursor)
+	m.setMRViewportContent(content)
+	// Ensure the cursor line is visible in the viewport
+	if m.mrView.diffCursor < m.mrView.mrViewport.YOffset {
+		m.mrView.mrViewport.SetYOffset(m.mrView.diffCursor)
+	} else if m.mrView.diffCursor >= m.mrView.mrViewport.YOffset+height {
+		m.mrView.mrViewport.SetYOffset(m.mrView.diffCursor - height + 1)
 	}
 	return m.mrView.mrViewport.View()
 }
