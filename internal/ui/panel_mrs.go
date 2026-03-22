@@ -179,8 +179,15 @@ func filterUserDiscussions(discussions []gitlab.MRDiscussion) []gitlab.MRDiscuss
 // viewport. System-only discussions (automated notes) are filtered out.
 // Notes within a discussion are rendered with tree-line prefixes (│/├/└)
 // to show the reply structure. The selectedIdx highlights one discussion.
+//
+// When diffs is non-nil and contextLines > 0, positioned comments (DiffNotes)
+// include an inline diff snippet between the header and body, showing the
+// surrounding code context so the reader can understand the comment without
+// switching to the Diff tab. Pass nil diffs to render without context (e.g.,
+// when diffs haven't loaded yet — the comments will re-render when they arrive).
+//
 // Width controls truncation; pass 0 to skip.
-func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx int) string {
+func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx int, diffs []gitlab.MRDiffFile, contextLines int) string {
 	filtered := filterUserDiscussions(discussions)
 	if len(filtered) == 0 {
 		return explorerHintStyle.Render("No discussions")
@@ -235,6 +242,20 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx 
 			}
 			b.WriteString(header)
 			b.WriteString("\n")
+
+			// Inline diff context for positioned comments (first note only)
+			if j == 0 && note.FilePath != "" && contextLines > 0 && len(diffs) > 0 {
+				locLine := fmt.Sprintf("  %s:%d", note.FilePath, note.Line)
+				if width > 0 {
+					locLine = ansi.Truncate(locLine, width, "…")
+				}
+				b.WriteString(detailLabelStyle.Render(locLine))
+				b.WriteString("\n")
+				snippet := extractDiffContext(diffs, note.FilePath, note.OldLine, note.NewLine, contextLines)
+				if len(snippet) > 0 {
+					b.WriteString(renderDiffSnippet(snippet, width))
+				}
+			}
 
 			// Indent body with tree-style prefix
 			prefix := "│ "
@@ -381,10 +402,13 @@ func renderMRReplyModal(m Model, width int) string {
 }
 
 // discussionStartLine returns the 0-based line number at which the given
-// filtered discussion index begins in the rendered comments text. This mirrors
-// the line-counting logic in renderMRCommentsText so the viewport can scroll
-// to keep the selected discussion visible.
-func discussionStartLine(discussions []gitlab.MRDiscussion, selectedIdx int) int {
+// filtered discussion index begins in the rendered comments text.
+//
+// This must exactly mirror the line-emission logic in renderMRCommentsText
+// (including the optional diff context snippet) so the viewport can scroll
+// to keep the selected discussion visible. If the two functions diverge,
+// selection scrolling breaks — keep them in sync when changing either.
+func discussionStartLine(discussions []gitlab.MRDiscussion, selectedIdx int, diffs []gitlab.MRDiffFile, contextLines int) int {
 	filtered := filterUserDiscussions(discussions)
 	line := 0
 	for i, d := range filtered {
@@ -400,8 +424,13 @@ func discussionStartLine(discussions []gitlab.MRDiscussion, selectedIdx int) int
 			if note.System {
 				continue
 			}
-			_ = j
 			line++ // header line
+			// Diff context for positioned comments (first note only)
+			if j == 0 && note.FilePath != "" && contextLines > 0 && len(diffs) > 0 {
+				line++ // file location line
+				snippet := extractDiffContext(diffs, note.FilePath, note.OldLine, note.NewLine, contextLines)
+				line += len(snippet) // snippet lines (each emits a \n)
+			}
 			bodyLines := strings.Split(note.Body, "\n")
 			line += len(bodyLines) // body lines (each with prefix)
 			line++                 // blank line after note
@@ -477,6 +506,133 @@ func parseHunkHeader(line string) (oldLine, newLine int) {
 		}
 	}
 	return oldLine, newLine
+}
+
+// extractDiffContext returns a slice of raw unified-diff lines surrounding a
+// positioned MR comment, giving the reader visual context without switching to
+// the Diff tab.
+//
+// Matching strategy: newLine is preferred for additions and context lines
+// (the common case), while oldLine is only used for pure deletions where
+// newLine is 0. This mirrors how GitLab's Position API populates the fields.
+//
+// The returned window is clamped to hunk boundaries (@@, ---, +++ lines) so
+// the snippet never bleeds into an unrelated hunk or file header. Returns nil
+// when no match is found, diffs is nil, or contextLines is 0.
+func extractDiffContext(diffs []gitlab.MRDiffFile, filePath string, oldLine, newLine, contextLines int) []string {
+	if len(diffs) == 0 || filePath == "" || contextLines <= 0 {
+		return nil
+	}
+	// Find the matching diff file
+	var diffText string
+	for _, d := range diffs {
+		if d.NewPath == filePath || d.OldPath == filePath {
+			diffText = d.Diff
+			break
+		}
+	}
+	if diffText == "" {
+		return nil
+	}
+
+	lines := strings.Split(diffText, "\n")
+	targetIdx := findDiffTargetLine(lines, oldLine, newLine)
+	if targetIdx < 0 {
+		return nil
+	}
+
+	// Extract ±contextLines, clamped to hunk boundaries
+	start := max(0, targetIdx-contextLines)
+	end := min(len(lines), targetIdx+contextLines+1)
+	// Clamp start: don't cross a hunk header going backwards
+	for i := targetIdx - 1; i >= start; i-- {
+		if strings.HasPrefix(lines[i], "---") || strings.HasPrefix(lines[i], "+++") {
+			start = i + 1
+			break
+		}
+	}
+	// Clamp end: don't cross a hunk header going forwards (but include @@ if at start)
+	for i := targetIdx + 1; i < end; i++ {
+		if strings.HasPrefix(lines[i], "@@") || strings.HasPrefix(lines[i], "---") || strings.HasPrefix(lines[i], "+++") {
+			end = i
+			break
+		}
+	}
+	if start >= end {
+		return nil
+	}
+	return lines[start:end]
+}
+
+// findDiffTargetLine walks a unified diff's lines, tracking old/new line
+// counters through hunk headers, and returns the index of the line matching
+// the comment's position. Returns -1 if no line matches.
+//
+// When newLine > 0 it matches additions (+) and context lines on the new side.
+// When newLine == 0 && oldLine > 0 it matches deletions (-) and context on
+// the old side. This split handles the asymmetry in GitLab's position model:
+// additions only have NewLine, deletions only have OldLine, and context lines
+// have both (but NewLine takes priority for matching).
+func findDiffTargetLine(lines []string, oldLine, newLine int) int {
+	curOld, curNew := 0, 0
+	for i, line := range lines {
+		line = strings.ReplaceAll(line, "\r", "")
+		switch {
+		case strings.HasPrefix(line, "@@"):
+			curOld, curNew = parseHunkHeader(line)
+		case strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++"):
+			// skip diff file headers
+		case strings.HasPrefix(line, "+"):
+			if newLine > 0 && curNew == newLine {
+				return i
+			}
+			curNew++
+		case strings.HasPrefix(line, "-"):
+			if oldLine > 0 && newLine == 0 && curOld == oldLine {
+				return i
+			}
+			curOld++
+		default:
+			// Context line — both advance
+			if newLine > 0 && curNew == newLine {
+				return i
+			}
+			if oldLine > 0 && newLine == 0 && curOld == oldLine {
+				return i
+			}
+			curOld++
+			curNew++
+		}
+	}
+	return -1
+}
+
+// renderDiffSnippet applies the same diff styling used by renderMRDiffText
+// (green for additions, red for deletions, dimmed for hunk headers) to a slice
+// of raw diff lines. Each line is indented by 2 spaces so the snippet sits
+// inside the comment thread's tree-line layout without visual collision.
+func renderDiffSnippet(rawLines []string, width int) string {
+	var b strings.Builder
+	for _, line := range rawLines {
+		line = strings.ReplaceAll(line, "\t", "    ")
+		line = strings.ReplaceAll(line, "\r", "")
+		if width > 0 {
+			line = ansi.Truncate(line, width-4, "…")
+		}
+		var styled string
+		switch {
+		case strings.HasPrefix(line, "+"):
+			styled = diffAddStyle.Render("  " + line)
+		case strings.HasPrefix(line, "-"):
+			styled = diffDelStyle.Render("  " + line)
+		case strings.HasPrefix(line, "@@"):
+			styled = diffHunkStyle.Render("  " + line)
+		default:
+			styled = itemStyle.Render("  " + line)
+		}
+		b.WriteString(styled + "\n")
+	}
+	return b.String()
 }
 
 // setMRViewportContent normalizes and hard-wraps content to fit the MR viewport width.

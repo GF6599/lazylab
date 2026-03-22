@@ -205,11 +205,12 @@ func (m Model) refreshMRCommentsViewport() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	w := m.mrViewportWidth()
-	content := renderMRCommentsText(discussions, w, m.mrView.selectedDiscussion)
+	diffs, _ := m.mrView.diffs.Get(mr.IID)
+	content := renderMRCommentsText(discussions, w, m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
 	m.setMRViewportContent(content)
 
 	// Scroll so the selected discussion is visible
-	startLine := discussionStartLine(discussions, m.mrView.selectedDiscussion)
+	startLine := discussionStartLine(discussions, m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
 	vpHeight := m.mrView.mrViewport.Height
 	yOffset := m.mrView.mrViewport.YOffset
 	if startLine < yOffset {
@@ -248,7 +249,8 @@ func (m Model) toggleDiscussionResolved() (tea.Model, tea.Cmd) {
 
 	// Re-render with updated state
 	if updatedDiscs, ok2 := m.mrView.discussions.Get(mr.IID); ok2 {
-		content := renderMRCommentsText(updatedDiscs, m.mrViewportWidth(), m.mrView.selectedDiscussion)
+		diffs, _ := m.mrView.diffs.Get(mr.IID)
+		content := renderMRCommentsText(updatedDiscs, m.mrViewportWidth(), m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
 		m.setMRViewportContent(content)
 	}
 

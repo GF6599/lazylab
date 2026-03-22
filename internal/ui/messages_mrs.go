@@ -58,7 +58,8 @@ func (m Model) handleMRDiscussionsLoaded(msg mrDiscussionsLoadedMsg) (tea.Model,
 	if m.mrView.detailTab == mrDetailTabComments {
 		mr := m.mrView.selectedMR()
 		if mr != nil && mr.IID == msg.mrIID {
-			content := renderMRCommentsText(msg.discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion)
+			diffs, _ := m.mrView.diffs.Get(mr.IID)
+			content := renderMRCommentsText(msg.discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
 			m.setMRViewportContent(content)
 			m.mrView.mrViewport.GotoTop()
 		}
@@ -78,12 +79,19 @@ func (m Model) handleMRDiffsLoaded(msg mrDiffsLoadedMsg) (tea.Model, tea.Cmd) {
 	m.mrView.diffCursor = 0
 	m.mrView.diffLineMap = buildDiffLineMap(msg.diffs)
 	var cmd tea.Cmd
-	if m.mrView.detailTab == mrDetailTabDiff {
-		mr := m.mrView.selectedMR()
-		if mr != nil && mr.IID == msg.mrIID {
+	mr := m.mrView.selectedMR()
+	if mr != nil && mr.IID == msg.mrIID {
+		switch m.mrView.detailTab {
+		case mrDetailTabDiff:
 			content := renderMRDiffText(msg.diffs, m.mrViewportWidth(), m.mrView.diffCursor)
 			m.setMRViewportContent(content)
 			m.mrView.mrViewport.GotoTop()
+		case mrDetailTabComments:
+			// Re-render comments with diff context now that diffs are available
+			if discussions, ok := m.mrView.discussions.Get(mr.IID); ok {
+				content := renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion, msg.diffs, m.opts.DiffContextLines)
+				m.setMRViewportContent(content)
+			}
 		}
 	}
 	// Fetch diff refs for positioned comments
@@ -99,7 +107,8 @@ func (m Model) handleMRDiscussionResolved(msg mrDiscussionResolvedMsg) (tea.Mode
 		// Revert optimistic update on failure
 		m.optimisticToggleResolved(msg.mrIID, msg.discussionID, !msg.resolved)
 		if discussions, ok := m.mrView.discussions.Get(msg.mrIID); ok {
-			content := renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion)
+			diffs, _ := m.mrView.diffs.Get(msg.mrIID)
+			content := renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
 			m.setMRViewportContent(content)
 		}
 		m.status = fmt.Sprintf("Failed to resolve discussion: %v", RedactToken(msg.err.Error()))

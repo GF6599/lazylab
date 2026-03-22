@@ -195,12 +195,22 @@ func (m Model) setMRDetailTab(tab mrDetailTab) (tea.Model, tea.Cmd) {
 	}
 	switch tab {
 	case mrDetailTabComments:
+		var cmds []tea.Cmd
 		if _, cached := m.mrView.discussions.Get(mr.IID); !cached && !m.mrView.discussions.IsLoading(mr.IID) {
 			m.mrView.discussions.SetLoading(mr.IID)
-			return m, fetchMRDiscussionsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mr.IID)
+			cmds = append(cmds, fetchMRDiscussionsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mr.IID))
+		}
+		// Also fetch diffs (needed for inline diff context) if not cached
+		if _, cached := m.mrView.diffs.Get(mr.IID); !cached && !m.mrView.diffs.IsLoading(mr.IID) {
+			m.mrView.diffs.SetLoading(mr.IID)
+			cmds = append(cmds, fetchMRDiffsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mr.IID))
+		}
+		if len(cmds) > 0 {
+			return m, tea.Batch(cmds...)
 		}
 		if discussions, ok := m.mrView.discussions.Get(mr.IID); ok {
-			m.setMRViewportContent(renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion))
+			diffs, _ := m.mrView.diffs.Get(mr.IID)
+			m.setMRViewportContent(renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines))
 			m.mrView.mrViewport.GotoTop()
 		}
 	case mrDetailTabDiff:

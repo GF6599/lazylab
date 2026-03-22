@@ -101,12 +101,17 @@ func (c *Client) ListMergeRequestDiscussions(ctx context.Context, projectID, mrI
 			// Prefer NewPath over OldPath: for renames, NewPath reflects the
 			// file's current location; for edits both are identical.
 			if n.Position != nil {
+				note.OldLine = n.Position.OldLine
+				note.NewLine = n.Position.NewLine
 				if n.Position.NewPath != "" {
 					note.FilePath = n.Position.NewPath
 					note.Line = n.Position.NewLine
 				} else if n.Position.OldPath != "" {
 					note.FilePath = n.Position.OldPath
 					note.Line = n.Position.OldLine
+				}
+				if note.Line == 0 && note.OldLine != 0 {
+					note.Line = note.OldLine
 				}
 			}
 			disc.Notes = append(disc.Notes, note)

@@ -122,12 +122,18 @@ func TestListMRDiscussions_PositionExtraction(t *testing.T) {
 	if len(notes) != 2 {
 		t.Fatalf("expected 2 notes, got %d", len(notes))
 	}
-	// Note with position: should extract NewPath/NewLine
+	// Note with position: should extract NewPath/NewLine and both OldLine/NewLine
 	if notes[0].FilePath != "src/main.go" {
 		t.Errorf("expected FilePath=src/main.go, got %q", notes[0].FilePath)
 	}
 	if notes[0].Line != 42 {
 		t.Errorf("expected Line=42, got %d", notes[0].Line)
+	}
+	if notes[0].OldLine != 40 {
+		t.Errorf("expected OldLine=40, got %d", notes[0].OldLine)
+	}
+	if notes[0].NewLine != 42 {
+		t.Errorf("expected NewLine=42, got %d", notes[0].NewLine)
 	}
 	// Note without position: should be empty
 	if notes[1].FilePath != "" {
@@ -135,6 +141,12 @@ func TestListMRDiscussions_PositionExtraction(t *testing.T) {
 	}
 	if notes[1].Line != 0 {
 		t.Errorf("expected Line=0, got %d", notes[1].Line)
+	}
+	if notes[1].OldLine != 0 {
+		t.Errorf("expected OldLine=0, got %d", notes[1].OldLine)
+	}
+	if notes[1].NewLine != 0 {
+		t.Errorf("expected NewLine=0, got %d", notes[1].NewLine)
 	}
 }
 

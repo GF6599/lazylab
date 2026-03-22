@@ -40,10 +40,14 @@ const (
 	FlagLogLevel = "log-level"
 	// FlagDemo enables demo mode with fake data (no token required).
 	FlagDemo = "demo"
+	// FlagDiffContextLines controls how many unified-diff lines surround
+	// positioned MR comments in the Comments tab. Env: GITLAB_DIFF_CONTEXT_LINES.
+	FlagDiffContextLines = "diff-context-lines"
 
-	defaultHost            = "https://gitlab.com"
-	defaultProjectsPerPage = 30
-	defaultLogLevel        = "error"
+	defaultHost             = "https://gitlab.com"
+	defaultProjectsPerPage  = 30
+	defaultLogLevel         = "error"
+	defaultDiffContextLines = 10
 )
 
 // Config holds the fully-resolved runtime settings after all sources have
@@ -57,6 +61,9 @@ type Config struct {
 	LogLevel        string
 	// Demo enables demo mode with fake data and no token requirement.
 	Demo bool
+	// DiffContextLines is the number of diff context lines to show around
+	// positioned MR comments. 0 disables inline diff context.
+	DiffContextLines int
 	// ConfigFile records which file was loaded, if any. Empty when
 	// configuration came entirely from flags, env vars, and defaults.
 	ConfigFile string
@@ -73,6 +80,7 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.String(FlagConfig, "", "Optional config file (YAML, TOML, JSON)")
 	fs.String(FlagLogLevel, "", "Log level: debug, info, warn, error")
 	fs.Bool(FlagDemo, false, "Run in demo mode with fake data (no token required)")
+	fs.Int(FlagDiffContextLines, 0, "Number of diff context lines around MR comments (default 10, 0 = disabled)")
 }
 
 // Load merges configuration from defaults, an optional config file,
@@ -93,6 +101,7 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	v.SetDefault(FlagHost, defaultHost)
 	v.SetDefault(FlagProjectsPerPage, defaultProjectsPerPage)
 	v.SetDefault(FlagLogLevel, defaultLogLevel)
+	v.SetDefault(FlagDiffContextLines, defaultDiffContextLines)
 	v.AutomaticEnv()
 
 	configPath, _ := fs.GetString(FlagConfig)
@@ -115,6 +124,7 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	cfg.Token = v.GetString(FlagToken)
 	cfg.ProjectsPerPage = v.GetInt(FlagProjectsPerPage)
 	cfg.LogLevel = strings.ToLower(v.GetString(FlagLogLevel))
+	cfg.DiffContextLines = v.GetInt(FlagDiffContextLines)
 
 	overrideFromFlags(fs, &cfg)
 
@@ -177,6 +187,9 @@ func overrideFromFlags(fs *pflag.FlagSet, cfg *Config) {
 	}
 	if fs.Changed(FlagDemo) {
 		cfg.Demo, _ = fs.GetBool(FlagDemo)
+	}
+	if fs.Changed(FlagDiffContextLines) {
+		cfg.DiffContextLines, _ = fs.GetInt(FlagDiffContextLines)
 	}
 }
 

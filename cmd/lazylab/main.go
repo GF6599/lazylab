@@ -77,7 +77,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	model := ui.NewModel(ctx, client, ui.Options{ProjectsPerPage: cfg.ProjectsPerPage, Logger: logger, Host: cfg.Host})
+	model := ui.NewModel(ctx, client, ui.Options{ProjectsPerPage: cfg.ProjectsPerPage, Logger: logger, Host: cfg.Host, DiffContextLines: cfg.DiffContextLines})
 	program := tea.NewProgram(model, tea.WithAltScreen())
 
 	if cfg.ConfigFile != "" {

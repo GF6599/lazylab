@@ -94,6 +94,10 @@ type Options struct {
 	Host            string
 	APITimeout      time.Duration
 	PipelineTimeout time.Duration
+	// DiffContextLines controls how many unified-diff lines surround each
+	// positioned MR comment in the Comments tab. Defaults to 10 if unset.
+	// Set to 0 to disable inline diff context entirely.
+	DiffContextLines int
 }
 
 // Logger abstracts structured logging so callers can inject slog.Logger (or a
@@ -549,6 +553,9 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 	}
 	if opts.PipelineTimeout <= 0 {
 		opts.PipelineTimeout = 20 * time.Second
+	}
+	if opts.DiffContextLines <= 0 {
+		opts.DiffContextLines = 10
 	}
 	input := textinput.New()
 	input.Placeholder = "Search projects"

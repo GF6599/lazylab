@@ -417,16 +417,15 @@ func renderMRCommentsPane(m *Model, width, height int) string {
 	if len(discussions) == 0 {
 		return explorerHintStyle.Render(clampLine(" No discussions", width))
 	}
-	// Sync viewport dimensions and re-render content if width changed
-	if m.mrView.mrViewport.Width != width || m.mrView.mrViewport.Height != height {
-		widthChanged := m.mrView.mrViewport.Width != width
-		m.mrView.mrViewport.Width = width
-		m.mrView.mrViewport.Height = height
-		if widthChanged {
-			content := renderMRCommentsText(discussions, width, m.mrView.selectedDiscussion)
-			m.setMRViewportContent(content)
-		}
-	}
+	// Always re-render so theme changes and selection updates are visible.
+	// See renderMRDiffPane for the rationale: View() is a value receiver,
+	// so dimension changes on the copy are lost — conditional re-rendering
+	// based on dimensions is unreliable.
+	m.mrView.mrViewport.Width = width
+	m.mrView.mrViewport.Height = height
+	diffs, _ := m.mrView.diffs.Get(mr.IID)
+	content := renderMRCommentsText(discussions, width, m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
+	m.setMRViewportContent(content)
 	return m.mrView.mrViewport.View()
 }
 

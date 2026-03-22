@@ -80,6 +80,8 @@ func demoDiscussions(_ int, mrIID int) []gitlab.MRDiscussion {
 						CreatedAt:  refTime.Add(-90 * time.Minute),
 						FilePath:   "internal/handler/handler.go",
 						Line:       14,
+						OldLine:    14,
+						NewLine:    14,
 					},
 					{
 						ID:        5002,
@@ -101,6 +103,7 @@ func demoDiscussions(_ int, mrIID int) []gitlab.MRDiscussion {
 						CreatedAt:  refTime.Add(-45 * time.Minute),
 						FilePath:   "internal/handler/handler.go",
 						Line:       22,
+						NewLine:    22,
 					},
 				},
 			},
@@ -129,7 +132,8 @@ func demoDiscussions(_ int, mrIID int) []gitlab.MRDiscussion {
 						Resolved:   false,
 						CreatedAt:  refTime.Add(-5 * time.Hour),
 						FilePath:   "internal/service/service.go",
-						Line:       31,
+						Line:       16,
+						NewLine:    16,
 					},
 					{
 						ID:        5011,
