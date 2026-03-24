@@ -169,3 +169,39 @@ func (m Model) handleMRDiscussionCreated(msg mrDiscussionCreatedMsg) (tea.Model,
 	m.mrView.discussions.SetLoading(msg.mrIID)
 	return m, fetchMRDiscussionsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, msg.mrIID)
 }
+
+func (m Model) handleMRCreated(msg mrCreatedMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.mrView.createMR.sending = false
+		m.mrView.createMR.err = msg.err
+		m.status = fmt.Sprintf("Failed to create MR: %v", RedactToken(msg.err.Error()))
+		return m, nil
+	}
+	m.mrView.createMR = createMRState{}
+	m.status = fmt.Sprintf("Created !%d: %s", msg.mr.IID, msg.mr.Title)
+	m.mrView.loading = true
+	m.mrView.selected = 0
+	m.mrView.tab = mrTabOpen
+	return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, "opened", 1, mrPerPage)
+}
+
+func (m Model) handleBranchesLoaded(msg branchesLoadedMsg) (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if !m.mrView.createMR.active || !m.mrView.createMR.branchPicker.active {
+		return m, nil
+	}
+	m.mrView.createMR.branchPicker.loading = false
+	if msg.err != nil {
+		m.mrView.createMR.branchPicker.err = msg.err
+		return m, nil
+	}
+	m.mrView.createMR.branchPicker.branches = msg.branches
+	m.mrView.createMR.branchPicker.filtered = msg.branches
+	m.mrView.createMR.branchPicker.selected = 0
+	return m, nil
+}

@@ -311,11 +311,6 @@ func renderPipelineRetryConfirmModal(m Model, width int) string {
 		b.WriteString("\n\n")
 		b.WriteString(explorerHintStyle.Render(clampLine("Enter to retry pipeline · Esc to cancel", innerWidth)))
 	}
-	modal := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorSubtle).
-		Padding(1, 2).
-		Width(innerWidth).
-		Render(strings.TrimSuffix(b.String(), "\n"))
+	modal := modalBorderStyle.Width(innerWidth).Render(strings.TrimSuffix(b.String(), "\n"))
 	return modal
 }

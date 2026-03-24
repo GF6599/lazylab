@@ -35,6 +35,12 @@ func (m Model) View() string {
 		if m.mode == modeMultiPanel && m.explorer.project.ID != 0 && len(m.explorer.stack) > 0 {
 			return renderExplorerView(m, width)
 		}
+		// Create MR modal overlay
+		if m.mrView.createMR.active {
+			base := renderMultiPanelView(&m, width, m.height)
+			modal := renderCreateMRModal(m, width)
+			return overlayCentered(base, modal, width)
+		}
 		// Reply modal overlay
 		if m.mrView.reply.active {
 			base := renderMultiPanelView(&m, width, m.height)
@@ -96,12 +102,7 @@ func (m Model) renderHelpView(width int) string {
 	helpView := m.help.FullHelpView(keyGroups)
 	title := titleStyle.Render("Help - Press ? or Esc to close")
 
-	content := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorSubtle).
-		Padding(1, 2).
-		Width(width - 4).
-		Render(title + "\n\n" + helpView)
+	content := modalBorderStyle.Width(width - 4).Render(title + "\n\n" + helpView)
 
 	return content
 }

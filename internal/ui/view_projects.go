@@ -48,7 +48,7 @@ func renderListPane(m Model, width, height int, focused bool) string {
 	}
 	// Add paginator if multiple pages
 	if m.totalPages > 1 && m.search.query == "" {
-		paginatorView := lipgloss.NewStyle().Foreground(colorMuted).Render(" " + m.paginator.View())
+		paginatorView := borderFooterStyle.Render(" " + m.paginator.View())
 		bottomLines = append(bottomLines, paginatorView)
 	}
 	bottomLines = append(bottomLines, renderSearchBar(m, width))

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -100,6 +101,8 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage)
 	case "c":
 		return m.openMRNewCommentModal()
+	case "N":
+		return m.openCreateMRModal()
 	case "ctrl+o":
 		m.copyMRURL()
 	}
@@ -391,4 +394,228 @@ func (m Model) newMRTextarea(placeholder string) textarea.Model {
 	ta.BlurredStyle = ta.FocusedStyle
 	ta.Focus()
 	return ta
+}
+
+// newMRTextinput creates a styled single-line text input for MR form fields.
+func newMRTextinput(placeholder string) textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = placeholder
+	ti.CharLimit = 256
+	ti.TextStyle = lipgloss.NewStyle().Foreground(colorText)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(colorActive)
+	return ti
+}
+
+// openCreateMRModal opens the create-merge-request modal form.
+func (m Model) openCreateMRModal() (tea.Model, tea.Cmd) {
+	if m.mrView.project.ID == 0 {
+		return m, nil
+	}
+	titleInput := newMRTextinput("MR title (required)")
+	titleInput.Focus()
+
+	sourceInput := newMRTextinput("Source branch (required)")
+	targetInput := newMRTextinput("Target branch")
+	targetInput.SetValue(m.mrView.project.DefaultBranch)
+
+	descInput := m.newMRTextarea("Description (optional)")
+	descInput.Blur()
+	descInput.SetHeight(3)
+
+	m.mrView.createMR = createMRState{
+		active:       true,
+		projectID:    m.mrView.project.ID,
+		title:        titleInput,
+		sourceBranch: sourceInput,
+		targetBranch: targetInput,
+		description:  descInput,
+		focusIndex:   0,
+	}
+	return m, textinput.Blink
+}
+
+// handleCreateMRKey handles keys when the create-MR modal is active.
+func (m Model) handleCreateMRKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Branch picker gets priority when active
+	if m.mrView.createMR.branchPicker.active {
+		return m.handleBranchPickerKey(msg)
+	}
+
+	key := msg.String()
+	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.mrView.createMR = createMRState{}
+		return m, nil
+	case "tab":
+		return m.cycleCreateMRFocus(1)
+	case "shift+tab":
+		return m.cycleCreateMRFocus(-1)
+	case "ctrl+s":
+		return m.submitCreateMR()
+	case "ctrl+b":
+		return m.openBranchPicker()
+	default:
+		return m.updateCreateMRInput(msg)
+	}
+}
+
+// cycleCreateMRFocus moves focus between form fields.
+func (m Model) cycleCreateMRFocus(delta int) (tea.Model, tea.Cmd) {
+	// Blur current field
+	switch m.mrView.createMR.focusIndex {
+	case 0:
+		m.mrView.createMR.title.Blur()
+	case 1:
+		m.mrView.createMR.sourceBranch.Blur()
+	case 2:
+		m.mrView.createMR.targetBranch.Blur()
+	case 3:
+		m.mrView.createMR.description.Blur()
+	}
+
+	// Advance
+	m.mrView.createMR.focusIndex = (m.mrView.createMR.focusIndex + delta + 4) % 4
+
+	// Focus new field
+	var cmd tea.Cmd
+	switch m.mrView.createMR.focusIndex {
+	case 0:
+		cmd = m.mrView.createMR.title.Focus()
+	case 1:
+		cmd = m.mrView.createMR.sourceBranch.Focus()
+	case 2:
+		cmd = m.mrView.createMR.targetBranch.Focus()
+	case 3:
+		cmd = m.mrView.createMR.description.Focus()
+	}
+	return m, cmd
+}
+
+// submitCreateMR validates the form and fires the create-MR command.
+func (m Model) submitCreateMR() (tea.Model, tea.Cmd) {
+	title := strings.TrimSpace(m.mrView.createMR.title.Value())
+	source := strings.TrimSpace(m.mrView.createMR.sourceBranch.Value())
+	target := strings.TrimSpace(m.mrView.createMR.targetBranch.Value())
+
+	if title == "" {
+		m.mrView.createMR.err = fmt.Errorf("title is required")
+		return m, nil
+	}
+	if source == "" {
+		m.mrView.createMR.err = fmt.Errorf("source branch is required")
+		return m, nil
+	}
+	if target == "" {
+		target = m.mrView.project.DefaultBranch
+	}
+
+	m.mrView.createMR.sending = true
+	m.mrView.createMR.err = nil
+	m.status = "Creating merge request..."
+
+	opts := gitlab.CreateMROptions{
+		Title:        title,
+		SourceBranch: source,
+		TargetBranch: target,
+		Description:  strings.TrimSpace(m.mrView.createMR.description.Value()),
+	}
+	return m, createMRCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.createMR.projectID, opts)
+}
+
+// updateCreateMRInput forwards key events to the focused form field.
+func (m Model) updateCreateMRInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch m.mrView.createMR.focusIndex {
+	case 0:
+		m.mrView.createMR.title, cmd = m.mrView.createMR.title.Update(msg)
+	case 1:
+		m.mrView.createMR.sourceBranch, cmd = m.mrView.createMR.sourceBranch.Update(msg)
+	case 2:
+		m.mrView.createMR.targetBranch, cmd = m.mrView.createMR.targetBranch.Update(msg)
+	case 3:
+		m.mrView.createMR.description, cmd = m.mrView.createMR.description.Update(msg)
+	}
+	return m, cmd
+}
+
+// openBranchPicker opens the branch picker overlay for the focused branch field.
+func (m Model) openBranchPicker() (tea.Model, tea.Cmd) {
+	idx := m.mrView.createMR.focusIndex
+	if idx != 1 && idx != 2 {
+		return m, nil // Only source (1) and target (2) fields
+	}
+	search := newMRTextinput("Filter branches...")
+	search.Focus()
+
+	m.mrView.createMR.branchPicker = branchPickerState{
+		active:   true,
+		forField: idx,
+		search:   search,
+		loading:  true,
+	}
+	return m, fetchBranchesCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.createMR.projectID, "")
+}
+
+// handleBranchPickerKey handles keys when the branch picker overlay is active.
+func (m Model) handleBranchPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.mrView.createMR.branchPicker = branchPickerState{}
+		return m, nil
+	case "enter":
+		bp := m.mrView.createMR.branchPicker
+		if len(bp.filtered) > 0 && bp.selected < len(bp.filtered) {
+			branch := bp.filtered[bp.selected]
+			switch bp.forField {
+			case 1:
+				m.mrView.createMR.sourceBranch.SetValue(branch)
+			case 2:
+				m.mrView.createMR.targetBranch.SetValue(branch)
+			}
+		}
+		m.mrView.createMR.branchPicker = branchPickerState{}
+		return m, nil
+	case "down", "j", "ctrl+n":
+		if m.mrView.createMR.branchPicker.selected < len(m.mrView.createMR.branchPicker.filtered)-1 {
+			m.mrView.createMR.branchPicker.selected++
+		}
+		return m, nil
+	case "up", "k", "ctrl+p":
+		if m.mrView.createMR.branchPicker.selected > 0 {
+			m.mrView.createMR.branchPicker.selected--
+		}
+		return m, nil
+	default:
+		// Forward to search input and refilter
+		var cmd tea.Cmd
+		m.mrView.createMR.branchPicker.search, cmd = m.mrView.createMR.branchPicker.search.Update(msg)
+		m.filterBranches()
+		return m, cmd
+	}
+}
+
+// filterBranches applies the search input to the branch list.
+func (m *Model) filterBranches() {
+	query := strings.ToLower(m.mrView.createMR.branchPicker.search.Value())
+	if query == "" {
+		m.mrView.createMR.branchPicker.filtered = m.mrView.createMR.branchPicker.branches
+	} else {
+		filtered := make([]string, 0)
+		for _, b := range m.mrView.createMR.branchPicker.branches {
+			if strings.Contains(strings.ToLower(b), query) {
+				filtered = append(filtered, b)
+			}
+		}
+		m.mrView.createMR.branchPicker.filtered = filtered
+	}
+	if m.mrView.createMR.branchPicker.selected >= len(m.mrView.createMR.branchPicker.filtered) {
+		m.mrView.createMR.branchPicker.selected = max(0, len(m.mrView.createMR.branchPicker.filtered)-1)
+	}
 }

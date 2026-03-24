@@ -1,8 +1,7 @@
 // theme.go defines color theme presets and the runtime theme-switching mechanism.
 //
 // The TUI enforces its own palette so colors render consistently regardless of
-// the terminal's native theme. Four presets are available (Rose Pine Moon,
-// Tokyo Night, Catppuccin Mocha, Gruvbox Dark); the user cycles through them
+// the terminal's native theme. Ten presets are available; the user cycles through them
 // with the ~ hotkey. The selected theme is persisted via the preferences store.
 //
 // Architecture: applyTheme sets 10 package-level color vars and rebuilds ~30
@@ -25,6 +24,12 @@ const (
 	ThemeTokyoNight
 	ThemeCatppuccinMocha
 	ThemeGruvboxDark
+	ThemeDracula
+	ThemeNord
+	ThemeSolarizedDark
+	ThemeKanagawa
+	ThemeEverforestDark
+	ThemeOneDark
 	themeCount // sentinel for cycling
 )
 
@@ -33,6 +38,12 @@ var themeNames = [themeCount]string{
 	"Tokyo Night",
 	"Catppuccin Mocha",
 	"Gruvbox Dark",
+	"Dracula",
+	"Nord",
+	"Solarized Dark",
+	"Kanagawa",
+	"Everforest Dark",
+	"One Dark",
 }
 
 // ThemeLabel returns the display name for a theme.
@@ -118,6 +129,84 @@ var themes = [themeCount]themePalette{
 		Accent:       "#d3869b",
 		Error:        "#fb4934",
 	},
+	// Dracula
+	{
+		HighlightLow: "#44475a",
+		HighlightMed: "#6272a4",
+		Text:         "#f8f8f2",
+		Muted:        "#7c8dba",
+		Subtle:       "#bd93f9",
+		Success:      "#50fa7b",
+		Active:       "#8be9fd",
+		Warning:      "#f1fa8c",
+		Accent:       "#ff79c6",
+		Error:        "#ff5555",
+	},
+	// Nord
+	{
+		HighlightLow: "#3b4252",
+		HighlightMed: "#434c5e",
+		Text:         "#eceff4",
+		Muted:        "#4c566a",
+		Subtle:       "#81a1c1",
+		Success:      "#a3be8c",
+		Active:       "#88c0d0",
+		Warning:      "#ebcb8b",
+		Accent:       "#b48ead",
+		Error:        "#bf616a",
+	},
+	// Solarized Dark
+	{
+		HighlightLow: "#073642",
+		HighlightMed: "#094959",
+		Text:         "#839496",
+		Muted:        "#586e75",
+		Subtle:       "#93a1a1",
+		Success:      "#859900",
+		Active:       "#2aa198",
+		Warning:      "#b58900",
+		Accent:       "#6c71c4",
+		Error:        "#dc322f",
+	},
+	// Kanagawa
+	{
+		HighlightLow: "#2a2a37",
+		HighlightMed: "#363646",
+		Text:         "#dcd7ba",
+		Muted:        "#727169",
+		Subtle:       "#938aa9",
+		Success:      "#76946a",
+		Active:       "#7e9cd8",
+		Warning:      "#e6c384",
+		Accent:       "#957fb8",
+		Error:        "#c34043",
+	},
+	// Everforest Dark
+	{
+		HighlightLow: "#374145",
+		HighlightMed: "#4a555b",
+		Text:         "#d3c6aa",
+		Muted:        "#859289",
+		Subtle:       "#9da9a0",
+		Success:      "#a7c080",
+		Active:       "#7fbbb3",
+		Warning:      "#dbbc7f",
+		Accent:       "#d699b6",
+		Error:        "#e67e80",
+	},
+	// One Dark
+	{
+		HighlightLow: "#3e4452",
+		HighlightMed: "#4b5263",
+		Text:         "#abb2bf",
+		Muted:        "#5c6370",
+		Subtle:       "#848b98",
+		Success:      "#98c379",
+		Active:       "#61afef",
+		Warning:      "#e5c07b",
+		Accent:       "#c678dd",
+		Error:        "#e06c75",
+	},
 }
 
 // currentTheme tracks the active theme; read by save/load preferences.
@@ -135,6 +224,7 @@ func applyTheme(t ThemeName) {
 		t = ThemeRosePineMoon
 	}
 	currentTheme = t
+	clearGlamourCache()
 	p := themes[t]
 
 	colorHighlightLow = lipgloss.Color(p.HighlightLow)
@@ -157,10 +247,10 @@ func rebuildStyles() {
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	itemStyle = lipgloss.NewStyle().Foreground(colorText)
 	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(colorActive).Background(colorHighlightLow)
-	statusStyle = lipgloss.NewStyle().Faint(true).Foreground(colorSubtle)
+	statusStyle = lipgloss.NewStyle().Foreground(colorSubtle)
 	errorStyle = lipgloss.NewStyle().Foreground(colorError)
-	searchStyle = lipgloss.NewStyle().Faint(true).Foreground(colorSubtle)
-	progressStyle = lipgloss.NewStyle().Faint(true).Foreground(colorMuted)
+	searchStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	progressStyle = lipgloss.NewStyle().Foreground(colorMuted)
 	pipelineSuccess = lipgloss.NewStyle().Bold(true).Foreground(colorSuccess)
 	pipelineFailed = lipgloss.NewStyle().Bold(true).Foreground(colorError)
 	pipelineRunning = lipgloss.NewStyle().Bold(true).Foreground(colorActive)
@@ -180,9 +270,30 @@ func rebuildStyles() {
 	explorerPathStyle = lipgloss.NewStyle().Foreground(colorMuted)
 	explorerHintStyle = lipgloss.NewStyle().Foreground(colorSubtle)
 	explorerErrorStyle = lipgloss.NewStyle().Foreground(colorError)
-	diffAddStyle = lipgloss.NewStyle().Foreground(colorSuccess)
-	diffDelStyle = lipgloss.NewStyle().Foreground(colorError)
+	diffAddStyle = lipgloss.NewStyle().Bold(true).Foreground(colorSuccess)
+	diffDelStyle = lipgloss.NewStyle().Bold(true).Foreground(colorError)
 	diffHunkStyle = lipgloss.NewStyle().Foreground(colorWarning)
+
+	// Border and layout styles (cached to avoid per-frame allocation)
+	borderUnfocusedStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	borderFocusedStyle = lipgloss.NewStyle().Foreground(colorActive)
+	borderTitleUnfocusedStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
+	borderTitleFocusedStyle = lipgloss.NewStyle().Bold(true).Foreground(colorActive)
+	scrollThumbStyle = lipgloss.NewStyle().Foreground(colorActive)
+	activeTabStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
+	inactiveTabStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	tabSepStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	borderFooterStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	infoBarStatusStyle = lipgloss.NewStyle().Foreground(colorActive)
+	infoBarHintsStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	infoBarContextStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	diffCursorBgStyle = lipgloss.NewStyle().Background(colorHighlightMed)
+	modalLabelStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	modalFocusLabelStyle = lipgloss.NewStyle().Foreground(colorActive).Bold(true)
+	modalBorderStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorSubtle).
+		Padding(1, 2)
 
 	rebuildPipelineStatusStyles()
 }

@@ -651,3 +651,33 @@ func fetchTestReportCmd(parentCtx context.Context, client gitlab.Service, timeou
 		return testReportLoadedMsg{projectID: projectID, pipelineID: pipelineID, report: report, err: err}
 	}
 }
+
+type mrCreatedMsg struct {
+	projectID int
+	mr        gitlab.MergeRequestSummary
+	err       error
+}
+
+func createMRCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, opts gitlab.CreateMROptions) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		mr, err := client.CreateMergeRequest(ctx, projectID, opts)
+		return mrCreatedMsg{projectID: projectID, mr: mr, err: err}
+	}
+}
+
+type branchesLoadedMsg struct {
+	projectID int
+	branches  []string
+	err       error
+}
+
+func fetchBranchesCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, search string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		branches, err := client.ListBranches(ctx, projectID, search)
+		return branchesLoadedMsg{projectID: projectID, branches: branches, err: err}
+	}
+}

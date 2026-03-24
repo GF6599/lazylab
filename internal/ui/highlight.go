@@ -29,6 +29,15 @@ var glamourRendererCache = struct {
 	byWidth: make(map[int]*glamour.TermRenderer),
 }
 
+// clearGlamourCache discards all cached glamour renderers so they are
+// recreated on next use. Called by applyTheme to ensure renderer options
+// stay in sync with the active theme.
+func clearGlamourCache() {
+	glamourRendererCache.mu.Lock()
+	glamourRendererCache.byWidth = make(map[int]*glamour.TermRenderer)
+	glamourRendererCache.mu.Unlock()
+}
+
 // highlightPreview applies glamour syntax highlighting to file content and
 // caches the result. The cache is a bounded LRU (maxPreviewHighlightEntries)
 // keyed by path+width+content-hash, so re-selecting an already-viewed file
@@ -111,7 +120,7 @@ func cachedGlamourRenderer(width int) (*glamour.TermRenderer, error) {
 		return renderer, nil
 	}
 	newRenderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStylePath("dark"),
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {

@@ -10,17 +10,19 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 // Semantic color palette — populated by applyTheme().
+// Typed as lipgloss.TerminalColor (interface) to allow future use of
+// lipgloss.AdaptiveColor for light/dark terminal support.
 var (
-	colorHighlightLow lipgloss.Color
-	colorHighlightMed lipgloss.Color
-	colorText         lipgloss.Color
-	colorMuted        lipgloss.Color
-	colorSubtle       lipgloss.Color
-	colorSuccess      lipgloss.Color
-	colorActive       lipgloss.Color
-	colorWarning      lipgloss.Color
-	colorAccent       lipgloss.Color
-	colorError        lipgloss.Color
+	colorHighlightLow lipgloss.TerminalColor
+	colorHighlightMed lipgloss.TerminalColor
+	colorText         lipgloss.TerminalColor
+	colorMuted        lipgloss.TerminalColor
+	colorSubtle       lipgloss.TerminalColor
+	colorSuccess      lipgloss.TerminalColor
+	colorActive       lipgloss.TerminalColor
+	colorWarning      lipgloss.TerminalColor
+	colorAccent       lipgloss.TerminalColor
+	colorError        lipgloss.TerminalColor
 )
 
 // Component styles: titles, list items, status indicators, and pipeline state colors.
@@ -57,6 +59,27 @@ var (
 	diffAddStyle             lipgloss.Style
 	diffDelStyle             lipgloss.Style
 	diffHunkStyle            lipgloss.Style
+)
+
+// Border and layout styles: cached to avoid per-frame allocation in renderBorderedPane,
+// buildTabString, buildBottomBorder, and renderInfoBar.
+var (
+	borderUnfocusedStyle      lipgloss.Style
+	borderFocusedStyle        lipgloss.Style
+	borderTitleUnfocusedStyle lipgloss.Style
+	borderTitleFocusedStyle   lipgloss.Style
+	scrollThumbStyle          lipgloss.Style
+	activeTabStyle            lipgloss.Style
+	inactiveTabStyle          lipgloss.Style
+	tabSepStyle               lipgloss.Style
+	borderFooterStyle         lipgloss.Style
+	infoBarStatusStyle        lipgloss.Style
+	infoBarHintsStyle         lipgloss.Style
+	infoBarContextStyle       lipgloss.Style
+	diffCursorBgStyle         lipgloss.Style
+	modalLabelStyle           lipgloss.Style
+	modalFocusLabelStyle      lipgloss.Style
+	modalBorderStyle          lipgloss.Style
 )
 
 func init() {

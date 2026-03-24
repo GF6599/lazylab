@@ -57,6 +57,9 @@ type keyMap struct {
 	ScrollUp   key.Binding
 	ScrollDown key.Binding
 
+	// MR actions
+	CreateMR key.Binding
+
 	// Help
 	Help       key.Binding
 	CloseHelp  key.Binding
@@ -161,6 +164,10 @@ func newKeyMap() keyMap {
 		Comment: key.NewBinding(
 			key.WithKeys("c"),
 			key.WithHelp("c", "new comment"),
+		),
+		CreateMR: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "new MR"),
 		),
 		CycleTab: key.NewBinding(
 			key.WithKeys("t"),
@@ -330,7 +337,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Up, k.Down, k.HalfUp, k.HalfDown,
 			k.Top, k.Bottom, k.Left, k.Right,
 			k.ScrollUp, k.ScrollDown, k.Comment,
-			k.CycleTab, k.NextPage, k.PrevPage,
+			k.CreateMR, k.CycleTab, k.NextPage, k.PrevPage,
 			k.Copy, k.Theme, k.Help, k.Quit,
 		}
 	case PanelDetail:

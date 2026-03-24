@@ -20,6 +20,7 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -85,6 +86,7 @@ type mrViewState struct {
 	mrViewport         viewport.Model
 	selectedDiscussion int // Index into filtered (non-system) discussions, not raw discussions
 	reply              mrReplyState
+	createMR           createMRState
 
 	// Diff cursor state
 	diffLineMap []diffLineInfo
@@ -106,6 +108,34 @@ type mrReplyState struct {
 	err          error
 	isNew        bool                      // true = new discussion (not reply)
 	position     *gitlab.MRCommentPosition // non-nil = line-level comment
+}
+
+// createMRState holds state for the create-merge-request modal. The lifecycle
+// mirrors mrReplyState: inactive → active (form shown) → sending → inactive.
+type createMRState struct {
+	active       bool
+	projectID    int
+	title        textinput.Model // field 0
+	sourceBranch textinput.Model // field 1
+	targetBranch textinput.Model // field 2
+	description  textarea.Model  // field 3
+	focusIndex   int             // 0=title, 1=source, 2=target, 3=description
+	sending      bool
+	err          error
+	branchPicker branchPickerState
+}
+
+// branchPickerState holds state for the branch picker overlay nested inside
+// the create-MR modal. Activated via Ctrl+B when a branch field has focus.
+type branchPickerState struct {
+	active   bool
+	forField int             // which field triggered: 1=source, 2=target
+	branches []string        // all fetched branches
+	filtered []string        // after search filter
+	search   textinput.Model // filter input
+	selected int             // cursor in filtered list
+	loading  bool
+	err      error
 }
 
 // selectedMR returns a pointer to the currently selected merge request,
@@ -285,7 +315,7 @@ func renderMRDiffText(diffs []gitlab.MRDiffFile, width, cursorLine int) string {
 	if len(diffs) == 0 {
 		return explorerHintStyle.Render("No changes")
 	}
-	cursorBg := lipgloss.NewStyle().Background(colorHighlightMed)
+	cursorBg := diffCursorBgStyle
 	lineNum := 0
 	var b strings.Builder
 	for i, d := range diffs {
@@ -392,13 +422,123 @@ func renderMRReplyModal(m Model, width int) string {
 
 	b.WriteString(explorerHintStyle.Render(clampLine("Ctrl+S to send · Esc to cancel", innerWidth)))
 
-	modal := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorSubtle).
-		Padding(1, 2).
-		Width(innerWidth).
-		Render(strings.TrimSuffix(b.String(), "\n"))
+	modal := modalBorderStyle.Width(innerWidth).Render(strings.TrimSuffix(b.String(), "\n"))
 	return modal
+}
+
+// renderCreateMRModal renders the create-merge-request form as a centered overlay.
+func renderCreateMRModal(m Model, width int) string {
+	innerWidth := width / 2
+	if innerWidth < 50 {
+		innerWidth = min(width-4, 70)
+	}
+	if innerWidth < 30 {
+		innerWidth = max(20, width-6)
+	}
+	fieldWidth := innerWidth - 2
+
+	b := &strings.Builder{}
+	b.WriteString(detailHeaderStyle.Render(clampLine("Create Merge Request", innerWidth)))
+	b.WriteString("\n\n")
+
+	type field struct {
+		label string
+		view  string
+		idx   int
+	}
+	m.mrView.createMR.title.Width = fieldWidth
+	m.mrView.createMR.sourceBranch.Width = fieldWidth
+	m.mrView.createMR.targetBranch.Width = fieldWidth
+	m.mrView.createMR.description.SetWidth(fieldWidth)
+
+	fields := []field{
+		{"Title", m.mrView.createMR.title.View(), 0},
+		{"Source Branch", m.mrView.createMR.sourceBranch.View(), 1},
+		{"Target Branch", m.mrView.createMR.targetBranch.View(), 2},
+		{"Description", m.mrView.createMR.description.View(), 3},
+	}
+
+	labelStyle := modalLabelStyle
+	focusLabelStyle := modalFocusLabelStyle
+
+	for _, f := range fields {
+		ls := labelStyle
+		if f.idx == m.mrView.createMR.focusIndex {
+			ls = focusLabelStyle
+		}
+		label := f.label
+		if (f.idx == 1 || f.idx == 2) && !m.mrView.createMR.branchPicker.active {
+			label += "  (Ctrl+B to pick)"
+		}
+		b.WriteString(ls.Render(label))
+		b.WriteString("\n")
+		b.WriteString(f.view)
+		b.WriteString("\n")
+
+		// Render branch picker inline below the active branch field
+		if m.mrView.createMR.branchPicker.active && m.mrView.createMR.branchPicker.forField == f.idx {
+			b.WriteString(renderBranchPicker(m.mrView.createMR.branchPicker, fieldWidth))
+		}
+		b.WriteString("\n")
+	}
+
+	if m.mrView.createMR.err != nil {
+		b.WriteString(explorerErrorStyle.Render(clampLine(m.mrView.createMR.err.Error(), innerWidth)))
+		b.WriteString("\n")
+	}
+	if m.mrView.createMR.sending {
+		b.WriteString(explorerHintStyle.Render("Creating merge request..."))
+		b.WriteString("\n")
+	}
+
+	b.WriteString(explorerHintStyle.Render(clampLine("Tab cycle · Ctrl+B branches · Ctrl+S create · Esc cancel", innerWidth)))
+
+	modal := modalBorderStyle.Width(innerWidth).Render(strings.TrimSuffix(b.String(), "\n"))
+	return modal
+}
+
+// renderBranchPicker renders the branch picker sub-panel inline within the
+// create-MR modal.
+func renderBranchPicker(bp branchPickerState, width int) string {
+	b := &strings.Builder{}
+	searchLabel := modalLabelStyle.Render("Filter: ")
+	bp.search.Width = width - lipgloss.Width(searchLabel) - 2
+	b.WriteString(searchLabel)
+	b.WriteString(bp.search.View())
+	b.WriteString("\n")
+
+	if bp.loading {
+		b.WriteString(explorerHintStyle.Render("  Loading branches..."))
+		b.WriteString("\n")
+	} else if bp.err != nil {
+		b.WriteString(explorerErrorStyle.Render("  " + bp.err.Error()))
+		b.WriteString("\n")
+	} else if len(bp.filtered) == 0 {
+		b.WriteString(explorerHintStyle.Render("  No matching branches"))
+		b.WriteString("\n")
+	} else {
+		maxVisible := 8
+		start := 0
+		if bp.selected >= maxVisible {
+			start = bp.selected - maxVisible + 1
+		}
+		end := start + maxVisible
+		if end > len(bp.filtered) {
+			end = len(bp.filtered)
+		}
+		for i := start; i < end; i++ {
+			cursor := "  "
+			style := itemStyle
+			if i == bp.selected {
+				cursor = "> "
+				style = selectedItemStyle
+			}
+			b.WriteString(style.Render(clampLine(cursor+bp.filtered[i], width)))
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString(explorerHintStyle.Render(clampLine("Enter select · Esc close", width)))
+	return b.String()
 }
 
 // discussionStartLine returns the 0-based line number at which the given

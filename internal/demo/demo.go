@@ -240,3 +240,20 @@ func (d *DemoService) GetMergeRequestDiffRefs(_ context.Context, _, _ int) (gitl
 		StartSHA: "345678abcdef",
 	}, nil
 }
+
+func (d *DemoService) ListBranches(_ context.Context, _ int, _ string) ([]string, error) {
+	return []string{"main", "develop", "feature/auth", "feature/dashboard", "fix/login-bug", "release/v2.0"}, nil
+}
+
+func (d *DemoService) CreateMergeRequest(_ context.Context, _ int, opts gitlab.CreateMROptions) (gitlab.MergeRequestSummary, error) {
+	return gitlab.MergeRequestSummary{
+		IID:          999,
+		Title:        opts.Title,
+		State:        "opened",
+		Author:       "Demo User",
+		SourceBranch: opts.SourceBranch,
+		TargetBranch: opts.TargetBranch,
+		WebURL:       "https://gitlab.example.com/demo/project/-/merge_requests/999",
+		UpdatedAt:    refTime,
+	}, nil
+}

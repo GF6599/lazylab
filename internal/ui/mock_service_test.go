@@ -31,6 +31,8 @@ type mockService struct {
 	AddMergeRequestDiscussionNoteFn func(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
 	CreateMergeRequestDiscussionFn  func(ctx context.Context, projectID, mrIID int, body string, pos *gitlab.MRCommentPosition) error
 	GetMergeRequestDiffRefsFn       func(ctx context.Context, projectID, mrIID int) (gitlab.MRDiffRefs, error)
+	ListBranchesFn                  func(ctx context.Context, projectID int, search string) ([]string, error)
+	CreateMergeRequestFn            func(ctx context.Context, projectID int, opts gitlab.CreateMROptions) (gitlab.MergeRequestSummary, error)
 }
 
 var _ gitlab.Service = (*mockService)(nil)
@@ -172,4 +174,16 @@ func (m *mockService) GetMergeRequestDiffRefs(ctx context.Context, projectID, mr
 		return m.GetMergeRequestDiffRefsFn(ctx, projectID, mrIID)
 	}
 	return gitlab.MRDiffRefs{}, nil
+}
+func (m *mockService) ListBranches(ctx context.Context, projectID int, search string) ([]string, error) {
+	if m.ListBranchesFn != nil {
+		return m.ListBranchesFn(ctx, projectID, search)
+	}
+	return nil, nil
+}
+func (m *mockService) CreateMergeRequest(ctx context.Context, projectID int, opts gitlab.CreateMROptions) (gitlab.MergeRequestSummary, error) {
+	if m.CreateMergeRequestFn != nil {
+		return m.CreateMergeRequestFn(ctx, projectID, opts)
+	}
+	return gitlab.MergeRequestSummary{}, nil
 }

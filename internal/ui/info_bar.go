@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -25,27 +24,23 @@ func renderInfoBar(m *Model, width int) string {
 		return ""
 	}
 
-	leftStyle := lipgloss.NewStyle().Foreground(colorActive)
-	centerStyle := lipgloss.NewStyle().Foreground(colorSubtle)
-	rightStyle := lipgloss.NewStyle().Foreground(colorMuted)
-
 	// Left: spinner + status
 	var left string
 	if m.isLoading() {
-		left = leftStyle.Render(m.spinner.View() + " " + m.status)
+		left = infoBarStatusStyle.Render(m.spinner.View() + " " + m.status)
 	} else if m.status != "" {
-		left = leftStyle.Render(m.status)
+		left = infoBarStatusStyle.Render(m.status)
 	}
 
 	// Right: project context
 	var right string
 	if proj, ok := m.selectedProject(); ok {
-		right = rightStyle.Render(proj.PathWithNamespace)
+		right = infoBarContextStyle.Render(proj.PathWithNamespace)
 	}
 
 	// Center: contextual keybindings
 	hints := panelKeyHints(m.focus.Active, m)
-	center := centerStyle.Render(hints)
+	center := infoBarHintsStyle.Render(hints)
 
 	// Layout: left ... center ... right
 	leftWidth := ansi.StringWidth(left)
@@ -56,7 +51,7 @@ func renderInfoBar(m *Model, width int) string {
 		// Truncate center to fit
 		available := width - leftWidth - rightWidth - 4
 		if available > 3 {
-			center = centerStyle.Render(ansi.Truncate(hints, available, "…"))
+			center = infoBarHintsStyle.Render(ansi.Truncate(hints, available, "…"))
 			centerWidth = ansi.StringWidth(center)
 		} else {
 			center = ""

@@ -43,12 +43,34 @@ func TestNextTheme_Cycles(t *testing.T) {
 		{ThemeRosePineMoon, ThemeTokyoNight},
 		{ThemeTokyoNight, ThemeCatppuccinMocha},
 		{ThemeCatppuccinMocha, ThemeGruvboxDark},
-		{ThemeGruvboxDark, ThemeRosePineMoon},
+		{ThemeGruvboxDark, ThemeDracula},
+		{ThemeDracula, ThemeNord},
+		{ThemeNord, ThemeSolarizedDark},
+		{ThemeSolarizedDark, ThemeKanagawa},
+		{ThemeKanagawa, ThemeEverforestDark},
+		{ThemeEverforestDark, ThemeOneDark},
+		{ThemeOneDark, ThemeRosePineMoon},
 	}
 	for _, tc := range tests {
 		got := NextTheme(tc.input)
 		if got != tc.want {
 			t.Errorf("NextTheme(%d) = %d, want %d", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestTheme_ContrastSafety(t *testing.T) {
+	for th := ThemeRosePineMoon; th < themeCount; th++ {
+		p := themes[th]
+		name := ThemeLabel(th)
+		if p.Muted == p.HighlightMed {
+			t.Errorf("%s: Muted (%s) == HighlightMed — muted text invisible on selection background", name, p.Muted)
+		}
+		if p.Subtle == p.HighlightMed {
+			t.Errorf("%s: Subtle (%s) == HighlightMed — subtle text invisible on selection background", name, p.Subtle)
+		}
+		if p.Text == p.HighlightLow {
+			t.Errorf("%s: Text (%s) == HighlightLow — primary text invisible on inactive selection", name, p.Text)
 		}
 	}
 }
@@ -62,6 +84,12 @@ func TestThemeLabel(t *testing.T) {
 		{ThemeTokyoNight, "Tokyo Night"},
 		{ThemeCatppuccinMocha, "Catppuccin Mocha"},
 		{ThemeGruvboxDark, "Gruvbox Dark"},
+		{ThemeDracula, "Dracula"},
+		{ThemeNord, "Nord"},
+		{ThemeSolarizedDark, "Solarized Dark"},
+		{ThemeKanagawa, "Kanagawa"},
+		{ThemeEverforestDark, "Everforest Dark"},
+		{ThemeOneDark, "One Dark"},
 		{ThemeName(-1), "Rose Pine Moon"},
 		{ThemeName(99), "Rose Pine Moon"},
 	}

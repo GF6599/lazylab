@@ -237,15 +237,12 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 		return ""
 	}
 
-	borderFg := colorSubtle
-	titleFg := colorAccent
+	borderStyle := borderUnfocusedStyle
+	titleStyleLocal := borderTitleUnfocusedStyle
 	if focused {
-		borderFg = colorActive
-		titleFg = colorActive
+		borderStyle = borderFocusedStyle
+		titleStyleLocal = borderTitleFocusedStyle
 	}
-
-	borderStyle := lipgloss.NewStyle().Foreground(borderFg)
-	titleStyleLocal := lipgloss.NewStyle().Bold(true).Foreground(titleFg)
 
 	// Top border: ╭─ Title ── Tab1 | Tab2 ───╮
 	topLine := buildTopBorder(width, title, tabs, activeTab, borderStyle, titleStyleLocal)
@@ -269,7 +266,7 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 	contentWidth := width - borderCharsH
 	contentLines := normalizeColumn(content, contentWidth, height)
 
-	thumbStyle := lipgloss.NewStyle().Foreground(colorActive)
+	thumbStyle := scrollThumbStyle
 
 	var body strings.Builder
 	for i, line := range contentLines {
@@ -343,14 +340,12 @@ func buildTabString(tabs []string, activeTab int) string {
 	var parts []string
 	for i, tab := range tabs {
 		if i == activeTab {
-			style := lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
-			parts = append(parts, style.Render(tab))
+			parts = append(parts, activeTabStyle.Render(tab))
 		} else {
-			style := lipgloss.NewStyle().Foreground(colorMuted)
-			parts = append(parts, style.Render(tab))
+			parts = append(parts, inactiveTabStyle.Render(tab))
 		}
 	}
-	sep := lipgloss.NewStyle().Foreground(colorSubtle).Render(" | ")
+	sep := tabSepStyle.Render(" | ")
 	return strings.Join(parts, sep)
 }
 
@@ -368,7 +363,7 @@ func buildBottomBorder(width int, footer string, borderStyle lipgloss.Style) str
 		return borderStyle.Render(left + strings.Repeat("─", max(0, available)) + right)
 	}
 
-	footerRendered := lipgloss.NewStyle().Foreground(colorMuted).Render(footer)
+	footerRendered := borderFooterStyle.Render(footer)
 	footerWidth := ansi.StringWidth(footerRendered)
 	fillLeft := available - footerWidth - 2 // 2 for " " padding around footer
 	if fillLeft < 1 {

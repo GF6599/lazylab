@@ -819,6 +819,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				newModel, cmd := m.handleExplorerKey(msg)
 				return newModel, tea.Batch(spinnerCmd, cmd)
 			}
+			// Create MR modal
+			if m.mrView.createMR.active {
+				newModel, cmd := m.handleCreateMRKey(msg)
+				return newModel, tea.Batch(spinnerCmd, cmd)
+			}
 			// Reply modal
 			if m.mrView.reply.active {
 				newModel, cmd := m.handleMRReplyKey(msg)
@@ -894,6 +899,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMRDiscussionCreated(msg)
 	case mrDiffRefsLoadedMsg:
 		return m.handleMRDiffRefsLoaded(msg)
+	case mrCreatedMsg:
+		return m.handleMRCreated(msg)
+	case branchesLoadedMsg:
+		return m.handleBranchesLoaded(msg)
 	case pipelineCanceledMsg:
 		return m.handlePipelineCanceled(msg)
 	case jobCanceledMsg:
