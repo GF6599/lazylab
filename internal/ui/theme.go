@@ -1,8 +1,23 @@
+// theme.go defines color theme presets and the runtime theme-switching mechanism.
+//
+// The TUI enforces its own palette so colors render consistently regardless of
+// the terminal's native theme. Four presets are available (Rose Pine Moon,
+// Tokyo Night, Catppuccin Mocha, Gruvbox Dark); the user cycles through them
+// with the ~ hotkey. The selected theme is persisted via the preferences store.
+//
+// Architecture: applyTheme sets 10 package-level color vars and rebuilds ~30
+// style vars (in project_list_style.go). Since Bubble Tea calls View() on
+// every frame reading these globals, the next render picks up the new palette
+// automatically. Bubble Tea sub-components that cache their own style copies
+// (spinner, help, paginator, table) are refreshed separately by
+// Model.refreshThemeSubComponents.
+
 package ui
 
 import "github.com/charmbracelet/lipgloss"
 
-// ThemeName identifies a color theme preset.
+// ThemeName identifies a color theme preset. Persisted as an int in the
+// preferences JSON; values must remain stable across versions.
 type ThemeName int
 
 const (
@@ -33,7 +48,10 @@ func NextTheme(t ThemeName) ThemeName {
 	return (t + 1) % themeCount
 }
 
-// themePalette holds the 10 hex color values that define a theme.
+// themePalette holds the 10 semantic hex color slots that define a theme.
+// Each slot maps to a UI role (e.g. Active = focused borders, selected items;
+// Error = failed pipelines, error messages). Palettes are sourced from
+// community color schemes and curated for low-contrast dark terminals.
 type themePalette struct {
 	HighlightLow string
 	HighlightMed string
@@ -105,8 +123,13 @@ var themes = [themeCount]themePalette{
 // currentTheme tracks the active theme; read by save/load preferences.
 var currentTheme ThemeName
 
-// applyTheme sets the 10 global color vars from the given theme's palette
-// and rebuilds all derived styles.
+// applyTheme sets the 10 global color vars from the given theme's palette,
+// rebuilds all derived style vars, and updates currentTheme. Out-of-range
+// values fall back to ThemeRosePineMoon.
+//
+// This only updates package-level globals. Bubble Tea sub-components that
+// store their own style copies (spinner, help, paginator, stage table) must
+// be refreshed separately via Model.refreshThemeSubComponents.
 func applyTheme(t ThemeName) {
 	if t < 0 || t >= themeCount {
 		t = ThemeRosePineMoon
@@ -128,7 +151,8 @@ func applyTheme(t ThemeName) {
 	rebuildStyles()
 }
 
-// rebuildStyles reassigns all global style vars from the current color vars.
+// rebuildStyles reassigns all ~30 global style vars from the current color
+// vars. Called by applyTheme after updating the color vars.
 func rebuildStyles() {
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	itemStyle = lipgloss.NewStyle().Foreground(colorText)

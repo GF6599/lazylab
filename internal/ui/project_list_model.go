@@ -679,6 +679,59 @@ func (m *Model) refreshThemeSubComponents() {
 	m.pipelineView.stageTable.SetStyles(s)
 }
 
+// isTextInputActive returns true when a text input has focus and keystrokes
+// should be routed to it rather than interpreted as global hotkeys.
+func (m *Model) isTextInputActive() bool {
+	return m.search.active || m.mrView.reply.active || m.mrView.createMR.active
+}
+
+// toggleTheme cycles to the next theme, applies it, invalidates all caches
+// that hold pre-rendered styled content, and persists the choice.
+func (m Model) toggleTheme() (tea.Model, tea.Cmd) {
+	next := NextTheme(currentTheme)
+	applyTheme(next)
+	m.refreshThemeSubComponents()
+	m.invalidateDetailCache()
+	m.clearPreviewHighlightCache()
+	m.refreshExplorerPreview()
+	m.status = "Theme: " + ThemeLabel(next)
+	var cmd tea.Cmd
+	if m.prefStore != nil {
+		cmd = savePreferencesCmd(m.prefStore, m.focus.LayoutMode, m.focus.ScreenMode, currentTheme)
+	}
+	return m, cmd
+}
+
+// clearPreviewHighlightCache discards all cached syntax-highlighted preview
+// strings so they are re-generated with the current theme's environment.
+func (m *Model) clearPreviewHighlightCache() {
+	if m.previewHighlightCache != nil {
+		c := NewLRUCache[string, previewHighlightEntry](maxPreviewHighlightEntries)
+		m.previewHighlightCache = &c
+	}
+}
+
+// refreshExplorerPreview re-highlights the explorer preview content after a
+// theme change. If no explorer preview is active or highlighted, this is a no-op.
+func (m *Model) refreshExplorerPreview() {
+	preview := &m.explorer.preview
+	if preview.raw == "" || preview.loading || !preview.highlighted {
+		return
+	}
+	width := previewContentWidth(m.width)
+	preview.highlightWidth = 0 // force cache miss
+	highlighted, isHighlighted, err := m.highlightPreview(preview.path, preview.raw, width)
+	if err != nil {
+		return
+	}
+	if isHighlighted {
+		preview.content = highlighted
+		preview.highlighted = true
+		preview.highlightWidth = width
+		preview.viewport.SetContent(highlighted)
+	}
+}
+
 // Init kicks off initial data loading. If an on-disk project cache exists, it
 // is loaded first for instant startup; otherwise a foreground API fetch begins.
 // Favorites are loaded in parallel. The spinner tick is always started so the
@@ -752,6 +805,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.status = ""
 			return m, spinnerCmd
+		}
+		// Handle theme toggle globally so it works in all panes and overlays.
+		// Skip when a text input is active so ~ can be typed as a character.
+		if key.Matches(msg, m.keys.Theme) && !m.isTextInputActive() {
+			newModel, cmd := m.toggleTheme()
+			return newModel, tea.Batch(spinnerCmd, cmd)
 		}
 		switch m.mode {
 		case modeMultiPanel:

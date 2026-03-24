@@ -69,17 +69,6 @@ func (m Model) handleMultiPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd = savePreferencesCmd(m.prefStore, m.focus.LayoutMode, m.focus.ScreenMode, currentTheme)
 		}
 		return m, cmd
-	case "~":
-		next := NextTheme(currentTheme)
-		applyTheme(next)
-		m.refreshThemeSubComponents()
-		m.invalidateDetailCache()
-		m.status = "Theme: " + ThemeLabel(next)
-		var cmd tea.Cmd
-		if m.prefStore != nil {
-			cmd = savePreferencesCmd(m.prefStore, m.focus.LayoutMode, m.focus.ScreenMode, currentTheme)
-		}
-		return m, cmd
 	case "1", "2", "3", "4", "5":
 		n := int(key[0] - '0')
 		if panel, ok := panelByShortcut(n); ok {
