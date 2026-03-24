@@ -150,6 +150,76 @@ func TestListMRDiscussions_PositionExtraction(t *testing.T) {
 	}
 }
 
+// TestCreateMergeRequest_Success verifies that a create-MR response is correctly
+// mapped to a MergeRequestSummary.
+func TestCreateMergeRequest_Success(t *testing.T) {
+	data, err := os.ReadFile("testdata/create_merge_request.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write(data)
+	}))
+
+	mr, err := client.CreateMergeRequest(context.Background(), 1, CreateMROptions{
+		Title:        "Add login feature",
+		SourceBranch: "feature/login",
+		TargetBranch: "main",
+	})
+	if err != nil {
+		t.Fatalf("CreateMergeRequest: %v", err)
+	}
+	if mr.IID != 99 {
+		t.Errorf("expected IID=99, got %d", mr.IID)
+	}
+	if mr.Title != "Add login feature" {
+		t.Errorf("expected title=%q, got %q", "Add login feature", mr.Title)
+	}
+	if mr.State != "opened" {
+		t.Errorf("expected state=opened, got %q", mr.State)
+	}
+	if mr.SourceBranch != "feature/login" || mr.TargetBranch != "main" {
+		t.Errorf("unexpected branches: source=%q target=%q", mr.SourceBranch, mr.TargetBranch)
+	}
+	if mr.Author != "Jane Dev" {
+		t.Errorf("expected author=Jane Dev, got %q", mr.Author)
+	}
+}
+
+// TestListBranches_Success verifies that branch list responses are correctly
+// mapped to a slice of branch names.
+func TestListBranches_Success(t *testing.T) {
+	data, err := os.ReadFile("testdata/branches.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}))
+
+	branches, err := client.ListBranches(context.Background(), 1, "")
+	if err != nil {
+		t.Fatalf("ListBranches: %v", err)
+	}
+	if len(branches) != 3 {
+		t.Fatalf("expected 3 branches, got %d", len(branches))
+	}
+	expected := []string{"main", "develop", "feature/login"}
+	for i, want := range expected {
+		if branches[i] != want {
+			t.Errorf("branch[%d]: expected %q, got %q", i, want, branches[i])
+		}
+	}
+}
+
 // TestListMRDiffs_Success verifies that diff responses are mapped to MRDiffFile
 // values with correct change-type flags (NewFile, RenamedFile, DeletedFile).
 func TestListMRDiffs_Success(t *testing.T) {

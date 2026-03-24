@@ -1,0 +1,20 @@
+[
+  {
+    "name": "main",
+    "merged": false,
+    "protected": true,
+    "default": true
+  },
+  {
+    "name": "develop",
+    "merged": false,
+    "protected": false,
+    "default": false
+  },
+  {
+    "name": "feature/login",
+    "merged": false,
+    "protected": false,
+    "default": false
+  }
+]

@@ -227,3 +227,57 @@ func (c *Client) ListMergeRequestDiffs(ctx context.Context, projectID, mrIID int
 	}
 	return diffs, nil
 }
+
+// ListBranches returns branch names for a project, optionally filtered by a
+// search string. When search is empty all branches are returned (up to 100).
+// The result is a flat slice of branch names suitable for picker UIs.
+func (c *Client) ListBranches(ctx context.Context, projectID int, search string) ([]string, error) {
+	opts := &gl.ListBranchesOptions{
+		ListOptions: gl.ListOptions{PerPage: 100},
+	}
+	if search != "" {
+		opts.Search = gl.Ptr(search)
+	}
+	branches, _, err := c.api.Branches.ListBranches(projectID, opts, gl.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("list branches: %w", err)
+	}
+	names := make([]string, 0, len(branches))
+	for _, b := range branches {
+		names = append(names, b.Name)
+	}
+	return names, nil
+}
+
+// CreateMergeRequest creates a new merge request in the given project.
+// Title and SourceBranch are required; an empty TargetBranch lets GitLab
+// default to the project's default branch. Returns the created MR summary.
+func (c *Client) CreateMergeRequest(ctx context.Context, projectID int, opts CreateMROptions) (MergeRequestSummary, error) {
+	apiOpts := &gl.CreateMergeRequestOptions{
+		Title:        gl.Ptr(opts.Title),
+		SourceBranch: gl.Ptr(opts.SourceBranch),
+		TargetBranch: gl.Ptr(opts.TargetBranch),
+	}
+	if opts.Description != "" {
+		apiOpts.Description = gl.Ptr(opts.Description)
+	}
+	mr, _, err := c.api.MergeRequests.CreateMergeRequest(projectID, apiOpts, gl.WithContext(ctx))
+	if err != nil {
+		return MergeRequestSummary{}, fmt.Errorf("create merge request: %w", err)
+	}
+	s := MergeRequestSummary{
+		IID:          mr.IID,
+		Title:        mr.Title,
+		State:        mr.State,
+		SourceBranch: mr.SourceBranch,
+		TargetBranch: mr.TargetBranch,
+		WebURL:       mr.WebURL,
+	}
+	if mr.Author != nil {
+		s.Author = mr.Author.Name
+	}
+	if mr.UpdatedAt != nil {
+		s.UpdatedAt = *mr.UpdatedAt
+	}
+	return s, nil
+}

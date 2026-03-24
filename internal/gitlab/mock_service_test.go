@@ -28,6 +28,8 @@ type MockService struct {
 	AddMergeRequestDiscussionNoteFn func(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
 	CreateMergeRequestDiscussionFn  func(ctx context.Context, projectID, mrIID int, body string, pos *MRCommentPosition) error
 	GetMergeRequestDiffRefsFn       func(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error)
+	ListBranchesFn                  func(ctx context.Context, projectID int, search string) ([]string, error)
+	CreateMergeRequestFn            func(ctx context.Context, projectID int, opts CreateMROptions) (MergeRequestSummary, error)
 }
 
 // Compile-time check: MockService implements Service.
@@ -192,4 +194,18 @@ func (m *MockService) GetMergeRequestDiffRefs(ctx context.Context, projectID, mr
 		return m.GetMergeRequestDiffRefsFn(ctx, projectID, mrIID)
 	}
 	return MRDiffRefs{}, nil
+}
+
+func (m *MockService) ListBranches(ctx context.Context, projectID int, search string) ([]string, error) {
+	if m.ListBranchesFn != nil {
+		return m.ListBranchesFn(ctx, projectID, search)
+	}
+	return nil, nil
+}
+
+func (m *MockService) CreateMergeRequest(ctx context.Context, projectID int, opts CreateMROptions) (MergeRequestSummary, error) {
+	if m.CreateMergeRequestFn != nil {
+		return m.CreateMergeRequestFn(ctx, projectID, opts)
+	}
+	return MergeRequestSummary{}, nil
 }

@@ -92,6 +92,8 @@ type Service interface {
 	AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
 	CreateMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, body string, pos *MRCommentPosition) error
 	GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error)
+	ListBranches(ctx context.Context, projectID int, search string) ([]string, error)
+	CreateMergeRequest(ctx context.Context, projectID int, opts CreateMROptions) (MergeRequestSummary, error)
 }
 
 // Verify at compile time that *Client satisfies Service.
@@ -264,6 +266,14 @@ type MRPage struct {
 	PrevPage      int
 	NextPage      int
 	TotalPages    int
+}
+
+// CreateMROptions holds the parameters for creating a new merge request.
+type CreateMROptions struct {
+	Title        string
+	SourceBranch string
+	TargetBranch string
+	Description  string
 }
 
 // PipelineBridge represents a bridge (child pipeline trigger) job. Bridges
