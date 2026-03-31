@@ -131,25 +131,14 @@ func (m *Model) isLoading() bool {
 		return true
 	}
 
-	// Mode-specific loading states
-	switch m.mode {
-	case modeExplorer:
-		// Explorer tree or file loading
-		if cur := m.currentDirState(); cur != nil && cur.loading {
-			return true
-		}
-		if m.explorer.preview.loading {
-			return true
-		}
-	case modePipelines:
-		// Pipeline view loading states
+	// Pipeline/stage/job loading (applies to both modePipelines and modeMultiPanel)
+	if m.mode == modePipelines || m.mode == modeMultiPanel {
 		if m.pipelineView.loading {
 			return true
 		}
 		if m.pipelineView.logPreview.loading {
 			return true
 		}
-		// Check if any stages or jobs are loading for selected pipeline
 		if pipeline := m.selectedPipeline(); pipeline != nil {
 			if m.pipelineView.stages.IsLoading(pipeline.ID) {
 				return true
@@ -157,6 +146,16 @@ func (m *Model) isLoading() bool {
 			if m.pipelineView.jobs.IsLoading(pipeline.ID) {
 				return true
 			}
+		}
+	}
+
+	// Explorer tree or file loading
+	if m.mode == modeExplorer || (m.mode == modeMultiPanel && m.explorer.project.ID != 0) {
+		if cur := m.currentDirState(); cur != nil && cur.loading {
+			return true
+		}
+		if m.explorer.preview.loading {
+			return true
 		}
 	}
 

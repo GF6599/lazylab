@@ -32,28 +32,14 @@ func (m Model) View() string {
 	// Multi-panel mode: the new default
 	if m.mode == modeMultiPanel {
 		// Explorer overlay on top of multi-panel
-		if m.mode == modeMultiPanel && m.explorer.project.ID != 0 && len(m.explorer.stack) > 0 {
+		if m.explorer.project.ID != 0 && len(m.explorer.stack) > 0 {
 			return renderExplorerView(m, width)
 		}
-		// Create MR modal overlay
-		if m.mrView.createMR.active {
-			base := renderMultiPanelView(&m, width, m.height)
-			modal := renderCreateMRModal(m, width)
+		base := renderMultiPanelView(&m, width, m.height)
+		if modal, ok := m.activeModalOverlay(width); ok {
 			return overlayCentered(base, modal, width)
 		}
-		// Reply modal overlay
-		if m.mrView.reply.active {
-			base := renderMultiPanelView(&m, width, m.height)
-			modal := renderMRReplyModal(m, width)
-			return overlayCentered(base, modal, width)
-		}
-		// Retry confirmation modal overlay
-		if m.pipelineView.retryConfirm.active {
-			base := renderMultiPanelView(&m, width, m.height)
-			modal := renderPipelineRetryConfirmModal(m, width)
-			return overlayCentered(base, modal, width)
-		}
-		return renderMultiPanelView(&m, width, m.height)
+		return base
 	}
 
 	// Standalone modes (used by tests and legacy paths)
@@ -63,8 +49,7 @@ func (m Model) View() string {
 		mainView = renderExplorerView(m, width)
 	case modePipelines:
 		base := renderPipelineView(m, width)
-		if m.pipelineView.retryConfirm.active {
-			modal := renderPipelineRetryConfirmModal(m, width)
+		if modal, ok := m.activeModalOverlay(width); ok {
 			return overlayCentered(base, modal, width)
 		}
 		mainView = base
@@ -74,6 +59,19 @@ func (m Model) View() string {
 
 	// Add help bar at bottom
 	return mainView + "\n" + m.renderHelpBar()
+}
+
+// activeModalOverlay returns the rendered modal string if any modal is active.
+func (m Model) activeModalOverlay(width int) (string, bool) {
+	switch {
+	case m.mrView.createMR.active:
+		return renderCreateMRModal(m, width), true
+	case m.mrView.reply.active:
+		return renderMRReplyModal(m, width), true
+	case m.pipelineView.retryConfirm.active:
+		return renderPipelineRetryConfirmModal(m, width), true
+	}
+	return "", false
 }
 
 // renderHelpView shows a full-screen help overlay with mode-aware key bindings

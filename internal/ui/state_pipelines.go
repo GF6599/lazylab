@@ -98,7 +98,6 @@ func (m *Model) clearAllRetryState() {
 func (m *Model) closePipelineView() {
 	m.mode = modeProjects
 	m.pipelineView = pipelineViewState{}
-	m.updateProjectListSize()
 }
 
 // resetPipelineViewCaches reinitializes all per-pipeline caches (stages, jobs,

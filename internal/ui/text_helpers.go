@@ -279,7 +279,7 @@ func overlayCentered(base, overlay string, width int) string {
 		}
 	}
 	for i, line := range baseLines {
-		baseLines[i] = padLineANSI(line, width)
+		baseLines[i] = fitLine(line, width)
 	}
 	overlayLines := strings.Split(overlay, "\n")
 	if len(overlayLines) == 0 {
@@ -297,7 +297,7 @@ func overlayCentered(base, overlay string, width int) string {
 	x := max(0, (width-overlayWidth)/2)
 	y := max(0, (len(baseLines)-overlayHeight)/2)
 	for i := 0; i < overlayHeight && y+i < len(baseLines); i++ {
-		line := padLineANSI(overlayLines[i], overlayWidth)
+		line := fitLine(overlayLines[i], overlayWidth)
 		end := min(width, x+overlayWidth)
 		if end <= x {
 			continue
@@ -305,23 +305,9 @@ func overlayCentered(base, overlay string, width int) string {
 		baseLine := baseLines[y+i]
 		left := ansi.Cut(baseLine, 0, x)
 		right := ansi.Cut(baseLine, end, width)
-		baseLines[y+i] = left + padLineANSI(line, end-x) + right
+		baseLines[y+i] = left + fitLine(line, end-x) + right
 	}
 	return strings.Join(baseLines, "\n")
-}
-
-func padLineANSI(line string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if ansi.StringWidth(line) > width {
-		line = ansi.Truncate(line, width, "")
-	}
-	pad := width - ansi.StringWidth(line)
-	if pad > 0 {
-		line += strings.Repeat(" ", pad)
-	}
-	return line
 }
 
 // renderWithBottomHint pins a single hint line at the bottom of a pane,

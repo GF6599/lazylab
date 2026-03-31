@@ -81,22 +81,18 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 	m.pipelineView.pipelineList.SetItems(items)
 
 	selectedSame := false
-	if m.pipelineView.pendingSelectID != 0 {
+	if m.pipelineView.pendingSelectID != 0 || prevSelectedID != 0 {
 		for i, p := range m.pipelineView.pipelines {
-			if p.ID == m.pipelineView.pendingSelectID {
+			if m.pipelineView.pendingSelectID != 0 && p.ID == m.pipelineView.pendingSelectID {
 				m.pipelineView.selected = i
 				selectedSame = true
 				m.pipelineView.pendingSelectID = 0
 				break
 			}
-		}
-	}
-	if !selectedSame && prevSelectedID != 0 {
-		for i, p := range m.pipelineView.pipelines {
-			if p.ID == prevSelectedID {
+			if prevSelectedID != 0 && p.ID == prevSelectedID {
 				m.pipelineView.selected = i
 				selectedSame = true
-				break
+				// Don't break — pendingSelectID takes priority if found later
 			}
 		}
 	}
@@ -115,9 +111,15 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 		m.pipelineView.pipelineList.Select(m.pipelineView.selected)
 	}
 
-	cmds := []tea.Cmd{
-		m.queuePipelineStagesForSelection(),
-		m.queuePipelineJobsForSelection(),
+	var cmds []tea.Cmd
+	if cmd := m.queuePipelineStagesForSelection(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queuePipelineJobsForSelection(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) == 0 {
+		return m, nil
 	}
 	return m, tea.Batch(cmds...)
 }

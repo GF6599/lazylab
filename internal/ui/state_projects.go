@@ -225,12 +225,14 @@ func (m *Model) visibleProjects() []gitlab.ProjectNode {
 	return pageData
 }
 
-// invalidateVisibleCache clears the visibleProjects cache
+// invalidateVisibleCache clears the visibleProjects cache. Setting
+// visibleCache to nil is sufficient: visibleProjects() nil-checks
+// the cache slice before returning it.
 func (m *Model) invalidateVisibleCache() {
 	m.visibleCache = nil
 	m.visibleCacheQuery = ""
 	m.visibleCachePage = -1
-	m.visibleCacheTab = projectTabAll + 1 // Force mismatch
+	m.visibleCacheTab = projectTabAll
 }
 
 // cachedDetailPane returns the detail pane view, using cache when valid
@@ -432,11 +434,4 @@ func (m *Model) updateViewportSizes() {
 			}
 		}
 	}
-}
-
-// updateProjectListSize recalculates the bubbles list dimensions from the
-// current terminal size. In modeMultiPanel the list size is set during render
-// (the sidebar width depends on focus/layout mode), so this is a no-op.
-func (m *Model) updateProjectListSize() {
-	// In multi-panel mode, project list size is set during render
 }

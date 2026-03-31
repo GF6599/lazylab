@@ -174,18 +174,6 @@ type pipelineItem struct {
 	summary gitlab.PipelineSummary
 }
 
-func (i pipelineItem) Title() string {
-	return fmt.Sprintf("#%d", i.summary.ID)
-}
-
-func (i pipelineItem) Description() string {
-	timestamp := unknownStatus
-	if !i.summary.UpdatedAt.IsZero() {
-		timestamp = i.summary.UpdatedAt.Local().Format(timestampFormat)
-	}
-	return fmt.Sprintf("%s - %s - %s", i.summary.Status, timestamp, i.summary.Ref)
-}
-
 func (i pipelineItem) FilterValue() string {
 	return fmt.Sprintf("%d %s %s", i.summary.ID, i.summary.Ref, i.summary.Status)
 }
@@ -233,15 +221,6 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 // treeEntryItem wraps a GitLab tree entry for use with bubbles/list
 type treeEntryItem struct {
 	entry gitlab.TreeNode
-}
-
-func (i treeEntryItem) Title() string { return i.entry.Name }
-
-func (i treeEntryItem) Description() string {
-	if i.entry.IsDir() {
-		return "directory"
-	}
-	return i.entry.Type
 }
 
 func (i treeEntryItem) FilterValue() string { return i.entry.Name }
@@ -778,7 +757,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.Width = msg.Width
 		m.refreshPreviewHighlight()
 		m.updateViewportSizes()
-		m.updateProjectListSize()
 		return m, spinnerCmd
 	case tea.KeyMsg:
 		// Block all keys except quit when terminal is too small
