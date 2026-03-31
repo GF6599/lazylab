@@ -17,7 +17,7 @@ func (c *Client) ListProjectCommits(ctx context.Context, projectID int, ref stri
 	}
 	opts := &gl.ListCommitsOptions{
 		ListOptions: gl.ListOptions{
-			PerPage: limit,
+			PerPage: int64(limit),
 			Page:    1,
 		},
 	}

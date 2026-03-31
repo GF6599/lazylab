@@ -32,12 +32,12 @@ func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) 
 		return PipelineSummary{}, ErrNoPipelines
 	}
 	p := pipelines[0]
-	stages, err := c.collectPipelineStages(ctx, projectID, p.ID)
+	stages, err := c.collectPipelineStages(ctx, projectID, int(p.ID))
 	if err != nil {
 		return PipelineSummary{}, fmt.Errorf("collect pipeline stages: %w", err)
 	}
 	summary := PipelineSummary{
-		ID:     p.ID,
+		ID:     int(p.ID),
 		Status: string(p.Status),
 		Ref:    p.Ref,
 		SHA:    p.SHA,
@@ -67,8 +67,8 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 	}
 	apiOpts := &gl.ListProjectPipelinesOptions{
 		ListOptions: gl.ListOptions{
-			PerPage: opts.PerPage,
-			Page:    opts.Page,
+			PerPage: int64(opts.PerPage),
+			Page:    int64(opts.Page),
 		},
 		OrderBy: gl.Ptr("updated_at"),
 		Sort:    gl.Ptr("desc"),
@@ -80,7 +80,7 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 	summaries := make([]PipelineSummary, 0, len(pipelines))
 	for _, p := range pipelines {
 		summary := PipelineSummary{
-			ID:     p.ID,
+			ID:     int(p.ID),
 			Status: string(p.Status),
 			Ref:    p.Ref,
 			SHA:    p.SHA,
@@ -99,9 +99,9 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 	}
 	page := PipelinePage{Pipelines: summaries, Page: opts.Page}
 	if resp != nil {
-		page.PrevPage = resp.PreviousPage
-		page.NextPage = resp.NextPage
-		page.TotalPages = resp.TotalPages
+		page.PrevPage = int(resp.PreviousPage)
+		page.NextPage = int(resp.NextPage)
+		page.TotalPages = int(resp.TotalPages)
 	}
 	return page, nil
 }
@@ -114,7 +114,7 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 // directly. The error message from both the retry and create attempts is
 // preserved in the wrapped error for debuggability.
 func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error) {
-	pipeline, _, err := c.api.Pipelines.RetryPipelineBuild(projectID, pipelineID, gl.WithContext(ctx))
+	pipeline, _, err := c.api.Pipelines.RetryPipelineBuild(projectID, int64(pipelineID), gl.WithContext(ctx))
 	if err != nil {
 		if ref == "" || !gl.HasStatusCode(err, 400) {
 			return PipelineSummary{}, fmt.Errorf("retry pipeline: %w", err)
@@ -132,28 +132,11 @@ func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, r
 
 // CancelPipeline cancels a running pipeline.
 func (c *Client) CancelPipeline(ctx context.Context, projectID, pipelineID int) error {
-	_, _, err := c.api.Pipelines.CancelPipelineBuild(projectID, pipelineID, gl.WithContext(ctx))
+	_, _, err := c.api.Pipelines.CancelPipelineBuild(projectID, int64(pipelineID), gl.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("cancel pipeline: %w", err)
 	}
 	return nil
-}
-
-// GetPipelineVariables returns the variables associated with a pipeline.
-func (c *Client) GetPipelineVariables(ctx context.Context, projectID, pipelineID int) ([]PipelineVariable, error) {
-	vars, _, err := c.api.Pipelines.GetPipelineVariables(projectID, pipelineID, gl.WithContext(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("get pipeline variables: %w", err)
-	}
-	out := make([]PipelineVariable, len(vars))
-	for i, v := range vars {
-		out[i] = PipelineVariable{
-			Key:          v.Key,
-			Value:        v.Value,
-			VariableType: string(v.VariableType),
-		}
-	}
-	return out, nil
 }
 
 // ListPipelineBridges returns bridge jobs (child pipeline triggers) for a
@@ -167,14 +150,14 @@ func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID 
 			Page:    1,
 		},
 	}
-	bridges, _, err := c.api.Jobs.ListPipelineBridges(projectID, pipelineID, opts, gl.WithContext(ctx))
+	bridges, _, err := c.api.Jobs.ListPipelineBridges(projectID, int64(pipelineID), opts, gl.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list pipeline bridges: %w", err)
 	}
 	out := make([]PipelineBridge, 0, len(bridges))
 	for _, b := range bridges {
 		pb := PipelineBridge{
-			ID:           b.ID,
+			ID:           int(b.ID),
 			Name:         b.Name,
 			Stage:        b.Stage,
 			Status:       b.Status,
@@ -184,8 +167,8 @@ func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID 
 		}
 		if b.DownstreamPipeline != nil {
 			pb.DownstreamPipeline = &PipelineBridgeDownstream{
-				ID:        b.DownstreamPipeline.ID,
-				ProjectID: b.DownstreamPipeline.ProjectID,
+				ID:        int(b.DownstreamPipeline.ID),
+				ProjectID: int(b.DownstreamPipeline.ProjectID),
 				Status:    string(b.DownstreamPipeline.Status),
 				WebURL:    b.DownstreamPipeline.WebURL,
 			}
@@ -199,7 +182,7 @@ func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID 
 // if the pipeline has no test reports configured. Returns an error only on
 // API failures — a nil *TestReport with nil error means "no reports".
 func (c *Client) GetPipelineTestReport(ctx context.Context, projectID, pipelineID int) (*TestReport, error) {
-	report, _, err := c.api.Pipelines.GetPipelineTestReport(projectID, pipelineID, gl.WithContext(ctx))
+	report, _, err := c.api.Pipelines.GetPipelineTestReport(projectID, int64(pipelineID), gl.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("get pipeline test report: %w", err)
 	}
@@ -208,21 +191,21 @@ func (c *Client) GetPipelineTestReport(ctx context.Context, projectID, pipelineI
 	}
 	tr := &TestReport{
 		TotalTime:    report.TotalTime,
-		TotalCount:   report.TotalCount,
-		SuccessCount: report.SuccessCount,
-		FailedCount:  report.FailedCount,
-		SkippedCount: report.SkippedCount,
-		ErrorCount:   report.ErrorCount,
+		TotalCount:   int(report.TotalCount),
+		SuccessCount: int(report.SuccessCount),
+		FailedCount:  int(report.FailedCount),
+		SkippedCount: int(report.SkippedCount),
+		ErrorCount:   int(report.ErrorCount),
 	}
 	for _, suite := range report.TestSuites {
 		ts := TestSuite{
 			Name:         suite.Name,
 			TotalTime:    suite.TotalTime,
-			TotalCount:   suite.TotalCount,
-			SuccessCount: suite.SuccessCount,
-			FailedCount:  suite.FailedCount,
-			SkippedCount: suite.SkippedCount,
-			ErrorCount:   suite.ErrorCount,
+			TotalCount:   int(suite.TotalCount),
+			SuccessCount: int(suite.SuccessCount),
+			FailedCount:  int(suite.FailedCount),
+			SkippedCount: int(suite.SkippedCount),
+			ErrorCount:   int(suite.ErrorCount),
 		}
 		for _, tc := range suite.TestCases {
 			testCase := TestCase{
@@ -260,8 +243,8 @@ func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineI
 		ListOptions: gl.ListOptions{PerPage: 100},
 	}
 	jobs, err := paginate(ctx, func(page int) ([]*gl.Job, *gl.Response, error) {
-		opts.Page = page
-		return c.api.Jobs.ListPipelineJobs(projectID, pipelineID, opts, gl.WithContext(ctx))
+		opts.Page = int64(page)
+		return c.api.Jobs.ListPipelineJobs(projectID, int64(pipelineID), opts, gl.WithContext(ctx))
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list pipeline jobs: %w", err)
@@ -301,8 +284,8 @@ func pipelineSummary(pipeline *gl.Pipeline) PipelineSummary {
 		return PipelineSummary{}
 	}
 	summary := PipelineSummary{
-		ID:       pipeline.ID,
-		Status:   pipeline.Status,
+		ID:       int(pipeline.ID),
+		Status:   string(pipeline.Status),
 		Ref:      pipeline.Ref,
 		SHA:      pipeline.SHA,
 		WebURL:   pipeline.WebURL,

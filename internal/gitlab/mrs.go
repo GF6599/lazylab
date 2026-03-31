@@ -22,8 +22,8 @@ func (c *Client) ListMergeRequests(ctx context.Context, projectID int, opts MRLi
 	}
 	apiOpts := &gl.ListProjectMergeRequestsOptions{
 		ListOptions: gl.ListOptions{
-			Page:    opts.Page,
-			PerPage: opts.PerPage,
+			Page:    int64(opts.Page),
+			PerPage: int64(opts.PerPage),
 		},
 	}
 	if opts.State != "" {
@@ -36,7 +36,7 @@ func (c *Client) ListMergeRequests(ctx context.Context, projectID int, opts MRLi
 	summaries := make([]MergeRequestSummary, 0, len(mrs))
 	for _, mr := range mrs {
 		s := MergeRequestSummary{
-			IID:          mr.IID,
+			IID:          int(mr.IID),
 			Title:        mr.Title,
 			State:        mr.State,
 			SourceBranch: mr.SourceBranch,
@@ -56,10 +56,10 @@ func (c *Client) ListMergeRequests(ctx context.Context, projectID int, opts MRLi
 		Page:          opts.Page,
 	}
 	if resp != nil {
-		page.Page = resp.CurrentPage
-		page.PrevPage = resp.PreviousPage
-		page.NextPage = resp.NextPage
-		page.TotalPages = resp.TotalPages
+		page.Page = int(resp.CurrentPage)
+		page.PrevPage = int(resp.PreviousPage)
+		page.NextPage = int(resp.NextPage)
+		page.TotalPages = int(resp.TotalPages)
 	}
 	return page, nil
 }
@@ -71,10 +71,9 @@ func (c *Client) ListMergeRequests(ctx context.Context, projectID int, opts MRLi
 func (c *Client) ListMergeRequestDiscussions(ctx context.Context, projectID, mrIID int) ([]MRDiscussion, error) {
 	raw, err := paginate(ctx, func(page int) ([]*gl.Discussion, *gl.Response, error) {
 		opts := gl.ListMergeRequestDiscussionsOptions{
-			Page:    page,
-			PerPage: 100,
+			ListOptions: gl.ListOptions{Page: int64(page), PerPage: 100},
 		}
-		return c.api.Discussions.ListMergeRequestDiscussions(projectID, mrIID, &opts, gl.WithContext(ctx))
+		return c.api.Discussions.ListMergeRequestDiscussions(projectID, int64(mrIID), &opts, gl.WithContext(ctx))
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list MR discussions: %w", err)
@@ -84,7 +83,7 @@ func (c *Client) ListMergeRequestDiscussions(ctx context.Context, projectID, mrI
 		disc := MRDiscussion{ID: d.ID}
 		for _, n := range d.Notes {
 			note := MRNote{
-				ID:         n.ID,
+				ID:         int(n.ID),
 				Body:       n.Body,
 				System:     n.System,
 				Resolvable: n.Resolvable,
@@ -101,14 +100,14 @@ func (c *Client) ListMergeRequestDiscussions(ctx context.Context, projectID, mrI
 			// Prefer NewPath over OldPath: for renames, NewPath reflects the
 			// file's current location; for edits both are identical.
 			if n.Position != nil {
-				note.OldLine = n.Position.OldLine
-				note.NewLine = n.Position.NewLine
+				note.OldLine = int(n.Position.OldLine)
+				note.NewLine = int(n.Position.NewLine)
 				if n.Position.NewPath != "" {
 					note.FilePath = n.Position.NewPath
-					note.Line = n.Position.NewLine
+					note.Line = int(n.Position.NewLine)
 				} else if n.Position.OldPath != "" {
 					note.FilePath = n.Position.OldPath
-					note.Line = n.Position.OldLine
+					note.Line = int(n.Position.OldLine)
 				}
 				if note.Line == 0 && note.OldLine != 0 {
 					note.Line = note.OldLine
@@ -129,7 +128,7 @@ func (c *Client) ResolveMergeRequestDiscussion(ctx context.Context, projectID, m
 	opts := gl.ResolveMergeRequestDiscussionOptions{
 		Resolved: gl.Ptr(resolved),
 	}
-	_, _, err := c.api.Discussions.ResolveMergeRequestDiscussion(projectID, mrIID, discussionID, &opts, gl.WithContext(ctx))
+	_, _, err := c.api.Discussions.ResolveMergeRequestDiscussion(projectID, int64(mrIID), discussionID, &opts, gl.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("resolve MR discussion: %w", err)
 	}
@@ -143,7 +142,7 @@ func (c *Client) AddMergeRequestDiscussionNote(ctx context.Context, projectID, m
 	opts := gl.AddMergeRequestDiscussionNoteOptions{
 		Body: gl.Ptr(body),
 	}
-	_, _, err := c.api.Discussions.AddMergeRequestDiscussionNote(projectID, mrIID, discussionID, &opts, gl.WithContext(ctx))
+	_, _, err := c.api.Discussions.AddMergeRequestDiscussionNote(projectID, int64(mrIID), discussionID, &opts, gl.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("add MR discussion note: %w", err)
 	}
@@ -156,7 +155,7 @@ func (c *Client) AddMergeRequestDiscussionNote(ctx context.Context, projectID, m
 // Returns an error if diff refs are unavailable, which can happen for MRs
 // that haven't been prepared yet or MRs on projects with missing source branches.
 func (c *Client) GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error) {
-	mr, _, err := c.api.MergeRequests.GetMergeRequest(projectID, mrIID, nil, gl.WithContext(ctx))
+	mr, _, err := c.api.MergeRequests.GetMergeRequest(projectID, int64(mrIID), nil, gl.WithContext(ctx))
 	if err != nil {
 		return MRDiffRefs{}, fmt.Errorf("get MR diff refs: %w", err)
 	}
@@ -187,14 +186,14 @@ func (c *Client) CreateMergeRequestDiscussion(ctx context.Context, projectID, mr
 			NewPath:      gl.Ptr(pos.NewPath),
 		}
 		if pos.OldLine != 0 {
-			posOpts.OldLine = gl.Ptr(pos.OldLine)
+			posOpts.OldLine = gl.Ptr(int64(pos.OldLine))
 		}
 		if pos.NewLine != 0 {
-			posOpts.NewLine = gl.Ptr(pos.NewLine)
+			posOpts.NewLine = gl.Ptr(int64(pos.NewLine))
 		}
 		opts.Position = posOpts
 	}
-	_, _, err := c.api.Discussions.CreateMergeRequestDiscussion(projectID, mrIID, &opts, gl.WithContext(ctx))
+	_, _, err := c.api.Discussions.CreateMergeRequestDiscussion(projectID, int64(mrIID), &opts, gl.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("create MR discussion: %w", err)
 	}
@@ -207,9 +206,9 @@ func (c *Client) CreateMergeRequestDiscussion(ctx context.Context, projectID, mr
 func (c *Client) ListMergeRequestDiffs(ctx context.Context, projectID, mrIID int) ([]MRDiffFile, error) {
 	raw, err := paginate(ctx, func(page int) ([]*gl.MergeRequestDiff, *gl.Response, error) {
 		opts := &gl.ListMergeRequestDiffsOptions{
-			ListOptions: gl.ListOptions{Page: page, PerPage: 100},
+			ListOptions: gl.ListOptions{Page: int64(page), PerPage: 100},
 		}
-		return c.api.MergeRequests.ListMergeRequestDiffs(projectID, mrIID, opts, gl.WithContext(ctx))
+		return c.api.MergeRequests.ListMergeRequestDiffs(projectID, int64(mrIID), opts, gl.WithContext(ctx))
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list MR diffs: %w", err)
@@ -266,7 +265,7 @@ func (c *Client) CreateMergeRequest(ctx context.Context, projectID int, opts Cre
 		return MergeRequestSummary{}, fmt.Errorf("create merge request: %w", err)
 	}
 	s := MergeRequestSummary{
-		IID:          mr.IID,
+		IID:          int(mr.IID),
 		Title:        mr.Title,
 		State:        mr.State,
 		SourceBranch: mr.SourceBranch,

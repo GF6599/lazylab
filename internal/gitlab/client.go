@@ -211,13 +211,6 @@ type PipelineJob struct {
 	ArtifactsExpireAt time.Time
 }
 
-// PipelineVariable represents a CI/CD variable associated with a pipeline.
-type PipelineVariable struct {
-	Key          string
-	Value        string
-	VariableType string
-}
-
 // MRDiffRefs captures the three SHAs that anchor a merge request diff.
 // These are required when creating line-level (positioned) discussion comments.
 type MRDiffRefs struct {
@@ -429,8 +422,8 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 		Sort:       gl.Ptr("desc"),
 		Simple:     gl.Ptr(true),
 		ListOptions: gl.ListOptions{
-			Page:    opts.Page,
-			PerPage: opts.PerPage,
+			Page:    int64(opts.Page),
+			PerPage: int64(opts.PerPage),
 		},
 	}
 	projects, resp, err := c.api.Projects.ListProjects(listOpts, gl.WithContext(ctx))
@@ -440,13 +433,13 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 	nodes := make([]ProjectNode, len(projects))
 	for i, p := range projects {
 		nodes[i] = ProjectNode{
-			ID:                p.ID,
+			ID:                int(p.ID),
 			Name:              p.Name,
 			PathWithNamespace: p.PathWithNamespace,
 			Description:       p.Description,
 			WebURL:            p.WebURL,
 			SSHURLToRepo:      p.SSHURLToRepo,
-			StarCount:         p.StarCount,
+			StarCount:         int(p.StarCount),
 			Visibility:        string(p.Visibility),
 			DefaultBranch:     p.DefaultBranch,
 		}
@@ -459,10 +452,10 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 		Page:     opts.Page,
 	}
 	if resp != nil {
-		pageInfo.Page = resp.CurrentPage
-		pageInfo.PrevPage = resp.PreviousPage
-		pageInfo.NextPage = resp.NextPage
-		pageInfo.TotalPages = resp.TotalPages
+		pageInfo.Page = int(resp.CurrentPage)
+		pageInfo.PrevPage = int(resp.PreviousPage)
+		pageInfo.NextPage = int(resp.NextPage)
+		pageInfo.TotalPages = int(resp.TotalPages)
 	}
 	return pageInfo, nil
 }
@@ -493,7 +486,7 @@ func paginate[T any](ctx context.Context, fetch func(page int) ([]T, *gl.Respons
 		if resp == nil || resp.NextPage == 0 {
 			break
 		}
-		page = resp.NextPage
+		page = int(resp.NextPage)
 	}
 	return all, nil
 }

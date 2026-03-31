@@ -16,8 +16,8 @@ func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int
 		ListOptions: gl.ListOptions{PerPage: 100},
 	}
 	rawJobs, err := paginate(ctx, func(page int) ([]*gl.Job, *gl.Response, error) {
-		opts.Page = page
-		return c.api.Jobs.ListPipelineJobs(projectID, pipelineID, opts, gl.WithContext(ctx))
+		opts.Page = int64(page)
+		return c.api.Jobs.ListPipelineJobs(projectID, int64(pipelineID), opts, gl.WithContext(ctx))
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list pipeline jobs: %w", err)
@@ -39,7 +39,7 @@ func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int
 // Traces are capped at 10 MB to prevent OOM on jobs with massive output.
 // Returns an error if the trace exceeds this limit.
 func (c *Client) GetJobTrace(ctx context.Context, projectID, jobID int) (string, error) {
-	trace, _, err := c.api.Jobs.GetTraceFile(projectID, jobID, gl.WithContext(ctx))
+	trace, _, err := c.api.Jobs.GetTraceFile(projectID, int64(jobID), gl.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("get job trace: %w", err)
 	}
@@ -64,7 +64,7 @@ func (c *Client) RetryJob(ctx context.Context, projectID, jobID int) (PipelineJo
 	if jobID == 0 {
 		return PipelineJob{}, fmt.Errorf("retry job: missing job id")
 	}
-	job, _, err := c.api.Jobs.RetryJob(projectID, jobID, gl.WithContext(ctx))
+	job, _, err := c.api.Jobs.RetryJob(projectID, int64(jobID), gl.WithContext(ctx))
 	if err != nil {
 		return PipelineJob{}, fmt.Errorf("retry job: %w", err)
 	}
@@ -73,7 +73,7 @@ func (c *Client) RetryJob(ctx context.Context, projectID, jobID int) (PipelineJo
 
 // CancelJob cancels a running job.
 func (c *Client) CancelJob(ctx context.Context, projectID, jobID int) error {
-	_, _, err := c.api.Jobs.CancelJob(projectID, jobID, gl.WithContext(ctx))
+	_, _, err := c.api.Jobs.CancelJob(projectID, int64(jobID), gl.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("cancel job: %w", err)
 	}
@@ -83,7 +83,7 @@ func (c *Client) CancelJob(ctx context.Context, projectID, jobID int) error {
 // PlayJob triggers a manual (when:manual) job that is waiting for user
 // action and returns its updated state. Has no effect on non-manual jobs.
 func (c *Client) PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error) {
-	job, _, err := c.api.Jobs.PlayJob(projectID, jobID, nil, gl.WithContext(ctx))
+	job, _, err := c.api.Jobs.PlayJob(projectID, int64(jobID), nil, gl.WithContext(ctx))
 	if err != nil {
 		return PipelineJob{}, fmt.Errorf("play job: %w", err)
 	}
@@ -98,7 +98,7 @@ func mapJob(job *gl.Job) PipelineJob {
 		return PipelineJob{}
 	}
 	pj := PipelineJob{
-		ID:            job.ID,
+		ID:            int(job.ID),
 		Name:          job.Name,
 		Stage:         job.Stage,
 		Status:        job.Status,
@@ -122,7 +122,7 @@ func mapJob(job *gl.Job) PipelineJob {
 			pj.Artifacts = append(pj.Artifacts, JobArtifact{
 				FileType:   a.FileType,
 				Filename:   a.Filename,
-				Size:       a.Size,
+				Size:       int(a.Size),
 				FileFormat: a.FileFormat,
 			})
 		}
