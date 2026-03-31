@@ -247,7 +247,6 @@ func rebuildStyles() {
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	itemStyle = lipgloss.NewStyle().Foreground(colorText)
 	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(colorActive).Background(colorHighlightLow)
-	statusStyle = lipgloss.NewStyle().Foreground(colorSubtle)
 	errorStyle = lipgloss.NewStyle().Foreground(colorError)
 	searchStyle = lipgloss.NewStyle().Foreground(colorSubtle)
 	progressStyle = lipgloss.NewStyle().Foreground(colorMuted)

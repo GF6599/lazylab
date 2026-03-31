@@ -342,10 +342,3 @@ func (m *Model) logDebug(msg string, args ...any) {
 		m.opts.Logger.Debug(msg, args...)
 	}
 }
-
-// logInfo logs an info message if the logger is configured.
-func (m *Model) logInfo(msg string, args ...any) {
-	if m.opts.Logger != nil {
-		m.opts.Logger.Info(msg, args...)
-	}
-}

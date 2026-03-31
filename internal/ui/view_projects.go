@@ -12,49 +12,6 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
-// renderListPane builds the project list pane content: header with page/search
-// info, the bubbles list component, and bottom status lines (errors, loading
-// indicators, paginator, search bar). Bottom lines are pinned via
-// renderWithBottomLines so they stay visible regardless of list length.
-func renderListPane(m Model, width, height int, focused bool) string {
-	b := &strings.Builder{}
-	title := paneHeaderStyle(focused).Render(clampLine(renderListTitle(m), width))
-	b.WriteString(title)
-	b.WriteString("\n")
-
-	// Set list size and render
-	list := m.projectList
-	listView := list.View()
-
-	content := lipgloss.NewStyle().Width(width).Render(listView)
-	bottomLines := make([]string, 0, 5)
-	switch {
-	case m.err != nil:
-		bottomLines = append(bottomLines, errorStyle.Render(clampLine(" "+RedactToken(m.err.Error()), width)))
-	case len(m.allProjects) == 0 && !m.loading:
-		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(" No projects found.", width)))
-	case m.loading && len(m.allProjects) == 0:
-		loadMsg := fmt.Sprintf(" %s Loading projects...", m.spinner.View())
-		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(loadMsg, width)))
-	case m.search.query == "" && !m.pagesReady[m.page] && !m.loading:
-		loadMsg := fmt.Sprintf(" %s Page %d is still loading...", m.spinner.View(), m.page)
-		bottomLines = append(bottomLines, explorerHintStyle.Render(clampLine(loadMsg, width)))
-	}
-	if progress := renderProgressBar(m, width); progress != "" {
-		bottomLines = append(bottomLines, progress)
-	}
-	if m.status != "" {
-		bottomLines = append(bottomLines, statusStyle.Render(clampLine(" "+m.status, width)))
-	}
-	// Add paginator if multiple pages
-	if m.totalPages > 1 && m.search.query == "" {
-		paginatorView := borderFooterStyle.Render(" " + m.paginator.View())
-		bottomLines = append(bottomLines, paginatorView)
-	}
-	bottomLines = append(bottomLines, renderSearchBar(m, width))
-	return renderWithBottomLines(content, bottomLines, height)
-}
-
 // renderDetailPane renders project metadata (name, visibility, links),
 // latest pipeline status with stage breakdown, and recent commits.
 // Takes a pointer receiver because it reads from async caches that may
@@ -196,15 +153,6 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func renderListTitle(m Model) string {
-	if m.search.query != "" {
-		return fmt.Sprintf("Projects · Search \u201c%s\u201d (%d matches)", truncate(m.search.query, 20), len(m.visibleProjects()))
-	}
-	total := max(1, m.totalPages)
-	page := max(1, m.page)
-	return fmt.Sprintf("Projects · Page %d/%d", page, total)
-}
-
 func renderSearchBar(m Model, width int) string {
 	var line string
 	if m.search.active {
@@ -215,31 +163,6 @@ func renderSearchBar(m Model, width int) string {
 		line = "Press / to search"
 	}
 	return searchStyle.Render(clampLine(line, width))
-}
-
-// renderProgressBar shows background page-loading progress as a block-character
-// bar. Visible only while pagesLoaded < total pages and pagesLoaded >= 0.
-// Returns "Cache warm" when loading is complete and a cache exists, or empty
-// string when there's nothing to show.
-func renderProgressBar(m Model, width int) string {
-	if len(m.pagesReady) == 0 || m.pagesLoaded >= len(m.pagesReady) {
-		if m.cache != nil {
-			return progressStyle.Render("Cache warm")
-		}
-		return ""
-	}
-	if m.pagesLoaded < 0 {
-		return ""
-	}
-	loaded := m.pagesLoaded
-	total := len(m.pagesReady)
-	if total <= 0 {
-		return ""
-	}
-	barWidth := max(width-20, 8)
-	filled := min(int(float64(barWidth)*(float64(loaded)/float64(total))), barWidth)
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-	return progressStyle.Render(clampLine(fmt.Sprintf("Caching %d/%d pages [%s]", loaded, total, bar), width))
 }
 
 func writeDetailSection(b *strings.Builder, title string, width int) {

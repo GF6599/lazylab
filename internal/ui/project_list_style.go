@@ -30,7 +30,6 @@ var (
 	titleStyle        lipgloss.Style
 	itemStyle         lipgloss.Style
 	selectedItemStyle lipgloss.Style
-	statusStyle       lipgloss.Style
 	errorStyle        lipgloss.Style
 	searchStyle       lipgloss.Style
 	progressStyle     lipgloss.Style
