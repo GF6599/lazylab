@@ -22,5 +22,17 @@ install: build
 	cp build/lazylab-darwin-$(go env GOARCH) ~/self-made-bin/lazylab
 	codesign -s - ~/self-made-bin/lazylab
 
+fmt:
+	~/go/bin/gofumpt -w .
+
+lint:
+	go vet ./...
+	~/go/bin/staticcheck ./...
+	~/go/bin/gofumpt -l -d . && test -z "$(~/go/bin/gofumpt -l .)"
+
+# Report unreachable code (informational, test-only functions are expected)
+deadcode:
+	~/go/bin/deadcode ./...
+
 clean:
 	rm -rf build lazylab
