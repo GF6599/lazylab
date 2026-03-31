@@ -74,11 +74,11 @@ func panelKeyHints(panel PanelID, m *Model) string {
 	case PanelProjects:
 		return "/ search · f fav · e explorer · t tab · r refresh · Ctrl+O copy · ? help"
 	case PanelPipelines:
-		return "j/k nav · l stages · R retry · C cancel · [ ] page · t tab · Ctrl+O copy · ? help"
+		return "j/k nav · l stages · R retry · C cancel · r refresh · [ ] page · t tab · Ctrl+O copy · ? help"
 	case PanelStages:
-		return "j/k nav · J/K log · R retry · C cancel · P play · t tab · Ctrl+O copy · ? help"
+		return "j/k nav · J/K log · R retry · C cancel · P play · r refresh · t tab · Ctrl+O copy · ? help"
 	case PanelMRs:
-		return "j/k nav · J/K scroll · c comment · [ ] page · t tab · Ctrl+O copy · ? help"
+		return "j/k nav · J/K scroll · c comment · N new MR · [ ] page · t tab · Ctrl+O copy · ? help"
 	case PanelDetail:
 		return detailPanelKeyHints(m)
 	default:
@@ -93,7 +93,7 @@ func detailPanelKeyHints(m *Model) string {
 	if m.focus.PrevActive == PanelMRs {
 		switch m.mrView.detailTab {
 		case mrDetailTabComments:
-			return "j/k discussions · r resolve · Enter reply · c comment · t tab · ? help"
+			return "j/k discussions · r resolve · Enter reply · c comment · t tab · h back · Ctrl+O copy · ? help"
 		case mrDetailTabDiff:
 			return "j/k lines · c comment · t tab · h back · Ctrl+O copy · ? help"
 		default:

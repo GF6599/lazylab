@@ -36,7 +36,6 @@ type keyMap struct {
 	Refresh    key.Binding
 	Retry      key.Binding
 	Copy       key.Binding
-	Yank       key.Binding
 	Favorite   key.Binding
 	Explorer   key.Binding
 	Cancel     key.Binding
@@ -140,10 +139,6 @@ func newKeyMap() keyMap {
 		Copy: key.NewBinding(
 			key.WithKeys("ctrl+o"),
 			key.WithHelp("Ctrl+O", "copy URL"),
-		),
-		Yank: key.NewBinding(
-			key.WithKeys("y"),
-			key.WithHelp("y", "yank/copy"),
 		),
 		Favorite: key.NewBinding(
 			key.WithKeys("f"),
@@ -293,7 +288,7 @@ func pipelinesKeyMap() []key.Binding {
 		k.Up, k.Down, k.Left, k.Right,
 		k.HalfUp, k.HalfDown, k.Top, k.Bottom,
 		k.ScrollUp, k.ScrollDown, k.Refresh, k.Retry,
-		k.Cancel, k.NextPage, k.PrevPage, k.Copy, k.Back,
+		k.Cancel, k.Play, k.NextPage, k.PrevPage, k.Copy, k.Back,
 		k.Help, k.Quit,
 	}
 }
