@@ -1,9 +1,11 @@
 package gitlab
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
+	"slices"
 
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
@@ -29,6 +31,9 @@ func (c *Client) ListPipelineJobs(ctx context.Context, projectID, pipelineID int
 	if len(jobs) == 0 {
 		return nil, ErrNoJobs
 	}
+	slices.SortFunc(jobs, func(a, b PipelineJob) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 	return jobs, nil
 }
 

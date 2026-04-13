@@ -1,8 +1,10 @@
 package gitlab
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -154,6 +156,9 @@ func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID 
 	if err != nil {
 		return nil, fmt.Errorf("list pipeline bridges: %w", err)
 	}
+	slices.SortFunc(bridges, func(a, b *gl.Bridge) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 	out := make([]PipelineBridge, 0, len(bridges))
 	for _, b := range bridges {
 		pb := PipelineBridge{
@@ -249,6 +254,10 @@ func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineI
 	if err != nil {
 		return nil, fmt.Errorf("list pipeline jobs: %w", err)
 	}
+
+	slices.SortFunc(jobs, func(a, b *gl.Job) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	stageStatus := make(map[string]string)
 	stageOrder := make([]string, 0)
