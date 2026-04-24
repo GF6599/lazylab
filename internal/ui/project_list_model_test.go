@@ -665,8 +665,11 @@ func newMultiPanelModel(active PanelID) Model {
 			bridges:     NewAsyncCache[int, []gitlab.PipelineBridge](),
 			logViewport: viewport.New(60, 20),
 		},
-		mrView:        mrViewState{project: projects[0]},
-		commitCache:   make(map[int][]gitlab.CommitSummary),
+		mrView: mrViewState{project: projects[0]},
+		commitCache: func() *LRUCache[int, []gitlab.CommitSummary] {
+			c := NewLRUCache[int, []gitlab.CommitSummary](maxCommitCacheSize)
+			return &c
+		}(),
 		commitLoading: make(map[int]bool),
 	}
 }

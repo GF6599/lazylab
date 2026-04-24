@@ -276,7 +276,7 @@ func (m *Model) loadSelectedProjectData(project gitlab.ProjectNode) tea.Cmd {
 	if cmd := m.queuePipelineFetch(project, false); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	if _, cached := m.commitCache[project.ID]; !cached && !m.commitLoading[project.ID] {
+	if _, cached := m.commitCache.Get(project.ID); !cached && !m.commitLoading[project.ID] {
 		m.commitLoading[project.ID] = true
 		cmds = append(cmds, fetchCommitsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, project.DefaultBranch))
 	}

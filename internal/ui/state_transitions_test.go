@@ -56,7 +56,10 @@ func newTestModel() Model {
 			logs:    NewAsyncCache[int, string](),
 			bridges: NewAsyncCache[int, []gitlab.PipelineBridge](),
 		},
-		commitCache:   make(map[int][]gitlab.CommitSummary),
+		commitCache: func() *LRUCache[int, []gitlab.CommitSummary] {
+			c := NewLRUCache[int, []gitlab.CommitSummary](maxCommitCacheSize)
+			return &c
+		}(),
 		commitLoading: make(map[int]bool),
 	}
 }

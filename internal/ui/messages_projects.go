@@ -305,7 +305,7 @@ func (m Model) handleCommitsLoaded(msg commitsLoadedMsg) (tea.Model, tea.Cmd) {
 		m.logError("load commits", "err", msg.err, "project", msg.projectID)
 		return m, nil
 	}
-	m.commitCache[msg.projectID] = msg.commits
+	m.commitCache.Set(msg.projectID, msg.commits)
 	// Invalidate detail cache so commits appear immediately
 	selectedID := 0
 	if project, ok := m.selectedProject(); ok {

@@ -70,7 +70,7 @@ func renderDetailPane(m *Model, width int) string {
 	if m.commitLoading[project.ID] {
 		b.WriteString(detailValueStyle.Render(" Loading commits..."))
 		b.WriteString("\n")
-	} else if commits, ok := m.commitCache[project.ID]; ok && len(commits) > 0 {
+	} else if commits, ok := m.commitCache.Get(project.ID); ok && len(commits) > 0 {
 		for _, c := range commits {
 			timeAgo := formatTimeAgo(c.CreatedAt)
 			// sha + 2 spaces + title + 2 spaces + (time ago) = need to fit in width

@@ -61,6 +61,7 @@ const (
 	maxPipelineStatusCacheSize = 100       // Keep last 100 pipeline statuses
 	maxPreviewHighlightEntries = 25        // Keep last 25 syntax highlights
 	maxPreviewHighlightBytes   = 200_000   // 200KB max per highlight
+	maxCommitCacheSize         = 50        // Keep last 50 projects' commits
 
 	// UI layout constants
 	stageTableDefaultHeight = 10 // Default row count for the pipeline stage table
@@ -365,7 +366,7 @@ type Model struct {
 	// by project ID. Fetched lazily when a project is selected in the multi-panel
 	// layout and cached indefinitely (commits rarely change fast enough to matter
 	// during a single session). Unlike pipeline status, there is no periodic refresh.
-	commitCache   map[int][]gitlab.CommitSummary
+	commitCache   *LRUCache[int, []gitlab.CommitSummary]
 	commitLoading map[int]bool
 }
 
@@ -600,7 +601,10 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 			c := NewLRUCache[string, previewHighlightEntry](maxPreviewHighlightEntries)
 			return &c
 		}(),
-		commitCache:   make(map[int][]gitlab.CommitSummary),
+		commitCache: func() *LRUCache[int, []gitlab.CommitSummary] {
+			c := NewLRUCache[int, []gitlab.CommitSummary](maxCommitCacheSize)
+			return &c
+		}(),
 		commitLoading: make(map[int]bool),
 		batchInFlight: &atomic.Bool{},
 	}
