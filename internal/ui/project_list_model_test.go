@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -176,6 +177,42 @@ func TestHandlePipelineLogLoadedIgnoresStale(t *testing.T) {
 	}
 }
 
+func TestHandlePipelineLogLoadedTruncatesActivePreview(t *testing.T) {
+	content := strings.Repeat("x", maxLogSizeBytes+128)
+	want := truncateLogContent(content)
+	m := Model{
+		mode: modePipelines,
+		pipelineView: pipelineViewState{
+			project:       gitlab.ProjectNode{ID: 1},
+			logJobID:      10,
+			logs:          NewAsyncCache[int, string](),
+			logAutoFollow: true,
+			logViewport:   viewport.New(80, 20),
+			logPreview:    previewState{path: "build"},
+		},
+	}
+
+	updated, _ := m.handlePipelineLogLoaded(pipelineLogLoadedMsg{
+		projectID: 1,
+		jobID:     10,
+		content:   content,
+	})
+	got := updated.(Model).pipelineView
+
+	if got.logPreview.content != want {
+		t.Fatalf("expected truncated preview content, got len=%d want len=%d", len(got.logPreview.content), len(want))
+	}
+	if got.logPreview.raw != want {
+		t.Fatalf("expected truncated preview raw content")
+	}
+	if got.logPreview.path != "build" {
+		t.Fatalf("expected preview path to be preserved, got %q", got.logPreview.path)
+	}
+	if cached, ok := got.logs.Get(10); !ok || cached != want {
+		t.Fatalf("expected truncated log to be cached")
+	}
+}
+
 // TestQueuePipelineLogPreviewPreservesOffset verifies that when logAutoFollow
 // is false (user has scrolled), re-queuing the same job's log updates content
 // without resetting the viewport scroll position.
@@ -209,6 +246,120 @@ func TestQueuePipelineLogPreviewPreservesOffset(t *testing.T) {
 	// When logAutoFollow is false, viewport preserves scroll position
 	if m.pipelineView.logPreview.content != content {
 		t.Fatalf("expected log content to update from cache")
+	}
+}
+
+func TestHandleBatchPipelineStatusClearsStaleFlags(t *testing.T) {
+	statuses := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
+	statuses.Set(1, pipelineState{err: fmt.Errorf("boom"), ref: "main"})
+	statuses.Set(2, pipelineState{empty: true})
+	statuses.Set(3, pipelineState{
+		err:   fmt.Errorf("old"),
+		empty: true,
+		info:  gitlab.PipelineSummary{ID: 99},
+	})
+	m := Model{
+		mode:           modeMultiPanel,
+		allProjects:    []gitlab.ProjectNode{{ID: 1}, {ID: 2}, {ID: 3}},
+		opts:           Options{ProjectsPerPage: 10},
+		pagesReady:     map[int]bool{1: true},
+		page:           1,
+		projectTab:     projectTabAll,
+		pipelineStatus: &statuses,
+	}
+
+	updated, _ := m.handleBatchPipelineStatus(batchPipelineStatusMsg{
+		results: map[int]pipelineStatusResult{
+			1: {empty: true},
+			2: {err: fmt.Errorf("fetch failed")},
+			3: {pipeline: gitlab.PipelineSummary{ID: 42, Status: "success"}},
+		},
+	})
+	got := updated.(Model)
+
+	state1, _ := got.pipelineStatus.Get(1)
+	if !state1.empty || state1.err != nil || state1.hasInfo || state1.info.ID != 0 {
+		t.Fatalf("expected empty state to clear stale error/info, got %#v", state1)
+	}
+	if state1.ref != pipelineAllRefsRef {
+		t.Fatalf("expected batch refresh ref=%q, got %q", pipelineAllRefsRef, state1.ref)
+	}
+
+	state2, _ := got.pipelineStatus.Get(2)
+	if state2.err == nil || state2.empty || state2.hasInfo || state2.info.ID != 0 {
+		t.Fatalf("expected error state to clear stale empty/info flags, got %#v", state2)
+	}
+
+	state3, _ := got.pipelineStatus.Get(3)
+	if !state3.hasInfo || state3.err != nil || state3.empty || state3.info.ID != 42 {
+		t.Fatalf("expected info state to clear stale error/empty flags, got %#v", state3)
+	}
+}
+
+func TestHandlePipelinesLoadedNoPipelinesClearsSubstate(t *testing.T) {
+	logs := NewAsyncCache[int, string]()
+	logs.Set(100, "old log")
+	stages := NewAsyncCache[int, []gitlab.PipelineStage]()
+	stages.Set(10, []gitlab.PipelineStage{{Name: "build"}})
+	jobs := NewAsyncCache[int, []gitlab.PipelineJob]()
+	jobs.Set(10, []gitlab.PipelineJob{{ID: 100, Name: "build", Stage: "build"}})
+	bridges := NewAsyncCache[int, []gitlab.PipelineBridge]()
+	bridges.Set(10, []gitlab.PipelineBridge{{ID: 7, Name: "child", Stage: "deploy"}})
+	childJobs := NewAsyncCache[int, []gitlab.PipelineJob]()
+	childJobs.Set(77, []gitlab.PipelineJob{{ID: 200, Name: "child-job"}})
+
+	pipelineList := newBareList([]list.Item{pipelineItem{summary: gitlab.PipelineSummary{ID: 10}}}, pipelineDelegate{}, 40, 10)
+	stageTable := table.New()
+
+	m := Model{
+		mode: modePipelines,
+		pipelineView: pipelineViewState{
+			project:              gitlab.ProjectNode{ID: 1},
+			pipelines:            []gitlab.PipelineSummary{{ID: 10}},
+			pipelineList:         pipelineList,
+			selected:             0,
+			pendingSelectID:      10,
+			stages:               stages,
+			stageTable:           stageTable,
+			jobs:                 jobs,
+			logs:                 logs,
+			logPreview:           previewState{content: "old log", raw: "old log"},
+			logJobID:             100,
+			bridges:              bridges,
+			childJobs:            childJobs,
+			stageSelected:        1,
+			jobRows:              []gitlab.PipelineJob{{ID: 100, Name: "build"}},
+			stageJobRows:         []stageJobRow{{Kind: rowKindJob, Job: &gitlab.PipelineJob{ID: 100, Name: "build"}}},
+			testReport:           &gitlab.TestReport{},
+			testReportLoading:    true,
+			testReportErr:        fmt.Errorf("old"),
+			testReportPipelineID: 10,
+		},
+	}
+
+	updated, _ := m.handlePipelinesLoaded(pipelinesLoadedMsg{
+		projectID: 1,
+		err:       gitlab.ErrNoPipelines,
+	})
+	got := updated.(Model).pipelineView
+
+	if got.pipelines != nil || got.selected != 0 || got.pendingSelectID != 0 {
+		t.Fatalf("expected pipeline selection to reset, got %#v", got.pipelines)
+	}
+	if got.logs.Len() != 0 || got.jobs.Len() != 0 || got.stages.Len() != 0 {
+		t.Fatalf("expected pipeline caches to clear")
+	}
+	if got.bridges.Len() != 0 || got.childJobs.Len() != 0 {
+		t.Fatalf("expected child pipeline caches to clear")
+	}
+	if got.logPreview.content != "" || got.logJobID != 0 {
+		t.Fatalf("expected stale log preview to clear, got %#v", got.logPreview)
+	}
+	if got.testReport != nil || got.testReportLoading || got.testReportErr != nil || got.testReportPipelineID != 0 {
+		t.Fatalf("expected stale test report state to clear")
+	}
+	if got.totalPages != 0 {
+		t.Fatalf("expected totalPages=0, got %d", got.totalPages)
 	}
 }
 
@@ -822,6 +973,143 @@ func TestProjectNav_TriggersAutoLoad(t *testing.T) {
 	// The auto-load block should fire and return a batch command
 	if cmd == nil {
 		t.Fatal("expected auto-load command after project selection change, got nil")
+	}
+}
+
+func TestProjectPageChangeSchedulesAutoLoadForNewSelection(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	m.opts.ProjectsPerPage = 1
+	m.pagesReady = map[int]bool{1: true, 2: true}
+	m.page = 1
+	m.selected = 0
+	m.projectList.Select(0)
+	m.updateProjectList()
+
+	updated, cmd := m.handleMultiPanelKey(keyMsg("]"))
+	got := updated.(Model)
+
+	project, ok := got.selectedProject()
+	if !ok || project.ID != 2 {
+		t.Fatalf("expected page 2 to select project 2, got %#v ok=%v", project, ok)
+	}
+	if got.selectionPending == nil || got.selectionPending.ID != 2 {
+		t.Fatalf("expected selectionPending for project 2, got %#v", got.selectionPending)
+	}
+	if got.selectionDebounce == nil {
+		t.Fatal("expected debounce timer for auto-load")
+	}
+	if cmd == nil {
+		t.Fatal("expected batched commands after page change")
+	}
+}
+
+func TestHandleProjectsLoadedBackgroundSchedulesAutoLoadForVisiblePage(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	m.opts.ProjectsPerPage = 1
+	m.page = 2
+	m.pagesReady = map[int]bool{1: true}
+	m.allProjects = []gitlab.ProjectNode{{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha"}}
+	m.invalidateVisibleCache()
+	m.updateProjectList()
+
+	updated, cmd := m.handleProjectsLoaded(projectsLoadedMsg{
+		background: true,
+		page: gitlab.ProjectPage{
+			Page:       2,
+			TotalPages: 2,
+			Projects: []gitlab.ProjectNode{
+				{ID: 2, Name: "beta", PathWithNamespace: "team/beta"},
+			},
+		},
+	})
+	got := updated.(Model)
+
+	project, ok := got.selectedProject()
+	if !ok || project.ID != 2 {
+		t.Fatalf("expected loaded background page to become visible selection, got %#v ok=%v", project, ok)
+	}
+	if got.selectionPending == nil || got.selectionPending.ID != 2 {
+		t.Fatalf("expected selectionPending for project 2, got %#v", got.selectionPending)
+	}
+	if cmd == nil {
+		t.Fatal("expected follow-up commands after background page load")
+	}
+}
+
+func TestSearchDebounceProjectChangeSchedulesAutoLoad(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	ts := time.Now()
+	m.search.pendingQuery = "beta"
+	m.search.debounceTimer = &ts
+
+	updated, cmd := m.handleSearchDebounceTickMsg(searchDebounceTickMsg{
+		query:     "beta",
+		timestamp: ts,
+	})
+	got := updated.(Model)
+
+	project, ok := got.selectedProject()
+	if !ok || project.ID != 2 {
+		t.Fatalf("expected filtered selection to move to project 2, got %#v ok=%v", project, ok)
+	}
+	if got.selectionPending == nil || got.selectionPending.ID != 2 {
+		t.Fatalf("expected selectionPending for project 2, got %#v", got.selectionPending)
+	}
+	if got.selectionDebounce == nil {
+		t.Fatal("expected selection debounce timer after search filter change")
+	}
+	if cmd == nil {
+		t.Fatal("expected follow-up commands after search debounce")
+	}
+}
+
+func TestSearchDebounceClearsPendingAutoLoadWhenSelectionDisappears(t *testing.T) {
+	m := newMultiPanelModel(PanelProjects)
+	m.selected = 1
+	m.projectList.Select(1)
+
+	if cmd := (&m).autoLoadSelectedProjectData(); cmd == nil {
+		t.Fatal("expected pending auto-load for selected project")
+	}
+	if m.selectionPending == nil {
+		t.Fatal("expected pending project to be queued")
+	}
+	if m.selectionDebounce == nil {
+		t.Fatal("expected debounce timer to be queued")
+	}
+	pendingProjectID := m.selectionPending.ID
+	pendingTS := *m.selectionDebounce
+
+	searchTS := time.Now()
+	m.search.pendingQuery = "zzz"
+	m.search.debounceTimer = &searchTS
+
+	updated, _ := m.handleSearchDebounceTickMsg(searchDebounceTickMsg{
+		query:     "zzz",
+		timestamp: searchTS,
+	})
+	got := updated.(Model)
+
+	if _, ok := got.selectedProject(); ok {
+		t.Fatal("expected selection to disappear after filtering to zero results")
+	}
+	if got.selectionPending != nil {
+		t.Fatalf("expected pending auto-load to be cleared, got %#v", got.selectionPending)
+	}
+	if got.selectionDebounce != nil {
+		t.Fatal("expected selection debounce to be cleared")
+	}
+
+	updated, cmd := got.handleSelectionDebounce(selectionDebounceTickMsg{
+		projectID: pendingProjectID,
+		timestamp: pendingTS,
+	})
+	after := updated.(Model)
+	if cmd != nil {
+		t.Fatal("expected stale debounce tick to be ignored")
+	}
+	if after.pipelineView.project.ID != 1 {
+		t.Fatalf("expected pipeline view to stay on project 1, got %d", after.pipelineView.project.ID)
 	}
 }
 

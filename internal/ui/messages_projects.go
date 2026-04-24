@@ -27,6 +27,7 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 		m.status = "Cache empty, contacting GitLab..."
 		return m, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, 1, false)
 	}
+	prevID, prevOK := m.currentSelectedProjectID()
 	m.loading = false
 	m.err = nil
 	m.backgroundLoading = false
@@ -64,11 +65,8 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	if prefetchCmd := (&m).queueBatchPrefetchPipelineStatus(); prefetchCmd != nil {
 		cmds = append(cmds, prefetchCmd)
 	}
-	// Auto-load sidebar data for initially selected project in multi-panel mode
-	if m.mode == modeMultiPanel {
-		if cmd := (&m).autoLoadSelectedProjectData(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+	if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -92,12 +90,19 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 		m.logError("load projects", "err", msg.err, "background", msg.background)
 		return m, nil
 	}
+	prevID, prevOK := m.currentSelectedProjectID()
 
 	if msg.background {
 		m.appendPage(msg.page)
 		m.backgroundLoading = false
 		m.updateProjectList()
 		m.status = fmt.Sprintf("Loaded page %d", msg.page.Page)
+		if batchCmd := (&m).queueBatchPrefetchPipelineStatus(); batchCmd != nil {
+			cmds = append(cmds, batchCmd)
+		}
+		if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		if m.cache != nil && len(m.allProjects) > 0 {
 			cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
 		}
@@ -145,11 +150,8 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	if m.cache != nil && len(m.allProjects) > 0 {
 		cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
 	}
-	// Auto-load sidebar data for initially selected project in multi-panel mode
-	if m.mode == modeMultiPanel {
-		if cmd := (&m).autoLoadSelectedProjectData(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+	if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	if len(cmds) == 0 {
 		return m, nil
@@ -219,13 +221,18 @@ func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model,
 		state.loading = false
 		state.lastFetched = now
 		state.lastAccessed = now
+		state.ref = pipelineAllRefsRef
 
 		if result.err != nil {
 			state.err = result.err
 			state.hasInfo = false
+			state.empty = false
+			state.info = gitlab.PipelineSummary{}
 		} else if result.empty {
 			state.empty = true
 			state.hasInfo = false
+			state.err = nil
+			state.info = gitlab.PipelineSummary{}
 		} else {
 			state.info = result.pipeline
 			state.hasInfo = true
@@ -327,6 +334,7 @@ func (m Model) handleSearchDebounceTickMsg(msg searchDebounceTickMsg) (tea.Model
 	if msg.query != m.search.pendingQuery {
 		return m, nil
 	}
+	prevID, prevOK := m.currentSelectedProjectID()
 
 	// Apply the pending query
 	m.search.debounceTimer = nil
@@ -338,6 +346,15 @@ func (m Model) handleSearchDebounceTickMsg(msg searchDebounceTickMsg) (tea.Model
 	m.ensureSelectionBounds()
 	m.updateProjectList()
 
-	// Batch prefetch pipeline status for filtered results
-	return m, (&m).queueBatchPrefetchPipelineStatus()
+	var cmds []tea.Cmd
+	if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
 }

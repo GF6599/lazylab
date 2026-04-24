@@ -36,8 +36,25 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 		if errors.Is(msg.err, gitlab.ErrNoPipelines) {
 			m.pipelineView.err = nil
 			m.pipelineView.pipelines = nil
+			m.pipelineView.selected = 0
+			m.pipelineView.pendingSelectID = 0
 			m.pipelineView.page = 1
 			m.pipelineView.totalPages = 0
+			m.pipelineView.pipelineList.SetItems(nil)
+			m.pipelineView.stages.Clear()
+			m.pipelineView.jobs.Clear()
+			m.pipelineView.logs.Clear()
+			m.pipelineView.bridges.Clear()
+			m.pipelineView.childJobs.Clear()
+			m.pipelineView.stageSelected = 0
+			m.pipelineView.jobRows = nil
+			m.pipelineView.stageJobRows = nil
+			m.pipelineView.testReport = nil
+			m.pipelineView.testReportLoading = false
+			m.pipelineView.testReportErr = nil
+			m.pipelineView.testReportPipelineID = 0
+			m.resetPipelineLogPreview()
+			m.updateStageTable()
 			return m, nil
 		}
 		m.pipelineView.err = msg.err
@@ -205,13 +222,17 @@ func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea
 	if msg.jobID == m.pipelineView.pendingLogJobID {
 		m.pipelineView.pendingLogJobID = 0
 	}
+	path := m.pipelineView.logPreview.path
+	if path == "" {
+		path = fmt.Sprintf("job-%d", msg.jobID)
+	}
 	m.pipelineView.logPreview = previewState{
-		path:    fmt.Sprintf("job-%d", msg.jobID),
-		content: msg.content,
-		raw:     msg.content,
+		path:    path,
+		content: truncated,
+		raw:     truncated,
 		loading: false,
 	}
-	m.setLogViewportContent(msg.content)
+	m.setLogViewportContent(truncated)
 	m.pipelineView.logJobID = msg.jobID
 	if m.pipelineView.logAutoFollow {
 		m.pipelineView.logViewport.GotoBottom()

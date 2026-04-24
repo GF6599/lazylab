@@ -79,11 +79,13 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "[":
 		pageCmd := m.movePage(-1)
 		prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
-		return m, tea.Batch(pageCmd, prefetchCmd)
+		selectionCmd := (&m).handleSelectedProjectChange(prevID, prevOK)
+		return m, tea.Batch(pageCmd, prefetchCmd, selectionCmd)
 	case "]":
 		pageCmd := m.movePage(1)
 		prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
-		return m, tea.Batch(pageCmd, prefetchCmd)
+		selectionCmd := (&m).handleSelectedProjectChange(prevID, prevOK)
+		return m, tea.Batch(pageCmd, prefetchCmd, selectionCmd)
 	case "r", "ctrl+r":
 		m.loading = true
 		m.err = nil
@@ -115,29 +117,31 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				favorites:      m.favorites,
 			})
 			m.invalidateVisibleCache()
-			m.updateProjectList()
 			m.ensureSelectionBounds()
-			var saveCmd tea.Cmd
+			m.updateProjectList()
+			var cmds []tea.Cmd
 			if m.favStore != nil {
-				saveCmd = saveFavoritesCmd(m.favStore, m.favOrder)
+				cmds = append(cmds, saveFavoritesCmd(m.favStore, m.favOrder))
 			}
-			return m, saveCmd
+			if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			if len(cmds) == 0 {
+				return m, nil
+			}
+			return m, tea.Batch(cmds...)
 		}
 	case "t":
 		m.projectTab = (m.projectTab + 1) % projectTabCount
 		m.selected = 0
 		m.invalidateVisibleCache()
-		m.updateProjectList()
 		m.ensureSelectionBounds()
-		if m.selected >= 0 {
-			m.projectList.Select(m.selected)
-		}
-		(&m).invalidateDetailCache()
+		m.updateProjectList()
 		var cmds []tea.Cmd
 		if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		if cmd := (&m).autoLoadSelectedProjectData(); cmd != nil {
+		if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		if len(cmds) > 0 {
@@ -157,12 +161,8 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Auto-load sidebar panels when selection changes
-	currID, currOK := m.currentSelectedProjectID()
-	if prevID != currID || prevOK != currOK {
-		(&m).invalidateDetailCache()
-		if cmd := (&m).autoLoadSelectedProjectData(); cmd != nil {
-			return m, cmd
-		}
+	if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+		return m, cmd
 	}
 	return m, nil
 }
@@ -253,10 +253,12 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 func (m *Model) autoLoadSelectedProjectData() tea.Cmd {
 	project, ok := m.selectedProject()
 	if !ok {
+		m.clearSelectionDebounce()
 		return nil
 	}
 	// Skip debounce on first load for instant startup feedback
 	if m.pipelineView.project.ID == 0 {
+		m.clearSelectionDebounce()
 		return m.loadSelectedProjectData(project)
 	}
 	now := time.Now()

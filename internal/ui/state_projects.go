@@ -5,6 +5,7 @@ package ui
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -40,6 +41,30 @@ func (m Model) currentSelectedProjectID() (int, bool) {
 	return project.ID, true
 }
 
+// clearSelectionDebounce cancels any queued sidebar auto-load for the selected
+// project. This is needed when the visible selection disappears or the
+// multi-panel auto-load flow is no longer active.
+func (m *Model) clearSelectionDebounce() {
+	m.selectionPending = nil
+	m.selectionDebounce = nil
+}
+
+// handleSelectedProjectChange invalidates project-detail rendering and, in the
+// multi-panel layout, re-queues sidebar data loading when the selected project
+// identity changes due to search, pagination, favorites, or list reloads.
+func (m *Model) handleSelectedProjectChange(prevID int, prevOK bool) tea.Cmd {
+	currID, currOK := m.currentSelectedProjectID()
+	if prevID == currID && prevOK == currOK {
+		return nil
+	}
+	m.invalidateDetailCache()
+	if m.mode != modeMultiPanel || !currOK {
+		m.clearSelectionDebounce()
+		return nil
+	}
+	return m.autoLoadSelectedProjectData()
+}
+
 // ensureSelectionBounds clamps m.selected to [0, len(visibleProjects)-1].
 // Must be called after any operation that changes the visible project set
 // (page navigation, search query change, tab switch, project list reload)
@@ -64,6 +89,11 @@ func (m *Model) ensureSelectionBounds() {
 // is marked as loading before the command fires to prevent duplicate fetches
 // from overlapping ticks.
 func (m *Model) queueBatchPrefetchPipelineStatus() tea.Cmd {
+	// NewModel initializes this, but tests and zero-value Models may not.
+	if m.batchInFlight == nil {
+		m.batchInFlight = &atomic.Bool{}
+	}
+
 	// Skip if a previous batch is still in-flight to prevent accumulation
 	if m.batchInFlight != nil && m.batchInFlight.Load() {
 		return nil

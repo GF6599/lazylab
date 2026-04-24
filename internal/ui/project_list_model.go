@@ -903,6 +903,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.logError("load favorites", "err", msg.err)
 		} else {
+			prevID, prevOK := m.currentSelectedProjectID()
 			m.favOrder = msg.favOrder
 			// Rebuild the map from the ordered slice
 			m.favorites = make(map[int]bool, len(m.favOrder))
@@ -919,17 +920,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Favorites may have changed the visible set; reload sidebar data
 			// and batch-prefetch pipeline status for the new visible projects.
-			if m.mode == modeMultiPanel && len(m.allProjects) > 0 {
-				var cmds []tea.Cmd
-				if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-				if cmd := (&m).autoLoadSelectedProjectData(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-				if len(cmds) > 0 {
-					return m, tea.Batch(cmds...)
-				}
+			var cmds []tea.Cmd
+			if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			if len(cmds) > 0 {
+				return m, tea.Batch(cmds...)
 			}
 		}
 		return m, nil

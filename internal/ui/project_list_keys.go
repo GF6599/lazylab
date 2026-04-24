@@ -24,6 +24,7 @@ func (m Model) handleProjectSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg.Type {
 	case tea.KeyEsc:
+		prevID, prevOK := m.currentSelectedProjectID()
 		m.search.active = false
 		m.search.query = ""
 		m.search.pendingQuery = ""
@@ -34,8 +35,19 @@ func (m Model) handleProjectSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ensureSelectionBounds()
 		m.updateProjectList()
 		m.status = "Search cleared"
-		return m, (&m).queueBatchPrefetchPipelineStatus()
+		var cmds []tea.Cmd
+		if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if len(cmds) == 0 {
+			return m, nil
+		}
+		return m, tea.Batch(cmds...)
 	case tea.KeyEnter:
+		prevID, prevOK := m.currentSelectedProjectID()
 		m.search.active = false
 		m.search.query = m.search.input.Value()
 		m.search.pendingQuery = ""
@@ -45,7 +57,17 @@ func (m Model) handleProjectSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.invalidateVisibleCache()
 		m.ensureSelectionBounds()
 		m.updateProjectList()
-		return m, (&m).queueBatchPrefetchPipelineStatus()
+		var cmds []tea.Cmd
+		if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if len(cmds) == 0 {
+			return m, nil
+		}
+		return m, tea.Batch(cmds...)
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	default:
