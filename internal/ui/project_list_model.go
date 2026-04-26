@@ -352,13 +352,11 @@ type Model struct {
 	// see the same flag. Must be accessed atomically.
 	batchInFlight *atomic.Bool
 
-	// Detail pane render cache
-	detailCacheProjectID   int
-	detailCachePipelineID  int
-	detailCachePipelineHas bool
-	detailCacheWidth       int
-	detailCacheHeight      int
-	detailCacheOutput      string
+	// detailCache memoizes the rendered detail pane for the currently selected
+	// project. The pane is re-rendered only when any field of detailCacheKey
+	// (project, pipeline, dimensions) changes, preventing redundant lipgloss
+	// passes on every View() call.
+	detailCache detailCacheState
 
 	previewHighlightCache *LRUCache[string, previewHighlightEntry]
 
@@ -525,6 +523,42 @@ const (
 //
 // The returned Model starts in modeMultiPanel and begins loading on [Model.Init].
 func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
+	opts = applyOptionDefaults(opts)
+	pipelineStatus := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
+	previewHighlight := NewLRUCache[string, previewHighlightEntry](maxPreviewHighlightEntries)
+	commits := NewLRUCache[int, []gitlab.CommitSummary](maxCommitCacheSize)
+	favorites := make(map[int]bool)
+
+	m := Model{
+		ctx:                   ctx,
+		client:                client,
+		opts:                  opts,
+		page:                  1,
+		mode:                  modeMultiPanel,
+		focus:                 FocusState{Active: PanelProjects},
+		pipelineStatus:        &pipelineStatus,
+		search:                searchState{input: newSearchInput()},
+		loading:               true,
+		pagesReady:            make(map[int]bool),
+		keys:                  newKeyMap(),
+		help:                  newAppHelp(),
+		spinner:               newAppSpinner(),
+		paginator:             newAppPaginator(opts.ProjectsPerPage),
+		projectList:           newProjectListModel(&pipelineStatus, favorites),
+		favorites:             favorites,
+		projectTab:            projectTabFavorites,
+		recentProjects:        make([]int, 0, 10),
+		previewHighlightCache: &previewHighlight,
+		commitCache:           &commits,
+		commitLoading:         make(map[int]bool),
+		batchInFlight:         &atomic.Bool{},
+	}
+	m.attachPersistentStores()
+	return m
+}
+
+// applyOptionDefaults fills zero-valued Options fields with sensible defaults.
+func applyOptionDefaults(opts Options) Options {
 	if opts.ProjectsPerPage <= 0 {
 		opts.ProjectsPerPage = 30
 	}
@@ -537,6 +571,10 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 	if opts.DiffContextLines <= 0 {
 		opts.DiffContextLines = 10
 	}
+	return opts
+}
+
+func newSearchInput() textinput.Model {
 	input := textinput.New()
 	input.Placeholder = "Search projects"
 	input.CharLimit = 128
@@ -546,84 +584,60 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 	input.PromptStyle = lipgloss.NewStyle().Foreground(colorSubtle)
 	input.Cursor.Style = lipgloss.NewStyle().Foreground(colorActive)
 	input.Blur()
+	return input
+}
 
-	// Initialize spinner
+func newAppSpinner() spinner.Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(colorActive)
+	return s
+}
 
-	// Initialize help
+func newAppHelp() help.Model {
 	h := help.New()
 	h.Styles.ShortKey = lipgloss.NewStyle().Foreground(colorSubtle)
 	h.Styles.ShortDesc = lipgloss.NewStyle().Foreground(colorMuted)
 	h.Styles.FullKey = lipgloss.NewStyle().Foreground(colorSubtle)
 	h.Styles.FullDesc = lipgloss.NewStyle().Foreground(colorMuted)
+	return h
+}
 
-	// Initialize paginator for projects
+func newAppPaginator(perPage int) paginator.Model {
 	p := paginator.New()
 	p.Type = paginator.Dots
-	p.PerPage = opts.ProjectsPerPage
+	p.PerPage = perPage
 	p.ActiveDot = lipgloss.NewStyle().Foreground(colorActive).Render("•")
 	p.InactiveDot = lipgloss.NewStyle().Foreground(colorMuted).Render("•")
+	return p
+}
 
-	// Initialize pipeline status cache (shared with delegate)
-	pipelineStatus := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
-	favorites := make(map[int]bool)
+func newProjectListModel(pipelineStatus *LRUCache[int, pipelineState], favorites map[int]bool) list.Model {
+	delegate := projectDelegate{pipelineStatus: pipelineStatus, favorites: favorites}
+	pl := newBareList(nil, delegate, 0, 0)
+	pl.Styles.Title = titleStyle
+	return pl
+}
 
-	// Initialize project list
-	delegate := projectDelegate{pipelineStatus: &pipelineStatus, favorites: favorites}
-	projectList := newBareList(nil, delegate, 0, 0)
-	projectList.Styles.Title = titleStyle
-
-	m := Model{
-		ctx:            ctx,
-		client:         client,
-		opts:           opts,
-		page:           1,
-		mode:           modeMultiPanel,
-		focus:          FocusState{Active: PanelProjects},
-		pipelineStatus: &pipelineStatus,
-		search: searchState{
-			active: false,
-			input:  input,
-		},
-		loading:        true,
-		pagesReady:     make(map[int]bool),
-		keys:           newKeyMap(),
-		help:           h,
-		spinner:        s,
-		paginator:      p,
-		projectList:    projectList,
-		favorites:      favorites,
-		projectTab:     projectTabFavorites,
-		recentProjects: make([]int, 0, 10),
-		previewHighlightCache: func() *LRUCache[string, previewHighlightEntry] {
-			c := NewLRUCache[string, previewHighlightEntry](maxPreviewHighlightEntries)
-			return &c
-		}(),
-		commitCache: func() *LRUCache[int, []gitlab.CommitSummary] {
-			c := NewLRUCache[int, []gitlab.CommitSummary](maxCommitCacheSize)
-			return &c
-		}(),
-		commitLoading: make(map[int]bool),
-		batchInFlight: &atomic.Bool{},
-	}
-	if cache, err := newProjectCache(opts.Host); err == nil {
+// attachPersistentStores opens the on-disk caches for projects, favorites,
+// and preferences. Failures are logged but non-fatal; the app falls back to
+// API-only mode for the affected store.
+func (m *Model) attachPersistentStores() {
+	if cache, err := newProjectCache(m.opts.Host); err == nil {
 		m.cache = cache
 	} else {
 		m.logError("init cache", "err", err)
 	}
-	if store, err := newFavoritesStore(opts.Host); err == nil {
+	if store, err := newFavoritesStore(m.opts.Host); err == nil {
 		m.favStore = store
 	} else {
 		m.logError("init favorites store", "err", err)
 	}
-	if store, err := newPreferencesStore(opts.Host); err == nil {
+	if store, err := newPreferencesStore(m.opts.Host); err == nil {
 		m.prefStore = store
 	} else {
 		m.logError("init preferences store", "err", err)
 	}
-	return m
 }
 
 // refreshThemeSubComponents re-applies theme colors to Bubble Tea sub-components
@@ -794,39 +808,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newModel, cmd := m.toggleTheme()
 			return newModel, tea.Batch(spinnerCmd, cmd)
 		}
-		switch m.mode {
-		case modeMultiPanel:
-			// Check if in explorer overlay
-			if m.explorer.project.ID != 0 && len(m.explorer.stack) > 0 {
-				newModel, cmd := m.handleExplorerKey(msg)
-				return newModel, tea.Batch(spinnerCmd, cmd)
-			}
-			// Create MR modal
-			if m.mrView.createMR.active {
-				newModel, cmd := m.handleCreateMRKey(msg)
-				return newModel, tea.Batch(spinnerCmd, cmd)
-			}
-			// Reply modal
-			if m.mrView.reply.active {
-				newModel, cmd := m.handleMRReplyKey(msg)
-				return newModel, tea.Batch(spinnerCmd, cmd)
-			}
-			// Retry confirmation modal
-			if m.pipelineView.retryConfirm.active {
-				newModel, cmd := m.handlePipelineRetryConfirmKey(msg)
-				return newModel, tea.Batch(spinnerCmd, cmd)
-			}
-			newModel, cmd := m.handleMultiPanelKey(msg)
-			return newModel, tea.Batch(spinnerCmd, cmd)
-		case modeExplorer:
-			newModel, cmd := m.handleExplorerKey(msg)
-			return newModel, tea.Batch(spinnerCmd, cmd)
-		case modePipelines:
-			newModel, cmd := m.handlePipelineViewKey(msg)
-			return newModel, tea.Batch(spinnerCmd, cmd)
-		default:
-			return m, spinnerCmd
-		}
+		newModel, cmd := m.dispatchKey(msg)
+		return newModel, tea.Batch(spinnerCmd, cmd)
 	case projectsLoadedMsg:
 		return m.handleProjectsLoaded(msg)
 	case cacheLoadedMsg:
@@ -956,4 +939,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// dispatchKey routes a key event to the appropriate handler. In modeMultiPanel
+// it walks an explicit modal-overlay stack (explorer > createMR > reply >
+// retryConfirm) before falling through to the panel router. The order encodes
+// precedence: an active overlay always shadows lower-priority handlers.
+func (m Model) dispatchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.mode {
+	case modeMultiPanel:
+		for _, ovr := range m.modalOverlays() {
+			if ovr.active {
+				return ovr.handle(msg)
+			}
+		}
+		return m.handleMultiPanelKey(msg)
+	case modeExplorer:
+		return m.handleExplorerKey(msg)
+	case modePipelines:
+		return m.handlePipelineViewKey(msg)
+	}
+	return m, nil
+}
+
+// modalOverlay describes one entry in the modal stack: the predicate that
+// activates it and the handler to invoke. Order matters — overlays earlier
+// in the slice shadow later ones.
+type modalOverlay struct {
+	active bool
+	handle func(tea.KeyMsg) (tea.Model, tea.Cmd)
+}
+
+// modalOverlays returns the modal stack in priority order. Building this each
+// keystroke is fine: it's a 4-element slice of closures over receiver state,
+// which is cheap relative to the work the handlers themselves do.
+func (m Model) modalOverlays() []modalOverlay {
+	return []modalOverlay{
+		{active: m.explorer.project.ID != 0 && len(m.explorer.stack) > 0, handle: m.handleExplorerKey},
+		{active: m.mrView.createMR.active, handle: m.handleCreateMRKey},
+		{active: m.mrView.reply.active, handle: m.handleMRReplyKey},
+		{active: m.pipelineView.retryConfirm.active, handle: m.handlePipelineRetryConfirmKey},
+	}
 }

@@ -265,57 +265,50 @@ func (m *Model) invalidateVisibleCache() {
 	m.visibleCacheTab = projectTabAll
 }
 
-// cachedDetailPane returns the detail pane view, using cache when valid
+// detailCacheState memoizes the rendered detail pane keyed by the inputs that
+// affect its output. A zero value means "no cached output" and forces a render.
+type detailCacheState struct {
+	projectID   int
+	pipelineID  int
+	pipelineHas bool
+	width       int
+	height      int
+	output      string
+}
+
+// cachedDetailPane returns the detail pane view, using cache when valid.
 func (m *Model) cachedDetailPane(width, height int) string {
 	visible := m.visibleProjects()
 	if len(visible) == 0 {
-		// Clear cache for empty state
-		m.detailCacheProjectID = 0
-		m.detailCachePipelineID = 0
-		m.detailCachePipelineHas = false
-		m.detailCacheWidth = 0
-		m.detailCacheHeight = 0
-		m.detailCacheOutput = ""
-		// Render empty state
+		m.detailCache = detailCacheState{}
 		return renderDetailPane(m, width)
 	}
 
 	project := visible[m.selected]
 	pipelineState, _ := m.pipelineStatus.Get(project.ID)
-
-	// Check cache validity
-	cacheValid := m.detailCacheProjectID == project.ID &&
-		m.detailCachePipelineID == pipelineState.info.ID &&
-		m.detailCachePipelineHas == pipelineState.hasInfo &&
-		m.detailCacheWidth == width &&
-		m.detailCacheHeight == height
-
-	if cacheValid && m.detailCacheOutput != "" {
-		return m.detailCacheOutput
+	key := detailCacheState{
+		projectID:   project.ID,
+		pipelineID:  pipelineState.info.ID,
+		pipelineHas: pipelineState.hasInfo,
+		width:       width,
+		height:      height,
 	}
-
-	// Render fresh
-	output := renderDetailPane(m, width)
-
-	// Update cache
-	m.detailCacheProjectID = project.ID
-	m.detailCachePipelineID = pipelineState.info.ID
-	m.detailCachePipelineHas = pipelineState.hasInfo
-	m.detailCacheWidth = width
-	m.detailCacheHeight = height
-	m.detailCacheOutput = output
-
-	return output
+	if m.detailCache.output != "" &&
+		m.detailCache.projectID == key.projectID &&
+		m.detailCache.pipelineID == key.pipelineID &&
+		m.detailCache.pipelineHas == key.pipelineHas &&
+		m.detailCache.width == key.width &&
+		m.detailCache.height == key.height {
+		return m.detailCache.output
+	}
+	key.output = renderDetailPane(m, width)
+	m.detailCache = key
+	return key.output
 }
 
-// invalidateDetailCache clears the detail pane render cache
+// invalidateDetailCache clears the detail pane render cache.
 func (m *Model) invalidateDetailCache() {
-	m.detailCacheProjectID = 0
-	m.detailCachePipelineID = 0
-	m.detailCachePipelineHas = false
-	m.detailCacheWidth = 0
-	m.detailCacheHeight = 0
-	m.detailCacheOutput = ""
+	m.detailCache = detailCacheState{}
 }
 
 func (m Model) pageSlice(page int) []gitlab.ProjectNode {

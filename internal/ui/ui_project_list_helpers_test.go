@@ -234,33 +234,20 @@ func TestInvalidateVisibleCache(t *testing.T) {
 
 func TestInvalidateDetailCache(t *testing.T) {
 	m := Model{
-		detailCacheProjectID:   123,
-		detailCachePipelineID:  456,
-		detailCachePipelineHas: true,
-		detailCacheWidth:       80,
-		detailCacheHeight:      24,
-		detailCacheOutput:      "cached output",
+		detailCache: detailCacheState{
+			projectID:   123,
+			pipelineID:  456,
+			pipelineHas: true,
+			width:       80,
+			height:      24,
+			output:      "cached output",
+		},
 	}
 
 	m.invalidateDetailCache()
 
-	if m.detailCacheProjectID != 0 {
-		t.Errorf("invalidateDetailCache() didn't clear detailCacheProjectID")
-	}
-	if m.detailCachePipelineID != 0 {
-		t.Errorf("invalidateDetailCache() didn't clear detailCachePipelineID")
-	}
-	if m.detailCachePipelineHas {
-		t.Errorf("invalidateDetailCache() didn't clear detailCachePipelineHas")
-	}
-	if m.detailCacheWidth != 0 {
-		t.Errorf("invalidateDetailCache() didn't clear detailCacheWidth")
-	}
-	if m.detailCacheHeight != 0 {
-		t.Errorf("invalidateDetailCache() didn't clear detailCacheHeight")
-	}
-	if m.detailCacheOutput != "" {
-		t.Errorf("invalidateDetailCache() didn't clear detailCacheOutput")
+	if m.detailCache != (detailCacheState{}) {
+		t.Errorf("invalidateDetailCache() didn't clear detailCache, got %+v", m.detailCache)
 	}
 }
 
