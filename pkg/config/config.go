@@ -128,33 +128,27 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 
 	overrideFromFlags(fs, &cfg)
 
-	if cfg.Demo {
-		if cfg.Host == "" {
-			cfg.Host = defaultHost
-		}
-		if cfg.LogLevel == "" {
-			cfg.LogLevel = defaultLogLevel
-		}
-		if cfg.ProjectsPerPage <= 0 {
-			cfg.ProjectsPerPage = defaultProjectsPerPage
-		}
-		return cfg, nil
-	}
-
+	// Apply defaults uniformly. Demo mode skips network/token validation but
+	// still uses the same default values as a normal run.
 	if cfg.Host == "" {
 		cfg.Host = defaultHost
 	}
-	if err := validateHostURL(cfg.Host); err != nil {
-		return cfg, err
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = defaultLogLevel
 	}
 	if cfg.ProjectsPerPage <= 0 {
 		cfg.ProjectsPerPage = defaultProjectsPerPage
 	}
+
+	if cfg.Demo {
+		return cfg, nil
+	}
+
+	if err := validateHostURL(cfg.Host); err != nil {
+		return cfg, err
+	}
 	if cfg.ProjectsPerPage > maxProjectsPerPage {
 		return cfg, fmt.Errorf("projects-per-page must be between 1 and %d, got %d", maxProjectsPerPage, cfg.ProjectsPerPage)
-	}
-	if cfg.LogLevel == "" {
-		cfg.LogLevel = defaultLogLevel
 	}
 	if !validLogLevels[cfg.LogLevel] {
 		return cfg, fmt.Errorf("invalid log level %q, must be one of: debug, info, warn, error", cfg.LogLevel)
@@ -179,7 +173,8 @@ func overrideFromFlags(fs *pflag.FlagSet, cfg *Config) {
 		cfg.ProjectsPerPage, _ = fs.GetInt(FlagProjectsPerPage)
 	}
 	if fs.Changed(FlagLogLevel) {
-		cfg.LogLevel = strings.ToLower(mustString(fs.GetString(FlagLogLevel)))
+		v, _ := fs.GetString(FlagLogLevel)
+		cfg.LogLevel = strings.ToLower(v)
 	}
 	if fs.Changed(FlagConfig) {
 		v, _ := fs.GetString(FlagConfig)
@@ -191,13 +186,6 @@ func overrideFromFlags(fs *pflag.FlagSet, cfg *Config) {
 	if fs.Changed(FlagDiffContextLines) {
 		cfg.DiffContextLines, _ = fs.GetInt(FlagDiffContextLines)
 	}
-}
-
-func mustString(val string, err error) string {
-	if err != nil {
-		return ""
-	}
-	return val
 }
 
 // validateHostURL rejects URLs without a scheme or hostname early, before
