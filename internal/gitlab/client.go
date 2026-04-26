@@ -447,17 +447,14 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 			nodes[i].LastActivityAt = *p.LastActivityAt
 		}
 	}
-	pageInfo := ProjectPage{
-		Projects: nodes,
-		Page:     opts.Page,
-	}
-	if resp != nil {
-		pageInfo.Page = int(resp.CurrentPage)
-		pageInfo.PrevPage = int(resp.PreviousPage)
-		pageInfo.NextPage = int(resp.NextPage)
-		pageInfo.TotalPages = int(resp.TotalPages)
-	}
-	return pageInfo, nil
+	meta := extractPageMeta(resp, opts.Page)
+	return ProjectPage{
+		Projects:   nodes,
+		Page:       meta.Page,
+		PrevPage:   meta.PrevPage,
+		NextPage:   meta.NextPage,
+		TotalPages: meta.TotalPages,
+	}, nil
 }
 
 // ensureAPIBaseURL appends /api/v4 if not already present.
@@ -467,6 +464,31 @@ func ensureAPIBaseURL(host string) string {
 		return host
 	}
 	return host + "/api/v4"
+}
+
+// pageMeta is the common pagination cursor returned by every List* endpoint.
+// It exists so the response → page-info translation isn't duplicated in
+// each ListXxx method.
+type pageMeta struct {
+	Page       int
+	PrevPage   int
+	NextPage   int
+	TotalPages int
+}
+
+// extractPageMeta reads pagination headers from resp into a pageMeta. When
+// resp is nil (e.g., the SDK returned an early error before issuing the HTTP
+// request) the caller-supplied fallbackPage is used so the result still
+// reflects which page was being fetched.
+func extractPageMeta(resp *gl.Response, fallbackPage int) pageMeta {
+	m := pageMeta{Page: fallbackPage}
+	if resp != nil {
+		m.Page = int(resp.CurrentPage)
+		m.PrevPage = int(resp.PreviousPage)
+		m.NextPage = int(resp.NextPage)
+		m.TotalPages = int(resp.TotalPages)
+	}
+	return m
 }
 
 // paginate exhausts a GitLab list endpoint by following NextPage links until

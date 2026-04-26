@@ -99,13 +99,14 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 	if len(summaries) == 0 && opts.Page <= 1 {
 		return PipelinePage{}, ErrNoPipelines
 	}
-	page := PipelinePage{Pipelines: summaries, Page: opts.Page}
-	if resp != nil {
-		page.PrevPage = int(resp.PreviousPage)
-		page.NextPage = int(resp.NextPage)
-		page.TotalPages = int(resp.TotalPages)
-	}
-	return page, nil
+	meta := extractPageMeta(resp, opts.Page)
+	return PipelinePage{
+		Pipelines:  summaries,
+		Page:       meta.Page,
+		PrevPage:   meta.PrevPage,
+		NextPage:   meta.NextPage,
+		TotalPages: meta.TotalPages,
+	}, nil
 }
 
 // RetryPipeline retries all failed jobs in a pipeline. When GitLab returns a

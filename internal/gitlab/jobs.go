@@ -6,9 +6,20 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"time"
 
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
+
+// derefTime returns *t when non-nil, or the zero time otherwise. Mappers use
+// this to flatten the SDK's *time.Time fields into PipelineJob's value-typed
+// timestamps without an if-nil check at every site.
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
 
 // ListPipelineJobs returns every job across all pages for the given pipeline.
 // Returns ErrNoJobs when the pipeline exists but has no jobs yet (e.g., right
@@ -103,20 +114,17 @@ func mapJob(job *gl.Job) PipelineJob {
 		return PipelineJob{}
 	}
 	pj := PipelineJob{
-		ID:            int(job.ID),
-		Name:          job.Name,
-		Stage:         job.Stage,
-		Status:        job.Status,
-		WebURL:        job.WebURL,
-		Duration:      job.Duration,
-		FailureReason: job.FailureReason,
-		AllowFailure:  job.AllowFailure,
-	}
-	if job.StartedAt != nil {
-		pj.StartedAt = *job.StartedAt
-	}
-	if job.FinishedAt != nil {
-		pj.FinishedAt = *job.FinishedAt
+		ID:                int(job.ID),
+		Name:              job.Name,
+		Stage:             job.Stage,
+		Status:            job.Status,
+		WebURL:            job.WebURL,
+		Duration:          job.Duration,
+		FailureReason:     job.FailureReason,
+		AllowFailure:      job.AllowFailure,
+		StartedAt:         derefTime(job.StartedAt),
+		FinishedAt:        derefTime(job.FinishedAt),
+		ArtifactsExpireAt: derefTime(job.ArtifactsExpireAt),
 	}
 	if job.Runner.ID != 0 {
 		pj.RunnerDescription = job.Runner.Description
@@ -131,9 +139,6 @@ func mapJob(job *gl.Job) PipelineJob {
 				FileFormat: a.FileFormat,
 			})
 		}
-	}
-	if job.ArtifactsExpireAt != nil {
-		pj.ArtifactsExpireAt = *job.ArtifactsExpireAt
 	}
 	return pj
 }

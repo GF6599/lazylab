@@ -51,17 +51,14 @@ func (c *Client) ListMergeRequests(ctx context.Context, projectID int, opts MRLi
 		}
 		summaries = append(summaries, s)
 	}
-	page := MRPage{
+	meta := extractPageMeta(resp, opts.Page)
+	return MRPage{
 		MergeRequests: summaries,
-		Page:          opts.Page,
-	}
-	if resp != nil {
-		page.Page = int(resp.CurrentPage)
-		page.PrevPage = int(resp.PreviousPage)
-		page.NextPage = int(resp.NextPage)
-		page.TotalPages = int(resp.TotalPages)
-	}
-	return page, nil
+		Page:          meta.Page,
+		PrevPage:      meta.PrevPage,
+		NextPage:      meta.NextPage,
+		TotalPages:    meta.TotalPages,
+	}, nil
 }
 
 // ListMergeRequestDiscussions returns all threaded discussions (across all
