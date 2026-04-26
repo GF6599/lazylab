@@ -326,6 +326,37 @@ func listPageStep(height int) int {
 	return step
 }
 
+// bigStepIdx computes the new selection index for the "big-step" navigation
+// keys (ctrl+u, ctrl+d, g/<, G/>) shared by every panel. It returns the
+// proposed new index and whether the key was handled. Returning handled=true
+// with newIdx==idx means the key matched but the index didn't change (e.g.,
+// already at the boundary) — call sites should still treat it as "consumed"
+// to avoid falling through to other branches.
+//
+// j/k navigation is intentionally omitted because each panel routes it
+// through its own widget (bubbles/list, bubbles/table, or a plain int) with
+// widget-specific wrapping behavior that this helper would have to mimic.
+func bigStepIdx(key string, idx, length, height int) (newIdx int, handled bool) {
+	if length <= 0 {
+		switch key {
+		case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
+			return idx, true
+		}
+		return idx, false
+	}
+	switch key {
+	case "ctrl+d":
+		return min(idx+listPageStep(height), length-1), true
+	case "ctrl+u":
+		return max(idx-listPageStep(height), 0), true
+	case "<", "g":
+		return 0, true
+	case ">", "G":
+		return length - 1, true
+	}
+	return idx, false
+}
+
 // Pipeline log scrolling now handled by viewport directly in key handlers
 
 // logError logs an error if the logger is configured. This eliminates the

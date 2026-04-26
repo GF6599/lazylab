@@ -107,36 +107,23 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "K":
 		m.explorer.preview.viewport.HalfPageUp()
 		return m, nil
-	case "ctrl+d":
-		m.explorer.preview.viewport.HalfPageDown()
-		if cur.selected < len(cur.entries)-1 {
-			step := listPageStep(m.height)
-			cur.selected = min(cur.selected+step, len(cur.entries)-1)
-			return m, m.queueExplorerPreview()
+	case "ctrl+d", "ctrl+u", "<", ">":
+		switch msg.String() {
+		case "ctrl+d":
+			m.explorer.preview.viewport.HalfPageDown()
+		case "ctrl+u":
+			m.explorer.preview.viewport.HalfPageUp()
+		case "<":
+			m.explorer.preview.viewport.GotoTop()
+		case ">":
+			m.explorer.preview.viewport.GotoBottom()
 		}
-		return m, nil
-	case "ctrl+u":
-		m.explorer.preview.viewport.HalfPageUp()
-		if cur.selected > 0 {
-			step := listPageStep(m.height)
-			cur.selected = max(cur.selected-step, 0)
-			return m, m.queueExplorerPreview()
+		newIdx, handled := bigStepIdx(msg.String(), cur.selected, len(cur.entries), m.height)
+		if !handled || newIdx == cur.selected {
+			return m, nil
 		}
-		return m, nil
-	case "<":
-		m.explorer.preview.viewport.GotoTop()
-		if cur.selected > 0 {
-			cur.selected = 0
-			return m, m.queueExplorerPreview()
-		}
-		return m, nil
-	case ">":
-		m.explorer.preview.viewport.GotoBottom()
-		if cur.selected < len(cur.entries)-1 {
-			cur.selected = len(cur.entries) - 1
-			return m, m.queueExplorerPreview()
-		}
-		return m, nil
+		cur.selected = newIdx
+		return m, m.queueExplorerPreview()
 	case "down", "j", "up", "k":
 		// Let Bubbles list handle navigation
 		prevIdx := m.explorer.currentList.Index()
@@ -253,80 +240,36 @@ func (m Model) handlePipelineViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // and the log viewport simultaneously so the log preview stays in sync with
 // the selected item.
 func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
-	step := listPageStep(m.height)
 	switch key {
 	case "ctrl+d":
 		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
-		if m.pipelineView.focus == pipelineFocusPipelines {
-			if m.pipelineView.selected < len(m.pipelineView.pipelines)-1 {
-				m.pipelineView.selected = min(m.pipelineView.selected+step, len(m.pipelineView.pipelines)-1)
-				return m, m.selectPipelineAndLoadStages()
-			}
-		} else {
-			jobCount := len(m.pipelineView.jobRows)
-			if m.pipelineView.stageSelected < jobCount-1 {
-				m.pipelineView.stageSelected = min(m.pipelineView.stageSelected+step, jobCount-1)
-				m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
-				m.resetPipelineLogPreview()
-				return m, m.queuePipelineLogPreview()
-			}
-		}
 	case "ctrl+u":
 		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
-		if m.pipelineView.focus == pipelineFocusPipelines {
-			if m.pipelineView.selected > 0 {
-				m.pipelineView.selected = max(m.pipelineView.selected-step, 0)
-				return m, m.selectPipelineAndLoadStages()
-			}
-		} else {
-			if m.pipelineView.stageSelected > 0 {
-				m.pipelineView.stageSelected = max(m.pipelineView.stageSelected-step, 0)
-				m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
-				m.resetPipelineLogPreview()
-				return m, m.queuePipelineLogPreview()
-			}
-		}
 	case "<":
 		m.pipelineView.logViewport.GotoTop()
 		m.pipelineView.logAutoFollow = false
-		if m.pipelineView.focus == pipelineFocusPipelines {
-			if len(m.pipelineView.pipelines) > 0 && m.pipelineView.selected != 0 {
-				m.pipelineView.selected = 0
-				return m, m.selectPipelineAndLoadStages()
-			}
-		} else if m.pipelineView.stageSelected != 0 {
-			m.pipelineView.stageSelected = 0
-			m.pipelineView.stageTable.SetCursor(0)
-			m.resetPipelineLogPreview()
-			return m, m.queuePipelineLogPreview()
-		}
 	case ">":
 		m.pipelineView.logViewport.GotoBottom()
 		m.pipelineView.logAutoFollow = true
-		if m.pipelineView.focus == pipelineFocusPipelines {
-			if len(m.pipelineView.pipelines) > 0 {
-				last := len(m.pipelineView.pipelines) - 1
-				if m.pipelineView.selected != last {
-					m.pipelineView.selected = last
-					return m, m.selectPipelineAndLoadStages()
-				}
-			}
-		} else {
-			jobCount := len(m.pipelineView.jobRows)
-			if jobCount > 0 {
-				last := jobCount - 1
-				if m.pipelineView.stageSelected != last {
-					m.pipelineView.stageSelected = last
-					m.pipelineView.stageTable.SetCursor(last)
-					m.resetPipelineLogPreview()
-					return m, m.queuePipelineLogPreview()
-				}
-			}
-		}
 	}
-	return m, nil
+	if m.pipelineView.focus == pipelineFocusPipelines {
+		newIdx, handled := bigStepIdx(key, m.pipelineView.selected, len(m.pipelineView.pipelines), m.height)
+		if !handled || newIdx == m.pipelineView.selected {
+			return m, nil
+		}
+		m.pipelineView.selected = newIdx
+		return m, m.selectPipelineAndLoadStages()
+	}
+	newIdx, handled := bigStepIdx(key, m.pipelineView.stageSelected, len(m.pipelineView.jobRows), m.height)
+	if !handled || newIdx == m.pipelineView.stageSelected {
+		return m, nil
+	}
+	m.pipelineView.stageSelected = newIdx
+	m.pipelineView.stageTable.SetCursor(newIdx)
+	m.resetPipelineLogPreview()
+	return m, m.queuePipelineLogPreview()
 }
 
 // selectPipelineAndLoadStages resets stage selection and triggers stage + job

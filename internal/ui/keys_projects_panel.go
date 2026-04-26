@@ -46,32 +46,10 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j", "up", "k":
 		m.projectList, _ = m.projectList.Update(msg)
 		m.selected = m.projectList.Index()
-	case "ctrl+d":
-		visible := m.visibleProjects()
-		if len(visible) > 0 {
-			step := listPageStep(m.height)
-			newIdx := min(m.projectList.Index()+step, len(visible)-1)
+	case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
+		if newIdx, handled := bigStepIdx(key, m.projectList.Index(), len(m.visibleProjects()), m.height); handled {
 			m.projectList.Select(newIdx)
 			m.selected = newIdx
-		}
-	case "ctrl+u":
-		visible := m.visibleProjects()
-		if len(visible) > 0 {
-			step := listPageStep(m.height)
-			newIdx := max(m.projectList.Index()-step, 0)
-			m.projectList.Select(newIdx)
-			m.selected = newIdx
-		}
-	case "<", "g":
-		if len(m.visibleProjects()) > 0 {
-			m.projectList.Select(0)
-			m.selected = 0
-		}
-	case ">", "G":
-		visible := m.visibleProjects()
-		if len(visible) > 0 {
-			m.projectList.Select(len(visible) - 1)
-			m.selected = len(visible) - 1
 		}
 	case "h", "left":
 		// Projects is the topmost panel — no-op (nothing to go back to)

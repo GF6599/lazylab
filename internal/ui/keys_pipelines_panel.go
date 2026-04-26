@@ -54,41 +54,18 @@ func (m Model) handlePipelinesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cmd := m.changePipelinePage(-1); cmd != nil {
 			return m, cmd
 		}
-	case "ctrl+d":
-		step := listPageStep(m.height)
-		if m.pipelineView.selected < len(m.pipelineView.pipelines)-1 {
-			m.pipelineView.selected = min(m.pipelineView.selected+step, len(m.pipelineView.pipelines)-1)
-			m.pipelineView.stageSelected = 0
+	case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
+		newIdx, handled := bigStepIdx(key, m.pipelineView.selected, len(m.pipelineView.pipelines), m.height)
+		if !handled || newIdx == m.pipelineView.selected {
+			return m, nil
+		}
+		m.pipelineView.selected = newIdx
+		m.pipelineView.stageSelected = 0
+		if key == "ctrl+d" || key == "ctrl+u" {
 			m.pipelineView.stageTable.SetCursor(0)
-			m.resetPipelineLogPreview()
-			return m, tea.Batch(m.queuePipelineStagesForSelection(), m.queuePipelineJobsForSelection())
 		}
-	case "ctrl+u":
-		step := listPageStep(m.height)
-		if m.pipelineView.selected > 0 {
-			m.pipelineView.selected = max(m.pipelineView.selected-step, 0)
-			m.pipelineView.stageSelected = 0
-			m.pipelineView.stageTable.SetCursor(0)
-			m.resetPipelineLogPreview()
-			return m, tea.Batch(m.queuePipelineStagesForSelection(), m.queuePipelineJobsForSelection())
-		}
-	case "<", "g":
-		if len(m.pipelineView.pipelines) > 0 && m.pipelineView.selected != 0 {
-			m.pipelineView.selected = 0
-			m.pipelineView.stageSelected = 0
-			m.resetPipelineLogPreview()
-			return m, tea.Batch(m.queuePipelineStagesForSelection(), m.queuePipelineJobsForSelection())
-		}
-	case ">", "G":
-		if len(m.pipelineView.pipelines) > 0 {
-			last := len(m.pipelineView.pipelines) - 1
-			if m.pipelineView.selected != last {
-				m.pipelineView.selected = last
-				m.pipelineView.stageSelected = 0
-				m.resetPipelineLogPreview()
-				return m, tea.Batch(m.queuePipelineStagesForSelection(), m.queuePipelineJobsForSelection())
-			}
-		}
+		m.resetPipelineLogPreview()
+		return m, tea.Batch(m.queuePipelineStagesForSelection(), m.queuePipelineJobsForSelection())
 	case "r", "ctrl+r":
 		return m.reloadPipelineView()
 	case "R":

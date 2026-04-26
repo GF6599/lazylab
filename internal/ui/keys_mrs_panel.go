@@ -43,26 +43,9 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), m.mrView.prevPage, mrPerPage)
 		}
 		return m, nil
-	case "<", "g":
-		if len(m.mrView.mrs) > 0 {
-			m.mrView.selected = 0
-		}
-		return m, nil
-	case ">", "G":
-		if len(m.mrView.mrs) > 0 {
-			m.mrView.selected = len(m.mrView.mrs) - 1
-		}
-		return m, nil
-	case "ctrl+d":
-		step := listPageStep(m.height)
-		if m.mrView.selected < len(m.mrView.mrs)-1 {
-			m.mrView.selected = min(m.mrView.selected+step, len(m.mrView.mrs)-1)
-		}
-		return m, nil
-	case "ctrl+u":
-		step := listPageStep(m.height)
-		if m.mrView.selected > 0 {
-			m.mrView.selected = max(m.mrView.selected-step, 0)
+	case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
+		if newIdx, handled := bigStepIdx(key, m.mrView.selected, len(m.mrView.mrs), m.height); handled {
+			m.mrView.selected = newIdx
 		}
 		return m, nil
 	case "enter", "l", "right":

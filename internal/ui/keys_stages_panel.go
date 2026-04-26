@@ -71,49 +71,29 @@ func (m Model) handleStagesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
 		return m, nil
-	case "ctrl+d":
-		m.pipelineView.logViewport.HalfPageDown()
-		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
-		jobCount := len(m.pipelineView.jobRows)
-		step := listPageStep(m.height)
-		if m.pipelineView.stageSelected < jobCount-1 {
-			m.pipelineView.stageSelected = min(m.pipelineView.stageSelected+step, jobCount-1)
-			m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
-			m.resetPipelineLogPreview()
-			return m, m.queuePipelineLogPreview()
+	case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
+		switch key {
+		case "ctrl+d":
+			m.pipelineView.logViewport.HalfPageDown()
+			m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
+		case "ctrl+u":
+			m.pipelineView.logViewport.HalfPageUp()
+			m.pipelineView.logAutoFollow = false
+		case "<", "g":
+			m.pipelineView.logViewport.GotoTop()
+			m.pipelineView.logAutoFollow = false
+		case ">", "G":
+			m.pipelineView.logViewport.GotoBottom()
+			m.pipelineView.logAutoFollow = true
 		}
-	case "ctrl+u":
-		m.pipelineView.logViewport.HalfPageUp()
-		m.pipelineView.logAutoFollow = false
-		if m.pipelineView.stageSelected > 0 {
-			step := listPageStep(m.height)
-			m.pipelineView.stageSelected = max(m.pipelineView.stageSelected-step, 0)
-			m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
-			m.resetPipelineLogPreview()
-			return m, m.queuePipelineLogPreview()
+		newIdx, handled := bigStepIdx(key, m.pipelineView.stageSelected, len(m.pipelineView.jobRows), m.height)
+		if !handled || newIdx == m.pipelineView.stageSelected {
+			return m, nil
 		}
-	case "<", "g":
-		m.pipelineView.logViewport.GotoTop()
-		m.pipelineView.logAutoFollow = false
-		if m.pipelineView.stageSelected != 0 {
-			m.pipelineView.stageSelected = 0
-			m.pipelineView.stageTable.SetCursor(0)
-			m.resetPipelineLogPreview()
-			return m, m.queuePipelineLogPreview()
-		}
-	case ">", "G":
-		m.pipelineView.logViewport.GotoBottom()
-		m.pipelineView.logAutoFollow = true
-		jobCount := len(m.pipelineView.jobRows)
-		if jobCount > 0 {
-			last := jobCount - 1
-			if m.pipelineView.stageSelected != last {
-				m.pipelineView.stageSelected = last
-				m.pipelineView.stageTable.SetCursor(last)
-				m.resetPipelineLogPreview()
-				return m, m.queuePipelineLogPreview()
-			}
-		}
+		m.pipelineView.stageSelected = newIdx
+		m.pipelineView.stageTable.SetCursor(newIdx)
+		m.resetPipelineLogPreview()
+		return m, m.queuePipelineLogPreview()
 	case "R":
 		return m.openRetryModalForJob()
 	case "C":
