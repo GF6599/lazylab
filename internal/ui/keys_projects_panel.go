@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -151,41 +152,39 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 		return nil // Already loaded
 	}
 
-	// Initialize pipeline view state
-	m.pipelineView.project = project
-	m.pipelineView.loading = true
-	m.pipelineView.err = nil
-	m.pipelineView.pipelines = nil
-	m.pipelineView.selected = 0
-	m.pipelineView.page = 1
-	m.pipelineView.totalPages = 1
-	m.pipelineView.perPage = pipelinePerPage
-	m.pipelineView.stages = NewAsyncCache[int, []gitlab.PipelineStage]()
-	m.pipelineView.jobs = NewAsyncCache[int, []gitlab.PipelineJob]()
-	m.pipelineView.logs = NewAsyncCache[int, string]()
-	m.pipelineView.logAutoFollow = true
-	m.pipelineView.focus = pipelineFocusPipelines
-	m.pipelineView.bridges = NewAsyncCache[int, []gitlab.PipelineBridge]()
-	m.pipelineView.childJobs = NewAsyncCache[int, []gitlab.PipelineJob]()
-	m.pipelineView.testReport = nil
-	m.pipelineView.testReportLoading = false
-	m.pipelineView.testReportErr = nil
-	m.pipelineView.testReportPipelineID = 0
-	m.pipelineView.detailTab = detailTabLog
+	m.pipelineView.initForProject(project)
+	m.pipelineView.pipelineList = newPipelineListModel()
+	m.pipelineView.stageTable = newStageTable(m.stageTableWidth())
+	m.pipelineView.logViewport = m.newLogViewport()
 
-	// Initialize bubbles list for pipeline display
-	delegate := pipelineDelegate{}
-	m.pipelineView.pipelineList = newBareList(nil, delegate, 0, 0)
-	m.pipelineView.pipelineList.Styles.Title = titleStyle
+	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, 1, pipelinePerPage)
+}
 
-	// Initialize stage table (job-per-row layout)
-	stageWidth := 56
+// newPipelineListModel returns a freshly-initialized bubbles list for the
+// pipeline column. Dimensions are zero — the layout pass sets the real size
+// before the first render.
+func newPipelineListModel() list.Model {
+	pl := newBareList(nil, pipelineDelegate{}, 0, 0)
+	pl.Styles.Title = titleStyle
+	return pl
+}
+
+// stageTableWidth returns the width to use when building the stage table:
+// the sidebar width when a multi-panel layout fits, or a sensible default
+// otherwise.
+func (m *Model) stageTableWidth() int {
 	if layout := computeLayout(m.width, m.height, m.focus); layout.OK {
-		stageWidth = layout.SidebarWidth
+		return layout.SidebarWidth
 	}
-	columns := stageTableColumns(stageWidth)
+	return 56
+}
+
+// newStageTable builds a job-per-row stage table styled to match the active
+// theme. Used at fresh-load time; theme changes go through
+// refreshThemeSubComponents which re-applies styles in place.
+func newStageTable(width int) table.Model {
 	t := table.New(
-		table.WithColumns(columns),
+		table.WithColumns(stageTableColumns(width)),
 		table.WithFocused(false),
 		table.WithHeight(stageTableDefaultHeight),
 	)
@@ -199,27 +198,25 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 		BorderRight(false).
 		Bold(false).
 		Foreground(colorSubtle)
-	s.Selected = lipgloss.NewStyle().
-		Foreground(colorText).
-		Background(colorHighlightMed)
-	s.Cell = s.Cell.
-		Foreground(colorText)
+	s.Selected = lipgloss.NewStyle().Foreground(colorText).Background(colorHighlightMed)
+	s.Cell = s.Cell.Foreground(colorText)
 	t.SetStyles(s)
-	m.pipelineView.stageTable = t
+	return t
+}
 
-	// Initialize log viewport with layout-computed dimensions
-	vpWidth := pipelineLogContentWidth(m.width)
-	vpHeight := pipelineLogContentHeight(m.height)
+// newLogViewport sizes the pipeline-log viewport from the current layout.
+// In multi-panel mode it uses the detail-pane size; otherwise it falls back
+// to the full-screen pipeline-log dimensions.
+func (m *Model) newLogViewport() viewport.Model {
+	w := pipelineLogContentWidth(m.width)
+	h := pipelineLogContentHeight(m.height)
 	if m.mode == modeMultiPanel {
-		layout := computeLayout(m.width, m.height, m.focus)
-		if layout.OK {
-			vpWidth = layout.DetailWidth
-			vpHeight = layout.DetailHeight
+		if layout := computeLayout(m.width, m.height, m.focus); layout.OK {
+			w = layout.DetailWidth
+			h = layout.DetailHeight
 		}
 	}
-	m.pipelineView.logViewport = viewport.New(vpWidth, vpHeight)
-
-	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, 1, pipelinePerPage)
+	return viewport.New(w, h)
 }
 
 // autoLoadSelectedProjectData debounces eager data loading (pipelines, commits,

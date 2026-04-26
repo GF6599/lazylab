@@ -113,6 +113,35 @@ func (pv *pipelineViewState) resetCaches() {
 	// Note: matrixExpanded is intentionally preserved across refreshes
 }
 
+// initForProject prepares pipelineViewState for a fresh project load. Unlike
+// resetCaches, this initializes new (empty) AsyncCaches rather than clearing
+// existing ones, drops bridge expansion state, and resets all scalar fields
+// to their first-load defaults. The caller still has to attach UI sub-models
+// (pipelineList, stageTable, logViewport) since those depend on dimensions
+// known only at the call site.
+func (pv *pipelineViewState) initForProject(project gitlab.ProjectNode) {
+	pv.project = project
+	pv.loading = true
+	pv.err = nil
+	pv.pipelines = nil
+	pv.selected = 0
+	pv.page = 1
+	pv.totalPages = 1
+	pv.perPage = pipelinePerPage
+	pv.stages = NewAsyncCache[int, []gitlab.PipelineStage]()
+	pv.jobs = NewAsyncCache[int, []gitlab.PipelineJob]()
+	pv.logs = NewAsyncCache[int, string]()
+	pv.bridges = NewAsyncCache[int, []gitlab.PipelineBridge]()
+	pv.childJobs = NewAsyncCache[int, []gitlab.PipelineJob]()
+	pv.logAutoFollow = true
+	pv.focus = pipelineFocusPipelines
+	pv.testReport = nil
+	pv.testReportLoading = false
+	pv.testReportErr = nil
+	pv.testReportPipelineID = 0
+	pv.detailTab = detailTabLog
+}
+
 // reloadPipelineView performs a hard refresh: resets the pipeline list, all
 // per-pipeline caches (stages, jobs, logs, bridges), log preview, and focus
 // back to the pipelines column. Returns a command to re-fetch the current page.
@@ -351,70 +380,53 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 	if _, ok := m.pipelineView.jobs.Get(pipeline.ID); !ok {
 		return m.queuePipelineJobsForSelection()
 	}
-	// Bridge rows don't have job traces — show bridge info instead
-	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridge {
+	row := m.selectedStageJobRow()
+	// Bridge rows don't have job traces — show bridge info instead.
+	if row != nil && row.Kind == rowKindBridge {
 		content := bridgePreviewContent(row.Bridge, row.IsLast)
 		m.pipelineView.logPreview = previewState{
-			path:    row.Bridge.Name,
-			content: content,
-			raw:     content,
-			loading: false,
+			path: row.Bridge.Name, content: content, raw: content,
 		}
 		m.setLogViewportContent(content)
 		m.pipelineView.logJobID = 0
 		m.pipelineView.logViewport.GotoTop()
 		return nil
 	}
-	// Bridge child rows have real jobs but may belong to a different project
-	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.Job != nil {
+	// Bridge child rows have real jobs but may live in a different project.
+	if row != nil && row.Kind == rowKindBridgeChild && row.Job != nil {
 		projectID := row.ChildProjectID
 		if projectID == 0 {
 			projectID = m.pipelineView.project.ID
 		}
-		job := row.Job
-		if content, ok := m.pipelineView.logs.Get(job.ID); ok {
-			prevJobID := m.pipelineView.logJobID
-			m.pipelineView.logPreview = previewState{
-				path: job.Name, content: content, raw: content, loading: false,
-			}
-			m.setLogViewportContent(content)
-			m.pipelineView.logJobID = job.ID
-			if m.pipelineView.logAutoFollow {
-				m.pipelineView.logViewport.GotoBottom()
-			} else if prevJobID != job.ID {
-				m.pipelineView.logViewport.GotoTop()
-			}
-			return nil
-		}
-		if m.pipelineView.logs.IsLoading(job.ID) {
-			return nil
-		}
-		m.pipelineView.logs.SetLoading(job.ID)
-		m.pipelineView.logPreview = previewState{path: job.Name, loading: true}
-		m.pipelineView.logJobID = job.ID
-		return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, job.ID)
+		return m.showOrFetchJobLog(row.Job, projectID)
 	}
 	job := m.selectedPipelineJob()
 	if job == nil {
-		m.pipelineView.logPreview = previewState{content: "No jobs available.", loading: false}
+		m.pipelineView.logPreview = previewState{content: "No jobs available."}
 		return nil
 	}
+	return m.showOrFetchJobLog(job, m.pipelineView.project.ID)
+}
+
+// showOrFetchJobLog renders the cached log for job into the preview pane, or
+// kicks off an async fetch if the log is not yet cached. Returns the fetch
+// command (or nil if cached / already loading). Resets viewport scroll to top
+// when the displayed job changes; auto-follows to bottom when logAutoFollow
+// is enabled. The projectID parameter handles bridge-child jobs that live in
+// a downstream project.
+func (m *Model) showOrFetchJobLog(job *gitlab.PipelineJob, projectID int) tea.Cmd {
 	if content, ok := m.pipelineView.logs.Get(job.ID); ok {
 		prevJobID := m.pipelineView.logJobID
 		m.pipelineView.logPreview = previewState{
-			path:    job.Name,
-			content: content,
-			raw:     content,
-			loading: false,
+			path: job.Name, content: content, raw: content,
 		}
 		m.setLogViewportContent(content)
 		m.pipelineView.logJobID = job.ID
-		if m.pipelineView.logAutoFollow {
+		switch {
+		case m.pipelineView.logAutoFollow:
 			m.pipelineView.logViewport.GotoBottom()
-		} else {
-			if prevJobID != job.ID {
-				m.pipelineView.logViewport.GotoTop()
-			}
+		case prevJobID != job.ID:
+			m.pipelineView.logViewport.GotoTop()
 		}
 		return nil
 	}
@@ -424,7 +436,7 @@ func (m *Model) queuePipelineLogPreview() tea.Cmd {
 	m.pipelineView.logs.SetLoading(job.ID)
 	m.pipelineView.logPreview = previewState{path: job.Name, loading: true}
 	m.pipelineView.logJobID = job.ID
-	return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, job.ID)
+	return fetchPipelineLogCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, job.ID)
 }
 
 // queuePipelineLogRefresh re-fetches the log for the current job without
@@ -576,39 +588,17 @@ func truncateLogContent(content string) string {
 func (m *Model) updateStageTable() {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
-		m.pipelineView.stageTable.SetRows([]table.Row{})
-		m.pipelineView.jobRows = nil
-		m.pipelineView.stageJobRows = nil
+		m.clearStageTable()
 		return
 	}
 
 	stages, _ := m.pipelineView.stages.Get(pipeline.ID)
 	jobs, _ := m.pipelineView.jobs.Get(pipeline.ID)
 	bridges, _ := m.pipelineView.bridges.Get(pipeline.ID)
-
-	// Inject stages that only have bridge jobs (no regular jobs).
-	// PipelineStages is built from ListPipelineJobs which excludes bridges,
-	// so bridge-only stages would otherwise be invisible.
-	if len(bridges) > 0 {
-		stageSet := make(map[string]bool, len(stages))
-		for _, s := range stages {
-			stageSet[s.Name] = true
-		}
-		for _, b := range bridges {
-			if !stageSet[b.Stage] {
-				stageSet[b.Stage] = true
-				stages = append(stages, gitlab.PipelineStage{
-					Name:   b.Stage,
-					Status: b.Status,
-				})
-			}
-		}
-	}
+	stages = injectBridgeOnlyStages(stages, bridges)
 
 	if len(stages) == 0 || (len(jobs) == 0 && len(bridges) == 0) {
-		m.pipelineView.stageTable.SetRows([]table.Row{})
-		m.pipelineView.jobRows = nil
-		m.pipelineView.stageJobRows = nil
+		m.clearStageTable()
 		return
 	}
 
@@ -616,100 +606,11 @@ func (m *Model) updateStageTable() {
 		m.pipelineView.matrixExpanded = make(map[string]bool)
 	}
 
-	// Build child jobs map for expanded bridges
-	var childJobsMap map[int][]gitlab.PipelineJob
-	for _, b := range bridges {
-		if b.DownstreamPipeline == nil {
-			continue
-		}
-		groupKey := fmt.Sprintf("bridge:%d", b.ID)
-		if !m.pipelineView.matrixExpanded[groupKey] {
-			continue
-		}
-		dsID := b.DownstreamPipeline.ID
-		if cJobs, ok := m.pipelineView.childJobs.Get(dsID); ok {
-			if childJobsMap == nil {
-				childJobsMap = make(map[int][]gitlab.PipelineJob)
-			}
-			childJobsMap[dsID] = cJobs
-		}
-	}
-
+	childJobsMap := m.collectExpandedBridgeChildren(bridges)
 	richRows := buildStageJobRows(stages, jobs, bridges, m.pipelineView.matrixExpanded, childJobsMap)
 	m.pipelineView.stageJobRows = richRows
 
-	var tableRows []table.Row
-	var jobRows []gitlab.PipelineJob
-	lastStage := ""
-
-	for _, row := range richRows {
-		stageCol := ""
-		if row.Stage != lastStage {
-			stageCol = row.Stage
-			lastStage = row.Stage
-		}
-
-		status := row.Status
-		if status == "" {
-			status = unknownStatus
-		}
-		statusLabel := pipelineStatusIcon(status) + " " + strings.ToUpper(status)
-
-		switch row.Kind {
-		case rowKindJob:
-			tableRows = append(tableRows, table.Row{row.Job.Name, stageCol, statusLabel})
-			jobRows = append(jobRows, *row.Job)
-		case rowKindMatrixGroup:
-			name := fmt.Sprintf("%s %s [%d]", iconTreeExpanded, row.BaseName, len(row.Jobs))
-			tableRows = append(tableRows, table.Row{name, stageCol, statusLabel})
-			// Map group header to first sub-job for log preview fallback
-			jobRows = append(jobRows, row.Jobs[0])
-		case rowKindMatrixChild:
-			prefix := "├─"
-			if row.IsLast {
-				prefix = "└─"
-			}
-			name := fmt.Sprintf("  %s %s", prefix, row.Vars)
-			// Children never show a stage column
-			tableRows = append(tableRows, table.Row{name, "", statusLabel})
-			jobRows = append(jobRows, *row.Job)
-		case rowKindBridgeChild:
-			prefix := "├─"
-			if row.IsLast {
-				prefix = "└─"
-			}
-			name := fmt.Sprintf("  %s %s", prefix, row.Job.Name)
-			tableRows = append(tableRows, table.Row{name, "", statusLabel})
-			jobRows = append(jobRows, *row.Job)
-		case rowKindBridge:
-			b := row.Bridge
-			if row.IsLast && b.DownstreamPipeline != nil {
-				// Expanded placeholder row (child jobs not yet loaded)
-				name := fmt.Sprintf("  └─ child #%d", b.DownstreamPipeline.ID)
-				tableRows = append(tableRows, table.Row{name, "", statusLabel})
-			} else {
-				// Bridge header row
-				icon := iconTreeCollapsed
-				if m.pipelineView.matrixExpanded[row.GroupKey] {
-					icon = iconTreeExpanded
-				}
-				suffix := ""
-				if b.DownstreamPipeline != nil {
-					suffix = fmt.Sprintf(" → #%d", b.DownstreamPipeline.ID)
-				}
-				name := fmt.Sprintf("%s %s%s", icon, b.Name, suffix)
-				tableRows = append(tableRows, table.Row{name, stageCol, statusLabel})
-			}
-			// Synthesize a PipelineJob from the bridge so log/retry still works
-			jobRows = append(jobRows, gitlab.PipelineJob{
-				ID:     b.ID,
-				Name:   b.Name,
-				Stage:  b.Stage,
-				Status: b.Status,
-			})
-		}
-	}
-
+	tableRows, jobRows := m.renderStageJobRows(richRows)
 	m.pipelineView.jobRows = jobRows
 	m.pipelineView.stageTable.SetRows(tableRows)
 
@@ -719,4 +620,137 @@ func (m *Model) updateStageTable() {
 	if m.pipelineView.stageSelected >= 0 && m.pipelineView.stageSelected < len(tableRows) {
 		m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
 	}
+}
+
+// clearStageTable empties the stage table and its parallel row slices, used
+// when there is no selected pipeline or when a pipeline has no jobs/bridges.
+func (m *Model) clearStageTable() {
+	m.pipelineView.stageTable.SetRows([]table.Row{})
+	m.pipelineView.jobRows = nil
+	m.pipelineView.stageJobRows = nil
+}
+
+// injectBridgeOnlyStages appends synthetic PipelineStage entries for any stage
+// referenced by a bridge but missing from the regular stages slice. Without
+// this, bridge-only stages would be invisible because PipelineStages is built
+// from ListPipelineJobs (which excludes bridges).
+func injectBridgeOnlyStages(stages []gitlab.PipelineStage, bridges []gitlab.PipelineBridge) []gitlab.PipelineStage {
+	if len(bridges) == 0 {
+		return stages
+	}
+	stageSet := make(map[string]bool, len(stages))
+	for _, s := range stages {
+		stageSet[s.Name] = true
+	}
+	for _, b := range bridges {
+		if stageSet[b.Stage] {
+			continue
+		}
+		stageSet[b.Stage] = true
+		stages = append(stages, gitlab.PipelineStage{Name: b.Stage, Status: b.Status})
+	}
+	return stages
+}
+
+// collectExpandedBridgeChildren returns a map of downstream-pipeline-ID to
+// child jobs, but only for bridges the user has expanded. Used by
+// buildStageJobRows to flatten child jobs into the table when expanded.
+func (m *Model) collectExpandedBridgeChildren(bridges []gitlab.PipelineBridge) map[int][]gitlab.PipelineJob {
+	var out map[int][]gitlab.PipelineJob
+	for _, b := range bridges {
+		if b.DownstreamPipeline == nil {
+			continue
+		}
+		if !m.pipelineView.matrixExpanded[fmt.Sprintf("bridge:%d", b.ID)] {
+			continue
+		}
+		cJobs, ok := m.pipelineView.childJobs.Get(b.DownstreamPipeline.ID)
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = make(map[int][]gitlab.PipelineJob)
+		}
+		out[b.DownstreamPipeline.ID] = cJobs
+	}
+	return out
+}
+
+// renderStageJobRows converts the rich row model into the parallel slices the
+// bubbles/table widget needs (display rows) and the cursor-to-job map used
+// for log preview and retry. The slices are kept in lock-step so an index
+// into one is valid in the other.
+func (m *Model) renderStageJobRows(richRows []stageJobRow) ([]table.Row, []gitlab.PipelineJob) {
+	tableRows := make([]table.Row, 0, len(richRows))
+	jobRows := make([]gitlab.PipelineJob, 0, len(richRows))
+	lastStage := ""
+	for _, row := range richRows {
+		stageCol := ""
+		if row.Stage != lastStage {
+			stageCol = row.Stage
+			lastStage = row.Stage
+		}
+		status := row.Status
+		if status == "" {
+			status = unknownStatus
+		}
+		statusLabel := pipelineStatusIcon(status) + " " + strings.ToUpper(status)
+		tableRow, job := m.stageJobTableRow(row, stageCol, statusLabel)
+		tableRows = append(tableRows, tableRow)
+		jobRows = append(jobRows, job)
+	}
+	return tableRows, jobRows
+}
+
+// stageJobTableRow formats a single stageJobRow for the table widget and
+// returns the PipelineJob the cursor should resolve to when this row is
+// selected. Bridge rows synthesize a PipelineJob so log/retry still work.
+func (m *Model) stageJobTableRow(row stageJobRow, stageCol, statusLabel string) (table.Row, gitlab.PipelineJob) {
+	switch row.Kind {
+	case rowKindJob:
+		return table.Row{row.Job.Name, stageCol, statusLabel}, *row.Job
+	case rowKindMatrixGroup:
+		name := fmt.Sprintf("%s %s [%d]", iconTreeExpanded, row.BaseName, len(row.Jobs))
+		// Map group header to first sub-job for log preview fallback.
+		return table.Row{name, stageCol, statusLabel}, row.Jobs[0]
+	case rowKindMatrixChild:
+		name := fmt.Sprintf("  %s %s", treeBranchPrefix(row.IsLast), row.Vars)
+		// Children never show a stage column.
+		return table.Row{name, "", statusLabel}, *row.Job
+	case rowKindBridgeChild:
+		name := fmt.Sprintf("  %s %s", treeBranchPrefix(row.IsLast), row.Job.Name)
+		return table.Row{name, "", statusLabel}, *row.Job
+	case rowKindBridge:
+		return m.bridgeTableRow(row, stageCol, statusLabel)
+	}
+	return table.Row{}, gitlab.PipelineJob{}
+}
+
+// bridgeTableRow renders a bridge header row (collapsed/expanded) or a
+// placeholder child-pipeline row when the bridge is expanded but child jobs
+// haven't loaded yet.
+func (m *Model) bridgeTableRow(row stageJobRow, stageCol, statusLabel string) (table.Row, gitlab.PipelineJob) {
+	b := row.Bridge
+	job := gitlab.PipelineJob{ID: b.ID, Name: b.Name, Stage: b.Stage, Status: b.Status}
+	if row.IsLast && b.DownstreamPipeline != nil {
+		name := fmt.Sprintf("  └─ child #%d", b.DownstreamPipeline.ID)
+		return table.Row{name, "", statusLabel}, job
+	}
+	icon := iconTreeCollapsed
+	if m.pipelineView.matrixExpanded[row.GroupKey] {
+		icon = iconTreeExpanded
+	}
+	suffix := ""
+	if b.DownstreamPipeline != nil {
+		suffix = fmt.Sprintf(" → #%d", b.DownstreamPipeline.ID)
+	}
+	name := fmt.Sprintf("%s %s%s", icon, b.Name, suffix)
+	return table.Row{name, stageCol, statusLabel}, job
+}
+
+func treeBranchPrefix(isLast bool) string {
+	if isLast {
+		return "└─"
+	}
+	return "├─"
 }
