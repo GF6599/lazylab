@@ -32,13 +32,20 @@ var (
 	date    = "unknown"
 )
 
+// fatal prints a labelled error to stderr and exits with code 1. Used for
+// failures that occur before the structured logger is initialised, so all
+// startup errors land on the same stream with a consistent format.
+func fatal(label string, err error) {
+	fmt.Fprintln(os.Stderr, label+":", err)
+	os.Exit(1)
+}
+
 func main() {
 	fs := pflag.NewFlagSet("lazylab", pflag.ExitOnError)
 	config.RegisterFlags(fs)
 	fs.BoolP("version", "v", false, "Print version and exit")
 	if err := fs.Parse(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "parse flags:", err)
-		os.Exit(1)
+		fatal("parse flags", err)
 	}
 
 	if v, _ := fs.GetBool("version"); v {
@@ -48,14 +55,12 @@ func main() {
 
 	cfg, err := config.Load(fs)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config error:", err)
-		os.Exit(1)
+		fatal("config error", err)
 	}
 
 	level, err := parseLogLevel(cfg.LogLevel)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "invalid log level:", err)
-		os.Exit(1)
+		fatal("invalid log level", err)
 	}
 
 	baseHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
