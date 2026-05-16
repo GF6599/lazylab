@@ -260,3 +260,34 @@ func TestLRUCache_DeleteThenRefill(t *testing.T) {
 		t.Fatalf("Get(c) = %d; want 3", v)
 	}
 }
+
+// BenchmarkLRUCache_GetPromote measures the cost of Get on a hot key in a
+// capacity-1000 cache. The old slice-based implementation was O(n) per Get
+// (linear scan + slice splice on promote); the current container/list impl is
+// O(1). Run with `go test -bench BenchmarkLRUCache -run none ./internal/ui`
+// to lock in the improvement and catch future regressions.
+func BenchmarkLRUCache_GetPromote(b *testing.B) {
+	c := NewLRUCache[int, int](1000)
+	for i := range 1000 {
+		c.Set(i, i)
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		// Touch the oldest key repeatedly to force a promote-from-back, which
+		// is the worst case the old impl had to do a full scan for.
+		c.Get(0)
+	}
+}
+
+func BenchmarkLRUCache_SetEvict(b *testing.B) {
+	c := NewLRUCache[int, int](1000)
+	for i := range 1000 {
+		c.Set(i, i)
+	}
+	i := 0
+	b.ResetTimer()
+	for b.Loop() {
+		c.Set(1000+i, i)
+		i++
+	}
+}
