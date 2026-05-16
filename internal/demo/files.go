@@ -89,21 +89,30 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
+	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("server starting", "addr", cfg.ListenAddr)
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-			logger.Error("listen failed", "err", err)
-			os.Exit(1)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErr <- err
 		}
 	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	<-ctx.Done()
+
+	select {
+	case err := <-serverErr:
+		logger.Error("listen failed", "err", err)
+		os.Exit(1)
+	case <-ctx.Done():
+		logger.Info("shutdown signal received")
+	}
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	srv.Shutdown(shutCtx)
+	if err := srv.Shutdown(shutCtx); err != nil {
+		logger.Error("shutdown failed", "err", err)
+	}
 	logger.Info("server stopped")
 }
 `,

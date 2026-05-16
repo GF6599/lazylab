@@ -162,7 +162,14 @@ func demoDiffs(_ int, mrIID int) []gitlab.MRDiffFile {
  	})
 
 +	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-+		// TODO: check database connectivity
++		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
++		defer cancel()
++		if err := db.PingContext(ctx); err != nil {
++			logger.Warn("readiness probe failed", "err", err)
++			w.WriteHeader(http.StatusServiceUnavailable)
++			json.NewEncoder(w).Encode(map[string]string{"ready": "false"})
++			return
++		}
 +		w.WriteHeader(http.StatusOK)
 +		json.NewEncoder(w).Encode(map[string]string{"ready": "true"})
 +	})
