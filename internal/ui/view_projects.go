@@ -111,7 +111,7 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 	case state.hasInfo:
 		b.WriteString(detailLabelStyle.Render("  Status: ") + pipelineStatusStyle(state.info.Status).Render(fmt.Sprintf("%s (#%d)", state.info.Status, state.info.ID)) + "\n")
 		if state.info.SHA != "" {
-			b.WriteString(detailLabelStyle.Render("  SHA: ") + detailValueStyle.Render(truncate(state.info.SHA, 12)) + "\n")
+			b.WriteString(detailLabelStyle.Render("  SHA: ") + detailValueStyle.Render(clampLine(state.info.SHA, 12)) + "\n")
 		}
 		if !state.info.UpdatedAt.IsZero() {
 			b.WriteString(detailLabelStyle.Render("  Updated: ") + detailValueStyle.Render(state.info.UpdatedAt.Format(time.RFC1123)) + "\n")
@@ -121,7 +121,7 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 			if urlWidth < 4 {
 				urlWidth = width
 			}
-			b.WriteString(detailLabelStyle.Render("  URL: ") + detailValueStyle.Render(truncate(state.info.WebURL, urlWidth)) + "\n")
+			b.WriteString(detailLabelStyle.Render("  URL: ") + detailValueStyle.Render(clampLine(state.info.WebURL, urlWidth)) + "\n")
 		}
 		if len(state.info.Stages) > 0 {
 			stageWidth := width - 8
@@ -130,8 +130,8 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 			}
 			b.WriteString(detailLabelStyle.Render("  Stages:") + "\n")
 			for _, stage := range state.info.Stages {
-				stageName := truncate(stage.Name, stageWidth)
-				stageStatus := truncate(stage.Status, stageWidth)
+				stageName := clampLine(stage.Name, stageWidth)
+				stageStatus := clampLine(stage.Status, stageWidth)
 				b.WriteString(detailLabelStyle.Render("   - "+stageName+": ") + pipelineStatusStyle(stageStatus).Render(stageStatus) + "\n")
 			}
 		}

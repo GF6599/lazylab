@@ -10,17 +10,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// truncate shortens s to max runes, appending "..." if truncated.
-func truncate(s string, max int) string {
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	if max <= 1 {
-		return s[:max]
-	}
-	return s[:max-1] + "…"
-}
-
+// wrapText word-wraps s at width visible cells. Word boundaries are preserved;
+// words longer than width are placed on their own line and may overflow.
+// Width is measured with lipgloss.Width so multi-byte runes, CJK, and emoji
+// count by terminal cells rather than bytes.
 func wrapText(s string, width int) string {
 	if width <= 0 {
 		return s
@@ -31,12 +24,16 @@ func wrapText(s string, width int) string {
 	}
 	var lines []string
 	line := words[0]
+	lineW := lipgloss.Width(line)
 	for _, word := range words[1:] {
-		if len(line)+1+len(word) > width {
+		wordW := lipgloss.Width(word)
+		if lineW+1+wordW > width {
 			lines = append(lines, line)
 			line = word
+			lineW = wordW
 		} else {
 			line += " " + word
+			lineW += 1 + wordW
 		}
 	}
 	lines = append(lines, line)

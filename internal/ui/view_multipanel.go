@@ -393,7 +393,7 @@ func renderMRInfoContent(m *Model, width int) string {
 	writeDetailKV(b, "Source", mr.SourceBranch, width)
 	writeDetailKV(b, "Target", mr.TargetBranch, width)
 	if mr.WebURL != "" {
-		writeDetailKV(b, "URL", truncate(mr.WebURL, width-10), width)
+		writeDetailKV(b, "URL", clampLine(mr.WebURL, width-10), width)
 	}
 	return b.String()
 }
@@ -470,7 +470,7 @@ func detailPaneTitle(m *Model) string {
 	switch detailContextPanel(m) {
 	case PanelProjects:
 		if proj, ok := m.selectedProject(); ok {
-			return "Details · " + truncate(proj.PathWithNamespace, 30)
+			return "Details · " + clampLine(proj.PathWithNamespace, 30)
 		}
 		return "Details"
 	case PanelPipelines, PanelStages:

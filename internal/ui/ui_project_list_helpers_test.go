@@ -300,61 +300,6 @@ func TestClampLine(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		max   int
-		want  string
-	}{
-		{
-			name:  "text within max",
-			input: "hello",
-			max:   10,
-			want:  "hello",
-		},
-		{
-			name:  "text exceeds max",
-			input: "hello world",
-			max:   8,
-			want:  "hello w…",
-		},
-		{
-			name:  "exact length",
-			input: "hello",
-			max:   5,
-			want:  "hello",
-		},
-		{
-			name:  "max zero",
-			input: "hello",
-			max:   0,
-			want:  "hello",
-		},
-		{
-			name:  "max negative",
-			input: "hello",
-			max:   -1,
-			want:  "hello",
-		},
-		{
-			name:  "max 1",
-			input: "hello",
-			max:   1,
-			want:  "h",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := truncate(tt.input, tt.max)
-			if got != tt.want {
-				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.max, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPipelineStatusIcon(t *testing.T) {
 	tests := []struct {
 		status string
@@ -535,29 +480,62 @@ func TestWrapText(t *testing.T) {
 		name  string
 		text  string
 		width int
+		want  string
 	}{
 		{
-			name:  "short text",
+			name:  "short text fits on one line",
 			text:  "hello",
 			width: 80,
+			want:  "hello",
 		},
 		{
-			name:  "long text",
-			text:  "This is a very long piece of text that should be wrapped to fit within the specified width parameter",
-			width: 40,
+			name:  "wraps at word boundary",
+			text:  "alpha bravo charlie",
+			width: 11,
+			want:  "alpha bravo\ncharlie",
 		},
 		{
-			name:  "text with newlines",
-			text:  "Line 1\nLine 2\nLine 3",
-			width: 20,
+			name:  "long word exceeds width on its own line",
+			text:  "tiny supercalifragilistic end",
+			width: 10,
+			want:  "tiny\nsupercalifragilistic\nend",
+		},
+		{
+			name:  "zero width returns input verbatim",
+			text:  "hello world",
+			width: 0,
+			want:  "hello world",
+		},
+		{
+			name:  "empty input returns empty",
+			text:  "",
+			width: 10,
+			want:  "",
+		},
+		{
+			// CJK characters are 2 cells wide each, so "你好" is 4 cells. Byte len
+			// is 6. Width 5 should fit "你好" but not "你好 abc" (would be 8).
+			name:  "wraps cjk by visible cells not bytes",
+			text:  "你好 abc",
+			width: 5,
+			want:  "你好\nabc",
+		},
+		{
+			// Without width-aware measurement this would not wrap because the
+			// byte length 13 < width 12; with cells it's 4+1+5=10, still fits
+			// on one line. Add another word to force a wrap.
+			name:  "cjk multi-line wrap",
+			text:  "你好 世界 done",
+			width: 6,
+			want:  "你好\n世界\ndone",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := wrapText(tt.text, tt.width)
-			if got == "" && tt.text != "" {
-				t.Errorf("wrapText() returned empty string for non-empty input")
+			if got != tt.want {
+				t.Errorf("wrapText(%q, %d) = %q, want %q", tt.text, tt.width, got, tt.want)
 			}
 		})
 	}
