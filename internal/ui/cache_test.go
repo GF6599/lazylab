@@ -2,6 +2,8 @@ package ui
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -217,11 +219,12 @@ func TestSanitizeHost(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"", "gitlab_com"},
-		{"https://gitlab.com", "gitlab_com"},
-		{"http://gitlab.example.com", "gitlab_example_com"},
-		{"https://gitlab.com:8080/api/v4", "gitlab_com_8080_api_v4"},
-		{"gitlab.internal", "gitlab_internal"},
+		{"", "https_gitlab_com"},
+		{"https://gitlab.com", "https_gitlab_com"},
+		{"http://gitlab.com", "http_gitlab_com"},
+		{"http://gitlab.example.com", "http_gitlab_example_com"},
+		{"https://gitlab.com:8080/api/v4", "https_gitlab_com-8080"},
+		{"gitlab.internal", "https_gitlab_internal"},
 	}
 
 	for _, tt := range tests {
@@ -229,6 +232,68 @@ func TestSanitizeHost(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("sanitizeHost(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestSanitizeHost_NoCollisions(t *testing.T) {
+	// Inputs that historically collapsed to the same filename. Each pair must
+	// now produce two distinct sanitized names so per-host caches don't stomp
+	// on each other.
+	pairs := [][2]string{
+		{"https://gitlab.com", "http://gitlab.com"},
+		{"https://gitlab.com:8080", "https://gitlab.com:8443"},
+	}
+	for _, p := range pairs {
+		a, b := sanitizeHost(p[0]), sanitizeHost(p[1])
+		if a == b {
+			t.Errorf("collision: sanitizeHost(%q) == sanitizeHost(%q) == %q", p[0], p[1], a)
+		}
+	}
+}
+
+func TestProjectCache_MigrateLegacy(t *testing.T) {
+	dir := t.TempDir()
+	host := "https://gitlab.example.com"
+
+	// Seed a legacy-named cache file in the temp dir.
+	legacyName := fmt.Sprintf("projects_%s.json", legacySanitizeHost(host))
+	legacyPath := filepath.Join(dir, legacyName)
+	payload := cacheFile{
+		Version:  cacheVersion,
+		Host:     host,
+		CachedAt: time.Now(),
+		Projects: []gitlab.ProjectNode{{ID: 1, Name: "p"}},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(legacyPath, data, 0o600); err != nil {
+		t.Fatalf("seed legacy file: %v", err)
+	}
+
+	// Build a cache pointing at the *new* sanitized path in the same dir.
+	newName := fmt.Sprintf("projects_%s.json", sanitizeHost(host))
+	if newName == legacyName {
+		t.Fatal("test precondition violated: new and legacy names match; nothing to migrate")
+	}
+	cache := &projectCache{
+		path: filepath.Join(dir, newName),
+		host: host,
+	}
+
+	got, err := cache.Load()
+	if err != nil {
+		t.Fatalf("Load after migration: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != 1 {
+		t.Errorf("expected migrated project list, got %+v", got)
+	}
+	if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("legacy file should have been renamed; still present at %s", legacyPath)
+	}
+	if _, err := os.Stat(cache.path); err != nil {
+		t.Errorf("new path should exist after migration: %v", err)
 	}
 }
 

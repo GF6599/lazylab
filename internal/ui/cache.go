@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,8 +81,15 @@ func newProjectCache(host string) (*projectCache, error) {
 // as a cache miss by callers) when the file is absent, the version doesn't
 // match, the TTL has expired, or the project list is empty. This lets the
 // caller fall through to a live API fetch without special-casing each scenario.
+//
+// On the first miss for a given host, Load attempts to migrate a legacy-
+// sanitized cache file (the pre-collision-fix name) into the current scheme so
+// users don't lose their cache on upgrade.
 func (c *projectCache) Load() ([]gitlab.ProjectNode, error) {
 	data, err := os.ReadFile(c.path)
+	if errors.Is(err, os.ErrNotExist) && c.migrateLegacy() {
+		data, err = os.ReadFile(c.path)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, errCacheNotFound
 	}
@@ -150,9 +158,34 @@ func (c *projectCache) Save(projects []gitlab.ProjectNode) error {
 	return nil
 }
 
-// sanitizeHost converts a GitLab host URL into a safe filesystem name by
-// stripping the scheme and replacing special characters with underscores.
+// sanitizeHost converts a GitLab host URL into a deterministic, collision-free
+// filesystem name. The scheme is preserved as a prefix so that http:// and
+// https:// against the same host produce distinct cache files; the port is
+// joined with "-" so it cannot collide with a hostname containing the same
+// digits joined by underscores; dots become underscores for readability.
+//
+// Inputs without a scheme are treated as https:// so a bare "gitlab.internal"
+// behaves the same as "https://gitlab.internal".
 func sanitizeHost(host string) string {
+	if host == "" {
+		host = "https://gitlab.com"
+	}
+	if !strings.HasPrefix(host, "https://") && !strings.HasPrefix(host, "http://") {
+		host = "https://" + host
+	}
+	u, err := url.Parse(host)
+	if err != nil || u.Host == "" {
+		return legacySanitizeHost(host)
+	}
+	h := strings.ReplaceAll(u.Host, ":", "-")
+	h = strings.ReplaceAll(h, ".", "_")
+	return u.Scheme + "_" + h
+}
+
+// legacySanitizeHost reproduces the pre-collision-fix sanitization scheme so
+// that [projectCache.migrateLegacy] can locate cache files written by older
+// versions of lazylab. Do not call from new code paths.
+func legacySanitizeHost(host string) string {
 	if host == "" {
 		host = "gitlab.com"
 	}
@@ -160,4 +193,23 @@ func sanitizeHost(host string) string {
 	host = replacer.Replace(host)
 	host = strings.ReplaceAll(host, ".", "_")
 	return host
+}
+
+// migrateLegacy moves a cache file written under the legacy sanitization scheme
+// to the current location. Returns true if a rename succeeded. Best-effort:
+// failures (missing file, target already present, permission errors) all return
+// false and let Load fall through to a fresh fetch.
+func (c *projectCache) migrateLegacy() bool {
+	legacyName := fmt.Sprintf("projects_%s.json", legacySanitizeHost(c.host))
+	if filepath.Base(c.path) == legacyName {
+		return false
+	}
+	legacyPath := filepath.Join(filepath.Dir(c.path), legacyName)
+	if _, err := os.Stat(legacyPath); err != nil {
+		return false
+	}
+	if _, err := os.Stat(c.path); err == nil {
+		return false
+	}
+	return os.Rename(legacyPath, c.path) == nil
 }
