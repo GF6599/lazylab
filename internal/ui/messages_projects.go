@@ -14,6 +14,25 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
+// loadProjectsStatusForErr returns a user-friendly status line for a failed
+// project load, branching on the HTTP status carried by the underlying SDK
+// error. 401 prompts the user to refresh their token; 429 explains the brief
+// wait; everything else uses a generic message.
+func loadProjectsStatusForErr(err error) string {
+	switch {
+	case gitlab.IsUnauthorized(err):
+		return "GitLab token rejected (401) — refresh GITLAB_TOKEN"
+	case gitlab.IsRateLimited(err):
+		return "GitLab rate-limited (429) — retrying after backoff"
+	case gitlab.IsForbidden(err):
+		return "GitLab denied access (403) — check token scopes"
+	case gitlab.IsServerError(err):
+		return "GitLab server error — will retry"
+	default:
+		return "Failed to load projects"
+	}
+}
+
 // handleCacheLoaded processes the on-disk project cache result. On a cache hit,
 // all pages are marked ready immediately and the pipeline refresh ticker starts.
 // On a miss (or error), it falls back to a foreground API fetch. In multi-panel
@@ -84,7 +103,7 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 			m.status = "Background load failed"
 		} else {
 			m.loading = false
-			m.status = "Failed to load projects"
+			m.status = loadProjectsStatusForErr(msg.err)
 		}
 		m.err = msg.err
 		m.logError("load projects", "err", msg.err, "background", msg.background)

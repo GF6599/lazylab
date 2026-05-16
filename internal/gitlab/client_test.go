@@ -12,12 +12,18 @@ import (
 )
 
 // newTestClient creates a *Client backed by the given HTTP handler via httptest.
+// Retries are disabled so 429/5xx tests don't burn 10+ seconds waiting for the
+// SDK's exponential backoff to give up.
 func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	api, err := gl.NewClient("test-token", gl.WithBaseURL(server.URL+"/api/v4"))
+	api, err := gl.NewClient(
+		"test-token",
+		gl.WithBaseURL(server.URL+"/api/v4"),
+		gl.WithoutRetries(),
+	)
 	if err != nil {
 		t.Fatalf("gl.NewClient: %v", err)
 	}
