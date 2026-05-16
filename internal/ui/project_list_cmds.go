@@ -382,13 +382,58 @@ func retryJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.
 	}
 }
 
-// pipelineTickCmd starts the recurring auto-refresh timer. Each tick triggers
-// handlePipelineTick which re-enqueues the tick, forming a self-sustaining
-// loop that runs for the lifetime of the program.
+// pipelineTickCmd schedules a single pipelineTickMsg after
+// pipelineRefreshInterval. The Update handler re-enqueues the next tick via
+// [continuePipelineTickCmd] only while the current mode wants live refresh;
+// otherwise the chain self-terminates and is restarted on the next transition
+// into a refreshable mode by [ensurePipelineTickCmd].
+//
+// Call this only through the two helpers above so the Model.pipelineTickAlive
+// flag stays in sync — a raw call here that bypasses the helpers would race
+// with the alive-tracking and risk double-ticking.
 func pipelineTickCmd() tea.Cmd {
 	return tea.Tick(pipelineRefreshInterval, func(time.Time) tea.Msg {
 		return pipelineTickMsg{}
 	})
+}
+
+// modeWantsPipelineTick reports whether the auto-refresh ticker has anything
+// to do in the given mode. modeExplorer is the only refreshable-state-free
+// mode today.
+func modeWantsPipelineTick(mode Mode) bool {
+	switch mode {
+	case modeProjects, modePipelines, modeMultiPanel:
+		return true
+	}
+	return false
+}
+
+// continuePipelineTickCmd is called from the pipelineTickMsg handler to decide
+// whether the tick chain continues. Returns a fresh tick if the current mode
+// still wants live refresh; otherwise clears Model.pipelineTickAlive and
+// returns nil so the chain dies.
+func continuePipelineTickCmd(m *Model) tea.Cmd {
+	if !modeWantsPipelineTick(m.mode) {
+		m.pipelineTickAlive = false
+		return nil
+	}
+	return pipelineTickCmd()
+}
+
+// ensurePipelineTickCmd starts a new tick chain if (a) the current mode wants
+// live refresh and (b) no chain is currently in flight. Returns nil otherwise,
+// so callers can unconditionally batch the result without risking a duplicate
+// chain. Call this after every transition that may enter a refreshable mode
+// from a state where the chain might have died.
+func ensurePipelineTickCmd(m *Model) tea.Cmd {
+	if !modeWantsPipelineTick(m.mode) {
+		return nil
+	}
+	if m.pipelineTickAlive {
+		return nil
+	}
+	m.pipelineTickAlive = true
+	return pipelineTickCmd()
 }
 
 // selectionDebounceTickCmd fires a debounce tick after delay. The timestamp

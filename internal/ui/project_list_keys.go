@@ -93,14 +93,14 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	cur := m.currentDirState()
 	if cur == nil {
 		m.closeExplorer("Back to projects")
-		return m, nil
+		return m, ensurePipelineTickCmd(&m)
 	}
 	switch key {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "esc":
 		m.closeExplorer("Back to projects")
-		return m, nil
+		return m, ensurePipelineTickCmd(&m)
 	case "J":
 		m.explorer.preview.viewport.HalfPageDown()
 		return m, nil

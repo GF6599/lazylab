@@ -317,6 +317,14 @@ type Model struct {
 	pipelineStatus    *LRUCache[int, pipelineState]
 	pipelineView      pipelineViewState
 	mrView            mrViewState
+
+	// pipelineTickAlive tracks whether a pipelineTickCmd is currently in flight.
+	// The tick chain self-terminates when [handlePipelineTick] returns no work in
+	// a non-refreshable mode (e.g. modeExplorer); ensurePipelineTickCmd restarts
+	// it when the user transitions back to a mode that wants live refresh. The
+	// flag also de-duplicates kick attempts so two concurrent tick chains can
+	// never run, which would otherwise double the API refresh rate.
+	pipelineTickAlive bool
 	// Bubble components
 	keys           keyMap
 	help           help.Model
@@ -840,10 +848,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pipelineTickMsg:
 		newModel, cmd := m.handlePipelineTick()
 		m = newModel.(Model)
+		// Self-terminate the chain when the current mode is non-refreshable
+		// (e.g. modeExplorer). A fresh tick is restarted on transitions back
+		// into a refreshable mode via ensurePipelineTickCmd.
+		next := continuePipelineTickCmd(&m)
 		if cmd == nil {
-			return m, pipelineTickCmd()
+			return m, next
 		}
-		return m, tea.Batch(cmd, pipelineTickCmd())
+		if next == nil {
+			return m, cmd
+		}
+		return m, tea.Batch(cmd, next)
 	case batchPipelineStatusMsg:
 		return m.handleBatchPipelineStatus(msg)
 	case selectionDebounceTickMsg:

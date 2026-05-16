@@ -799,6 +799,68 @@ func TestPrevSidebarPanel_Sequential(t *testing.T) {
 	}
 }
 
+// --- pipeline ticker lifecycle tests ---
+
+func TestPipelineTick_KeepsAliveInRefreshableModes(t *testing.T) {
+	for _, mode := range []Mode{modeProjects, modePipelines, modeMultiPanel} {
+		m := newTestModel()
+		m.mode = mode
+		m.pipelineTickAlive = true
+		if got := continuePipelineTickCmd(&m); got == nil {
+			t.Errorf("mode=%d: expected re-enqueue cmd, got nil", mode)
+		}
+		if !m.pipelineTickAlive {
+			t.Errorf("mode=%d: expected pipelineTickAlive=true after continue", mode)
+		}
+	}
+}
+
+func TestPipelineTick_DiesInIdleMode(t *testing.T) {
+	m := newTestModel()
+	m.mode = modeExplorer
+	m.pipelineTickAlive = true
+	if got := continuePipelineTickCmd(&m); got != nil {
+		t.Fatal("expected nil cmd (chain should die) in modeExplorer")
+	}
+	if m.pipelineTickAlive {
+		t.Fatal("expected pipelineTickAlive=false after chain dies in idle mode")
+	}
+}
+
+func TestEnsurePipelineTick_StartsWhenDead(t *testing.T) {
+	m := newTestModel()
+	m.mode = modeProjects
+	m.pipelineTickAlive = false
+	cmd := ensurePipelineTickCmd(&m)
+	if cmd == nil {
+		t.Fatal("expected tick cmd when chain is dead and mode is refreshable")
+	}
+	if !m.pipelineTickAlive {
+		t.Fatal("expected pipelineTickAlive=true after start")
+	}
+}
+
+func TestEnsurePipelineTick_NoDoubleStart(t *testing.T) {
+	m := newTestModel()
+	m.mode = modeProjects
+	m.pipelineTickAlive = true
+	if cmd := ensurePipelineTickCmd(&m); cmd != nil {
+		t.Fatal("expected nil cmd when chain already alive (would double-tick)")
+	}
+}
+
+func TestEnsurePipelineTick_NoStartInIdleMode(t *testing.T) {
+	m := newTestModel()
+	m.mode = modeExplorer
+	m.pipelineTickAlive = false
+	if cmd := ensurePipelineTickCmd(&m); cmd != nil {
+		t.Fatal("expected nil cmd in non-refreshable mode")
+	}
+	if m.pipelineTickAlive {
+		t.Fatal("expected pipelineTickAlive to stay false")
+	}
+}
+
 // contains checks if a string contains a substring.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||

@@ -80,7 +80,10 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	m.ensureSelectionBounds()
 	m.updateProjectList()
 	// Batch prefetch pipeline status for all visible projects and start ticker
-	cmds := []tea.Cmd{pipelineTickCmd()}
+	var cmds []tea.Cmd
+	if tickCmd := ensurePipelineTickCmd(&m); tickCmd != nil {
+		cmds = append(cmds, tickCmd)
+	}
 	if prefetchCmd := (&m).queueBatchPrefetchPipelineStatus(); prefetchCmd != nil {
 		cmds = append(cmds, prefetchCmd)
 	}
@@ -164,7 +167,9 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 		cmds = append(cmds, batchCmd)
 	}
 	if msg.page.Page == 1 {
-		cmds = append(cmds, pipelineTickCmd())
+		if tickCmd := ensurePipelineTickCmd(&m); tickCmd != nil {
+			cmds = append(cmds, tickCmd)
+		}
 	}
 	if m.cache != nil && len(m.allProjects) > 0 {
 		cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))

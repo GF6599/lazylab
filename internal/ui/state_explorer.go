@@ -65,7 +65,7 @@ func (m Model) descendDirectory(entry gitlab.TreeNode) (tea.Model, tea.Cmd) {
 func (m Model) navigateExplorerUp() (tea.Model, tea.Cmd) {
 	if len(m.explorer.stack) <= 1 {
 		m.closeExplorer("Back to projects")
-		return m, nil
+		return m, ensurePipelineTickCmd(&m)
 	}
 	m.explorer.stack = m.explorer.stack[:len(m.explorer.stack)-1]
 	m.explorer.resetPreview()
