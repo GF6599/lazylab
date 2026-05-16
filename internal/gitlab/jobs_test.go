@@ -2,6 +2,7 @@ package gitlab
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -148,30 +149,15 @@ func TestPlayJob_Success(t *testing.T) {
 	}
 }
 
-// extractFirstJSONArrayElement extracts the first element from a JSON array.
+// extractFirstJSONArrayElement returns the raw JSON of the first element of a
+// JSON array, leaving the original bytes intact. Used by tests that share the
+// pipeline_jobs.json fixture (a list) with endpoints that expect a single
+// object. Falls back to returning the input on parse failure so test failures
+// surface as comparison mismatches rather than panics.
 func extractFirstJSONArrayElement(data []byte) []byte {
-	depth := 0
-	start := -1
-	for i, b := range data {
-		switch b {
-		case '[':
-			if depth == 0 {
-				start = i + 1
-			}
-			depth++
-		case '{':
-			if start >= 0 && depth == 1 {
-				start = i
-			}
-			depth++
-		case '}':
-			depth--
-			if depth == 1 {
-				return data[start : i+1]
-			}
-		case ']':
-			depth--
-		}
+	var elements []json.RawMessage
+	if err := json.Unmarshal(data, &elements); err != nil || len(elements) == 0 {
+		return data
 	}
-	return data
+	return elements[0]
 }
