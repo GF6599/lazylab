@@ -169,6 +169,10 @@ func TestMergeStageStatus(t *testing.T) {
 		{"manual wins over success", "success", "manual", "manual"},
 		{"success stays if no higher priority", "success", "skipped", "success"},
 		{"first status when empty", "", "running", "running"},
+		{"preparing outranks success", "success", "preparing", "preparing"},
+		{"preparing tied with running stays running", "running", "preparing", "running"},
+		{"waiting_for_callback outranks success", "success", "waiting_for_callback", "waiting_for_callback"},
+		{"failed beats preparing", "preparing", "failed", "failed"},
 	}
 
 	for _, tt := range tests {

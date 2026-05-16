@@ -328,8 +328,10 @@ var stageStatusPriority = map[string]int{
 	"manual":               2,
 	"blocked":              2,
 	"running":              3,
+	"preparing":            3, // job runner is preparing the environment — treat like running
 	"pending":              4,
 	"waiting_for_resource": 4,
+	"waiting_for_callback": 4, // bridge/trigger awaiting downstream callback
 	"scheduled":            4,
 	"created":              5,
 	"success":              6,
