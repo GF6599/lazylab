@@ -18,6 +18,8 @@ import (
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/spf13/pflag"
 
 	"github.com/GF6599/lazylab/internal/demo"
@@ -32,12 +34,30 @@ var (
 	date    = "unknown"
 )
 
-// fatal prints a labelled error to stderr and exits with code 1. Used for
-// failures that occur before the structured logger is initialised, so all
-// startup errors land on the same stream with a consistent format.
-func fatal(label string, err error) {
-	fmt.Fprintln(os.Stderr, label+":", err)
+// fatal is the single exit-with-error path for startup failures. Pre-logger
+// errors print to stderr directly with a labelled prefix; once a logger is
+// available, callers should pass it so the failure is recorded in the same
+// redacted, structured stream as the rest of the application's diagnostics.
+//
+// Always exits with code 1; never returns.
+func fatal(logger *slog.Logger, label string, err error) {
+	if logger != nil {
+		logger.Error(label, "err", err)
+	} else {
+		fmt.Fprintln(os.Stderr, label+":", err)
+	}
 	os.Exit(1)
+}
+
+// applyColorProfile honors the NO_COLOR convention (https://no-color.org) by
+// downgrading lipgloss to plain ASCII output. Without this, lipgloss still
+// auto-detects via termenv's TTY/COLORTERM heuristics, but explicit handling
+// here guarantees deterministic behavior across pipes, CI runners, and exotic
+// terminals where auto-detect can be wrong.
+func applyColorProfile() {
+	if os.Getenv("NO_COLOR") != "" {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	}
 }
 
 func main() {
@@ -45,7 +65,7 @@ func main() {
 	config.RegisterFlags(fs)
 	fs.BoolP("version", "v", false, "Print version and exit")
 	if err := fs.Parse(os.Args[1:]); err != nil {
-		fatal("parse flags", err)
+		fatal(nil, "parse flags", err)
 	}
 
 	if v, _ := fs.GetBool("version"); v {
@@ -55,13 +75,15 @@ func main() {
 
 	cfg, err := config.Load(fs)
 	if err != nil {
-		fatal("config error", err)
+		fatal(nil, "config error", err)
 	}
 
 	level, err := parseLogLevel(cfg.LogLevel)
 	if err != nil {
-		fatal("invalid log level", err)
+		fatal(nil, "invalid log level", err)
 	}
+
+	applyColorProfile()
 
 	baseHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	logger := slog.New(ui.NewRedactingHandler(baseHandler))
@@ -73,8 +95,7 @@ func main() {
 	} else {
 		c, err := gitlab.NewClient(cfg.Token, cfg.Host)
 		if err != nil {
-			logger.Error("create gitlab client", "err", err)
-			os.Exit(1)
+			fatal(logger, "create gitlab client", err)
 		}
 		client = c
 	}
@@ -91,8 +112,7 @@ func main() {
 	logger.Info("connecting to GitLab", "host", cfg.Host)
 
 	if _, err := program.Run(); err != nil {
-		logger.Error("tui exited", "err", err)
-		os.Exit(1)
+		fatal(logger, "tui exited", err)
 	}
 }
 
