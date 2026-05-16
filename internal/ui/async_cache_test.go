@@ -100,3 +100,48 @@ func TestAsyncCache_Len(t *testing.T) {
 		t.Fatalf("Len() = %d; want 2", c.Len())
 	}
 }
+
+func TestAsyncCache_Keys(t *testing.T) {
+	c := NewAsyncCache[int, string]()
+	if got := c.Keys(); len(got) != 0 {
+		t.Fatalf("Keys() on empty cache = %v; want empty", got)
+	}
+	c.Set(7, "a")
+	c.Set(3, "b")
+	c.Set(5, "c")
+	got := c.Keys()
+	if len(got) != 3 {
+		t.Fatalf("Keys() = %v; want 3 entries", got)
+	}
+	// Map iteration order is not stable, so check via set membership.
+	want := map[int]bool{3: true, 5: true, 7: true}
+	for _, k := range got {
+		if !want[k] {
+			t.Errorf("unexpected key %d in Keys()", k)
+		}
+	}
+}
+
+func TestAsyncCache_KeysExcludesLoadingOnlyEntries(t *testing.T) {
+	// SetLoading without Set should not count as a key — Keys reflects
+	// fully-cached values only.
+	c := NewAsyncCache[int, string]()
+	c.SetLoading(1)
+	if got := c.Keys(); len(got) != 0 {
+		t.Errorf("Keys() = %v; loading-only keys should not appear", got)
+	}
+}
+
+func TestAsyncCache_LoadingMapMirrorsLoadingState(t *testing.T) {
+	c := NewAsyncCache[int, string]()
+	c.SetLoading(1)
+	c.SetLoading(2)
+	c.Set(2, "done") // should clear 2 from loading map
+	loading := c.LoadingMap()
+	if !loading[1] {
+		t.Error("LoadingMap() missing key 1")
+	}
+	if loading[2] {
+		t.Error("LoadingMap() should not contain key 2 after Set")
+	}
+}
