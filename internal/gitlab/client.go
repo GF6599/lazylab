@@ -496,10 +496,20 @@ func extractPageMeta(resp *gl.Response, fallbackPage int) pageMeta {
 // gracefully rather than losing all data when a mid-sequence page fails.
 // The fetch function receives a 1-based page number and must return the raw
 // *gl.Response so paginate can read the NextPage cursor.
+//
+// The outer loop checks ctx.Done() between pages so user-initiated
+// cancellation (e.g. Ctrl+R, mode change) aborts mid-pagination without
+// waiting for the next page fetch to time out. Each individual fetch is
+// already context-aware via gl.WithContext at the call site.
 func paginate[T any](ctx context.Context, fetch func(page int) ([]T, *gl.Response, error)) ([]T, error) {
 	var all []T
 	page := 1
 	for {
+		select {
+		case <-ctx.Done():
+			return all, ctx.Err()
+		default:
+		}
 		items, resp, err := fetch(page)
 		if err != nil {
 			return all, err

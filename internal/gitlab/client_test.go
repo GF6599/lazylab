@@ -2,6 +2,7 @@ package gitlab
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -507,6 +508,57 @@ func TestGetFileContent_PathTraversal(t *testing.T) {
 }
 
 // TestGetFileContent_ValidPaths tests that legitimate paths are accepted
+func TestPaginate_RespectsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	calls := 0
+	fetch := func(page int) ([]int, *gl.Response, error) {
+		calls++
+		// Cancel after the first successful fetch. The next iteration of
+		// paginate must observe ctx.Done() and abort, not call fetch again.
+		if page == 1 {
+			cancel()
+		}
+		resp := &gl.Response{Response: &http.Response{}, NextPage: int64(page + 1), TotalPages: 5}
+		return []int{page}, resp, nil
+	}
+
+	items, err := paginate(ctx, fetch)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected exactly 1 fetch call after cancellation, got %d", calls)
+	}
+	if len(items) != 1 || items[0] != 1 {
+		t.Errorf("expected partial results [1], got %v", items)
+	}
+}
+
+func TestPaginate_StopsAtZeroNextPage(t *testing.T) {
+	calls := 0
+	fetch := func(page int) ([]int, *gl.Response, error) {
+		calls++
+		next := int64(page + 1)
+		if page == 3 {
+			next = 0 // last page
+		}
+		resp := &gl.Response{Response: &http.Response{}, NextPage: next, TotalPages: 3}
+		return []int{page}, resp, nil
+	}
+
+	items, err := paginate(context.Background(), fetch)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("expected 3 fetch calls (until NextPage=0), got %d", calls)
+	}
+	if len(items) != 3 {
+		t.Errorf("expected 3 items, got %d", len(items))
+	}
+}
+
 func TestGetFileContent_ValidPaths(t *testing.T) {
 	tests := []string{
 		"README.md",
