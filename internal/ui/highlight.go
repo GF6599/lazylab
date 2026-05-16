@@ -47,6 +47,13 @@ func (m *Model) highlightPreview(path, content string, width int) (string, bool,
 	if content == "" {
 		return "", false, nil
 	}
+	// Skip glamour entirely for oversized content. Pathological markdown can
+	// make Render run unboundedly, and the result wouldn't fit in our LRU
+	// anyway (line 67 below). Better to surface raw content immediately than
+	// risk hanging the preview pane on an attacker-controlled file.
+	if len(content) > maxPreviewHighlightBytes {
+		return content, false, nil
+	}
 	if width <= 0 {
 		width = 80
 	}
