@@ -54,6 +54,26 @@ func TestRedactString(t *testing.T) {
 			input: "GET https://gitlab.com/api?token=glpat-secret",
 			want:  "GET https://gitlab.com/api?token=[REDACTED-TOKEN]",
 		},
+		{
+			// CI/CD job token: long prefix, mixed case.
+			name:  "GitLab CI bot token",
+			input: "found glcbt-abc123def456",
+			want:  "found [REDACTED-TOKEN]",
+		},
+		{
+			// Hypothetical short-prefix variant that the previous
+			// {2,4} bound would have missed.
+			name:  "single-char prefix variant",
+			input: "key=glx-abc123def",
+			want:  "key=[REDACTED-TOKEN]",
+		},
+		{
+			// Hypothetical uppercase variant (e.g. GLPAT-) that previous
+			// [a-z] character class would have missed.
+			name:  "uppercase prefix variant",
+			input: "leak: glPAT-abc123def456",
+			want:  "leak: [REDACTED-TOKEN]",
+		},
 	}
 
 	for _, tt := range tests {

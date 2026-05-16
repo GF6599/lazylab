@@ -37,7 +37,12 @@ func NewRedactingHandler(h slog.Handler) slog.Handler {
 // "Authorization: Bearer glpat-xxx" should become "Authorization: [REDACTED]",
 // not "Authorization: Bearer [REDACTED-TOKEN]".
 var (
-	tokenPattern      = regexp.MustCompile(`gl[a-z]{2,4}-[a-zA-Z0-9_-]{6,}`)
+	// tokenPattern matches any GitLab-prefixed token: glpat-, gldt-, gloas-,
+	// glcbt-, and any future short-prefix variant GitLab adds. The prefix
+	// allows 1-8 alphanumeric characters (mixed case) after "gl", followed by
+	// "-" and 6+ token characters. Widened from the previous gl[a-z]{2,4}- so
+	// uppercase variants and single-char-prefix tokens don't slip through.
+	tokenPattern      = regexp.MustCompile(`gl[a-zA-Z0-9]{1,8}-[a-zA-Z0-9_-]{6,}`)
 	authHeaderPattern = regexp.MustCompile(`[Aa]uthorization:\s+[^\s]+(\s+[^\s]+)*`)
 	bearerPattern     = regexp.MustCompile(`[Bb]earer\s+[a-zA-Z0-9_-]+`)
 )
