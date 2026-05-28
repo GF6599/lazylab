@@ -1,4 +1,4 @@
-package ui
+package redacting
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestRedactString(t *testing.T) {
+func TestRedact(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -78,15 +78,15 @@ func TestRedactString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := redactString(tt.input)
+			got := Redact(tt.input)
 			if got != tt.want {
-				t.Errorf("redactString() = %q, want %q", got, tt.want)
+				t.Errorf("Redact() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestRedactingHandler(t *testing.T) {
+func TestHandler(t *testing.T) {
 	tests := []struct {
 		name            string
 		message         string
@@ -135,14 +135,14 @@ func TestRedactingHandler(t *testing.T) {
 			var buf bytes.Buffer
 			baseHandler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
 				ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-					// Remove timestamp for consistent test output
+					// Remove timestamp for consistent test output.
 					if a.Key == slog.TimeKey {
 						return slog.Attr{}
 					}
 					return a
 				},
 			})
-			handler := NewRedactingHandler(baseHandler)
+			handler := NewHandler(baseHandler)
 			logger := slog.New(handler)
 
 			logger.LogAttrs(context.Background(), slog.LevelInfo, tt.message, tt.attrs...)
@@ -161,18 +161,5 @@ func TestRedactingHandler(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestRedactToken(t *testing.T) {
-	input := "error message with glpat-abc123def456ghi789jkl"
-	result := RedactToken(input)
-
-	if strings.Contains(result, "glpat-") {
-		t.Error("RedactToken should remove token patterns")
-	}
-
-	if !strings.Contains(result, "[REDACTED-TOKEN]") {
-		t.Error("RedactToken should replace with [REDACTED-TOKEN]")
 	}
 }

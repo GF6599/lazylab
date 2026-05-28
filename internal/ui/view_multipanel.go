@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 // renderMultiPanelView composes the full screen: sidebar | gap | detail + info bar.
@@ -81,7 +83,7 @@ func renderProjectsPanelContent(m *Model, width, height int) string {
 		return explorerHintStyle.Render(clampLine(fmt.Sprintf(" %s Loading projects...", m.spinner.View()), width))
 	}
 	if m.err != nil {
-		return explorerErrorStyle.Render(clampLine(" "+RedactToken(m.err.Error()), width))
+		return explorerErrorStyle.Render(clampLine(" "+redacting.Redact(m.err.Error()), width))
 	}
 	visible := m.visibleProjects()
 	if len(visible) == 0 && !m.loading {

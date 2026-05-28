@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 func (m Model) handleMRsLoaded(msg mrsLoadedMsg) (tea.Model, tea.Cmd) {
@@ -111,7 +113,7 @@ func (m Model) handleMRDiscussionResolved(msg mrDiscussionResolvedMsg) (tea.Mode
 			content := renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
 			m.setMRViewportContent(content)
 		}
-		m.status = fmt.Sprintf("Failed to resolve discussion: %v", RedactToken(msg.err.Error()))
+		m.status = fmt.Sprintf("Failed to resolve discussion: %v", redacting.Redact(msg.err.Error()))
 		return m, nil
 	}
 	if msg.resolved {
@@ -129,7 +131,7 @@ func (m Model) handleMRDiscussionReply(msg mrDiscussionReplyMsg) (tea.Model, tea
 	if msg.err != nil {
 		m.mrView.reply.sending = false
 		m.mrView.reply.err = msg.err
-		m.status = fmt.Sprintf("Failed to send reply: %v", RedactToken(msg.err.Error()))
+		m.status = fmt.Sprintf("Failed to send reply: %v", redacting.Redact(msg.err.Error()))
 		return m, nil
 	}
 	// Close modal and re-fetch discussions to show the new reply
@@ -161,7 +163,7 @@ func (m Model) handleMRDiscussionCreated(msg mrDiscussionCreatedMsg) (tea.Model,
 	if msg.err != nil {
 		m.mrView.reply.sending = false
 		m.mrView.reply.err = msg.err
-		m.status = fmt.Sprintf("Failed to post comment: %v", RedactToken(msg.err.Error()))
+		m.status = fmt.Sprintf("Failed to post comment: %v", redacting.Redact(msg.err.Error()))
 		return m, nil
 	}
 	m.mrView.reply = mrReplyState{}
@@ -177,7 +179,7 @@ func (m Model) handleMRCreated(msg mrCreatedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.mrView.createMR.sending = false
 		m.mrView.createMR.err = msg.err
-		m.status = fmt.Sprintf("Failed to create MR: %v", RedactToken(msg.err.Error()))
+		m.status = fmt.Sprintf("Failed to create MR: %v", redacting.Redact(msg.err.Error()))
 		return m, nil
 	}
 	m.mrView.createMR = createMRState{}
