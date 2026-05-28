@@ -11,6 +11,47 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
+// GetPipeline fetches a single pipeline by ID. Stages are not pre-loaded —
+// callers needing them should pair this with PipelineStages, matching the
+// lazy-loading pattern ListPipelines already uses.
+func (c *Client) GetPipeline(ctx context.Context, projectID, pipelineID int) (PipelineSummary, error) {
+	p, _, err := c.api.Pipelines.GetPipeline(projectID, int64(pipelineID), gl.WithContext(ctx))
+	if err != nil {
+		return PipelineSummary{}, fmt.Errorf("get pipeline %d: %w", pipelineID, err)
+	}
+	return pipelineSummary(p), nil
+}
+
+// LatestPipelineForSHA returns the most recent pipeline whose commit
+// matches sha. Distinct from LatestPipeline (which filters by ref) because
+// a single SHA can have multiple pipelines (push pipeline + detached MR
+// pipeline) — sorting by updated_at desc and taking the first row matches
+// the "what just ran for what I pushed" intuition.
+//
+// Returns ErrNoPipelines if no pipeline exists for that SHA. The CLI's
+// HEAD-resolution path treats this as a soft signal (maybe the user just
+// pushed and the pipeline hasn't been created yet) and surfaces it with a
+// hint to wait.
+func (c *Client) LatestPipelineForSHA(ctx context.Context, projectID int, sha string) (PipelineSummary, error) {
+	if strings.TrimSpace(sha) == "" {
+		return PipelineSummary{}, fmt.Errorf("latest pipeline for sha: empty sha")
+	}
+	opts := &gl.ListProjectPipelinesOptions{
+		ListOptions: gl.ListOptions{PerPage: 1, Page: 1},
+		OrderBy:     gl.Ptr("updated_at"),
+		Sort:        gl.Ptr("desc"),
+		SHA:         gl.Ptr(sha),
+	}
+	pipelines, _, err := c.api.Pipelines.ListProjectPipelines(projectID, opts, gl.WithContext(ctx))
+	if err != nil {
+		return PipelineSummary{}, fmt.Errorf("list pipelines for sha %s: %w", sha, err)
+	}
+	if len(pipelines) == 0 {
+		return PipelineSummary{}, ErrNoPipelines
+	}
+	return pipelineSummaryFromInfo(pipelines[0]), nil
+}
+
 // LatestPipeline returns the single most recent pipeline for a project/ref,
 // including its stage summaries. Pass an empty ref to get the latest pipeline
 // across all branches. Returns ErrNoPipelines if the project has no CI runs.
@@ -38,20 +79,8 @@ func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) 
 	if err != nil {
 		return PipelineSummary{}, fmt.Errorf("collect pipeline stages: %w", err)
 	}
-	summary := PipelineSummary{
-		ID:     int(p.ID),
-		Status: string(p.Status),
-		Ref:    p.Ref,
-		SHA:    p.SHA,
-		WebURL: p.WebURL,
-		Stages: stages,
-		Source: p.Source,
-	}
-	if p.UpdatedAt != nil {
-		summary.UpdatedAt = *p.UpdatedAt
-	} else if p.CreatedAt != nil {
-		summary.UpdatedAt = *p.CreatedAt
-	}
+	summary := pipelineSummaryFromInfo(p)
+	summary.Stages = stages
 	return summary, nil
 }
 
@@ -75,26 +104,19 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 		OrderBy: gl.Ptr("updated_at"),
 		Sort:    gl.Ptr("desc"),
 	}
+	if opts.Ref != "" {
+		apiOpts.Ref = gl.Ptr(opts.Ref)
+	}
+	if opts.Status != "" {
+		apiOpts.Status = gl.Ptr(gl.BuildStateValue(opts.Status))
+	}
 	pipelines, resp, err := c.api.Pipelines.ListProjectPipelines(projectID, apiOpts, gl.WithContext(ctx))
 	if err != nil {
 		return PipelinePage{}, fmt.Errorf("list pipelines: %w", err)
 	}
 	summaries := make([]PipelineSummary, 0, len(pipelines))
 	for _, p := range pipelines {
-		summary := PipelineSummary{
-			ID:     int(p.ID),
-			Status: string(p.Status),
-			Ref:    p.Ref,
-			SHA:    p.SHA,
-			WebURL: p.WebURL,
-			Source: p.Source,
-		}
-		if p.UpdatedAt != nil {
-			summary.UpdatedAt = *p.UpdatedAt
-		} else if p.CreatedAt != nil {
-			summary.UpdatedAt = *p.CreatedAt
-		}
-		summaries = append(summaries, summary)
+		summaries = append(summaries, pipelineSummaryFromInfo(p))
 	}
 	if len(summaries) == 0 && opts.Page <= 1 {
 		return PipelinePage{}, ErrNoPipelines
@@ -286,6 +308,32 @@ func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineI
 		})
 	}
 	return stages, nil
+}
+
+// pipelineSummaryFromInfo converts a client-go PipelineInfo (the lighter
+// payload returned by the list endpoints) to our domain type, nil-safe.
+// PipelineInfo lacks Duration, Coverage, and User — those fields are only
+// populated by the per-pipeline GET endpoint and so stay at zero values here.
+// Keeping the conversion in one place ensures every list-derived summary
+// matches the same shape (UpdatedAt fallback, source/ref/sha mapping).
+func pipelineSummaryFromInfo(pipeline *gl.PipelineInfo) PipelineSummary {
+	if pipeline == nil {
+		return PipelineSummary{}
+	}
+	summary := PipelineSummary{
+		ID:     int(pipeline.ID),
+		Status: pipeline.Status,
+		Ref:    pipeline.Ref,
+		SHA:    pipeline.SHA,
+		WebURL: pipeline.WebURL,
+		Source: pipeline.Source,
+	}
+	if pipeline.UpdatedAt != nil {
+		summary.UpdatedAt = *pipeline.UpdatedAt
+	} else if pipeline.CreatedAt != nil {
+		summary.UpdatedAt = *pipeline.CreatedAt
+	}
+	return summary
 }
 
 // pipelineSummary converts a client-go Pipeline to our domain type, nil-safe.

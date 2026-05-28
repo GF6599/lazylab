@@ -5,6 +5,7 @@ package demo
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -73,6 +74,32 @@ func (d *DemoService) LatestPipeline(_ context.Context, projectID int, _ string)
 
 func (d *DemoService) ListPipelines(_ context.Context, projectID int, opts gitlab.PipelineListOptions) (gitlab.PipelinePage, error) {
 	all := demoPipelines(projectID)
+	// Apply CLI-driven filters in demo too so `pipeline list --ref X
+	// --demo` produces realistic results — filtering after the fact is
+	// O(n) but the demo dataset is small (~dozens of pipelines).
+	// Allocate fresh slices for each filter rather than reusing
+	// all[:0]: the original `all` is the shared slice returned by
+	// demoPipelines, and aliasing its backing array would let one
+	// filter call mutate data seen by future callers (or by a
+	// concurrent ListPipelines on a different ref/status).
+	if opts.Ref != "" {
+		filtered := make([]gitlab.PipelineSummary, 0, len(all))
+		for _, p := range all {
+			if p.Ref == opts.Ref {
+				filtered = append(filtered, p)
+			}
+		}
+		all = filtered
+	}
+	if opts.Status != "" {
+		filtered := make([]gitlab.PipelineSummary, 0, len(all))
+		for _, p := range all {
+			if p.Status == opts.Status {
+				filtered = append(filtered, p)
+			}
+		}
+		all = filtered
+	}
 	perPage := opts.PerPage
 	if perPage <= 0 {
 		perPage = 20
@@ -256,4 +283,65 @@ func (d *DemoService) CreateMergeRequest(_ context.Context, _ int, opts gitlab.C
 		WebURL:       "https://gitlab.example.com/demo/project/-/merge_requests/999",
 		UpdatedAt:    refTime,
 	}, nil
+}
+
+func (d *DemoService) CurrentUser(_ context.Context) (gitlab.UserInfo, error) {
+	return gitlab.UserInfo{
+		ID:       1,
+		Username: "demo",
+		Name:     "Demo User",
+		Email:    "demo@gitlab.example.com",
+		State:    "active",
+		WebURL:   "https://gitlab.example.com/demo",
+	}, nil
+}
+
+func (d *DemoService) GetProject(_ context.Context, idOrPath string) (gitlab.ProjectNode, error) {
+	// Demo mode resolves any identifier to the first sample project so the
+	// CLI path can be exercised offline without needing to teach the demo
+	// data set about every fake project slug.
+	all := demoProjects()
+	if len(all) == 0 {
+		return gitlab.ProjectNode{}, fmt.Errorf("demo: no projects available for %q", idOrPath)
+	}
+	return all[0], nil
+}
+
+func (d *DemoService) GetPipeline(_ context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error) {
+	for _, p := range demoPipelines(projectID) {
+		if p.ID == pipelineID {
+			return p, nil
+		}
+	}
+	return gitlab.PipelineSummary{}, gitlab.ErrNoPipelines
+}
+
+func (d *DemoService) GetJob(_ context.Context, projectID, jobID int) (gitlab.PipelineJob, error) {
+	// Demo data is keyed loosely by project; surface the first matching
+	// job so the CLI streaming path can be exercised offline. A real
+	// streamer would care about transitions, but demo jobs are already
+	// terminal so a single fetch terminates the loop.
+	for _, pipe := range demoPipelines(projectID) {
+		for _, j := range demoJobs(projectID, pipe.ID) {
+			if j.ID == jobID {
+				return j, nil
+			}
+		}
+	}
+	return gitlab.PipelineJob{ID: jobID, Status: "success"}, nil
+}
+
+func (d *DemoService) LatestPipelineForSHA(_ context.Context, projectID int, sha string) (gitlab.PipelineSummary, error) {
+	// Match the real gitlab client's contract: ErrNoPipelines on any
+	// miss, whether the project has no pipelines at all or none for
+	// the requested SHA. Returning pipelines[0] on a SHA miss used to
+	// silently lie — callers expecting errors.Is(err, ErrNoPipelines)
+	// would never trigger their fallback path in demo mode, hiding
+	// real bugs in the CLI's not-found handling.
+	for _, p := range demoPipelines(projectID) {
+		if p.SHA == sha {
+			return p, nil
+		}
+	}
+	return gitlab.PipelineSummary{}, gitlab.ErrNoPipelines
 }

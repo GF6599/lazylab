@@ -94,6 +94,26 @@ type Service interface {
 	GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error)
 	ListBranches(ctx context.Context, projectID int, search string) ([]string, error)
 	CreateMergeRequest(ctx context.Context, projectID int, opts CreateMROptions) (MergeRequestSummary, error)
+	CurrentUser(ctx context.Context) (UserInfo, error)
+	// GetProject resolves a project by numeric ID (passed as a string) or
+	// by namespace path ("group/subgroup/project"). The GitLab API accepts
+	// both forms via the same endpoint, so the resolver can hand its
+	// --project arg through verbatim.
+	GetProject(ctx context.Context, idOrPath string) (ProjectNode, error)
+	// GetPipeline fetches a single pipeline by ID. Used by ref resolution
+	// when the user passes a numeric pipeline argument and we need the
+	// concrete record (status, ref, SHA) for display.
+	GetPipeline(ctx context.Context, projectID, pipelineID int) (PipelineSummary, error)
+	// LatestPipelineForSHA returns the most recent pipeline anchored to a
+	// specific commit SHA. Distinct from LatestPipeline (which filters by
+	// ref) because a commit can outlive its branch, and the CLI's HEAD-
+	// resolution path needs the SHA, not the ref name.
+	LatestPipelineForSHA(ctx context.Context, projectID int, sha string) (PipelineSummary, error)
+	// GetJob fetches a single job by ID. Used by the streaming-log path
+	// to poll the job's status alongside trace bytes, and by future
+	// commands that need a job's full record (artifacts, runner, etc.)
+	// without first listing the whole pipeline.
+	GetJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
 }
 
 // Verify at compile time that *Client satisfies Service.
@@ -132,10 +152,17 @@ type ProjectPage struct {
 	TotalPages int
 }
 
-// PipelineListOptions describe pagination parameters for pipeline listings.
+// PipelineListOptions describe pagination + filter parameters for pipeline
+// listings. Ref and Status are empty by default; when set they map to the
+// equivalent GitLab API query parameters. Status accepts the canonical
+// GitLab build states ("running", "success", "failed", "canceled",
+// "manual", "skipped", "pending", "created"); invalid values surface as
+// an empty result rather than an error, matching server-side behavior.
 type PipelineListOptions struct {
 	Page    int
 	PerPage int
+	Ref     string
+	Status  string
 }
 
 // PipelinePage contains a slice of pipelines along with pagination metadata.
