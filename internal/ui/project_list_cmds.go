@@ -244,10 +244,16 @@ func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Servic
 		// Semaphore limits concurrent goroutines to avoid triggering
 		// GitLab's rate limit (429) which causes retry backoff storms.
 		sem := make(chan struct{}, batchConcurrencyLimit)
+		launched := 0
 		for _, project := range projects {
-			sem <- struct{}{} // acquire slot
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return batchPipelineStatusMsg{results: results}
+			}
+			launched++
 			go func(projectID int) {
-				defer func() { <-sem }() // release slot
+				defer func() { <-sem }()
 				pipeline, err := client.LatestPipeline(ctx, projectID, "")
 				if err != nil {
 					if errors.Is(err, gitlab.ErrNoPipelines) {
@@ -261,12 +267,16 @@ func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Servic
 			}(project.ID)
 		}
 
-		for range len(projects) {
-			result := <-resultCh
-			results[result.projectID] = pipelineStatusResult{
-				pipeline: result.pipeline,
-				err:      result.err,
-				empty:    result.empty,
+		for range launched {
+			select {
+			case result := <-resultCh:
+				results[result.projectID] = pipelineStatusResult{
+					pipeline: result.pipeline,
+					err:      result.err,
+					empty:    result.empty,
+				}
+			case <-ctx.Done():
+				return batchPipelineStatusMsg{results: results}
 			}
 		}
 
