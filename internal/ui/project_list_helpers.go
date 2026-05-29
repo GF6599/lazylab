@@ -50,22 +50,20 @@ const (
 	// halfPageScrollFactor is the divisor for half-page scrolling
 	halfPageScrollFactor = 2
 
-	// Explorer view width percentages
-	explorerParentWidthPct  = 25 // Parent directory listing width
-	explorerCurrentWidthPct = 45 // Current directory listing width
-	explorerPreviewWidthPct = 30 // File preview width
+	// Explorer view width percentages. The preview column is the
+	// remainder (100 - parent - current), so no explicit constant.
+	explorerParentWidthPct  = 25
+	explorerCurrentWidthPct = 45
 
-	// Tree view widths for navigation (when in nested directory)
-	treeParentWidthPct  = 30 // Parent directory listing
-	treeCurrentWidthPct = 25 // Current directory listing
-	treePreviewWidthPct = 45 // Remaining for preview
+	// Tree view widths for navigation (when in nested directory).
+	treeParentWidthPct  = 30
+	treeCurrentWidthPct = 25
 
-	// Minimum widths to prevent layout collapse
+	// Minimum widths to prevent layout collapse.
 	minParentWidth  = 6
 	minCurrentWidth = 6
 	minTreeParent   = 12
 	minTreeCurrent  = 12
-	minInnerWidth   = 20
 )
 
 // stageTableColumns computes column widths for the pipeline stage table based

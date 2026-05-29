@@ -28,19 +28,12 @@ const (
 // General icons
 const (
 	iconProject       = "📦"
-	iconFolder        = "📁"
-	iconFile          = "📄"
 	iconPrivate       = "🔒"
 	iconPublic        = "🌐"
 	iconInternal      = "🏢"
 	iconStar          = "⭐"
 	iconClock         = "⏱"
-	iconBranch        = "🌿"
-	iconCommit        = "●"
-	iconTag           = "🏷"
 	iconLoading       = "⟳"
-	iconRecent        = "🕐"
-	iconBreadcrumb    = "›"
 	iconTreeCollapsed = "▸"
 	iconTreeExpanded  = "▾"
 )
