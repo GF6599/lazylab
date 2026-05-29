@@ -3,6 +3,7 @@ package gitlab
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -148,7 +149,7 @@ func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, r
 			Ref: gl.Ptr(ref),
 		}, gl.WithContext(ctx))
 		if createErr != nil {
-			return PipelineSummary{}, fmt.Errorf("retry pipeline: %v; run pipeline: %w", err, createErr)
+			return PipelineSummary{}, fmt.Errorf("retry pipeline fallback to create failed: %w", errors.Join(err, createErr))
 		}
 		return pipelineSummary(created), nil
 	}
