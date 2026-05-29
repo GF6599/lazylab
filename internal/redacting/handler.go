@@ -1,10 +1,13 @@
-// Package redacting provides a security-critical slog.Handler that prevents
-// GitLab tokens and bearer credentials from leaking into log files or stderr.
+// Package redacting strips GitLab tokens and other secret-shaped values
+// from strings before they reach user-visible output (logs, stderr, TUI
+// status lines, CLI tables). It exposes a slog.Handler decorator
+// ([NewHandler]) for the logging pipeline and a plain [Redact] function
+// for ad-hoc call sites that surface raw error text from the GitLab SDK.
 //
-// The package is intentionally tiny and TUI-free: it is imported by both the
-// CLI (cmd/lazylab) and the TUI (internal/ui), and pulling it out of
-// internal/ui keeps the CLI binary from dragging in the entire Bubble Tea
-// dependency graph for what is fundamentally a log-handler concern.
+// It is a cross-cutting utility and is intentionally importable by any
+// layer — including the UI — because the upstream error origin (the
+// GitLab SDK) cannot be controlled. Treat it like log/slog: a leaf
+// dependency with no layering opinion.
 //
 // The regex patterns are intentionally broad (matching any gl*-prefixed
 // token with 6+ characters) to catch future GitLab token formats without
