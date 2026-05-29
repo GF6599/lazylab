@@ -770,7 +770,6 @@ func (m Model) Init() tea.Cmd {
 // The spinner is only ticked when something is actively loading, to avoid
 // unnecessary redraws in idle state.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Only update spinner when actually loading something
 	var spinnerCmd tea.Cmd
 	if m.isLoading() {
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
@@ -778,46 +777,132 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.help.Width = msg.Width
-		m.refreshPreviewHighlight()
-		m.updateViewportSizes()
-		return m, spinnerCmd
+		return m.handleWindowSize(msg, spinnerCmd)
 	case tea.KeyMsg:
-		// Block all keys except quit when terminal is too small
-		if m.width < MinTerminalWidth || m.height < MinTerminalHeight {
-			if msg.String() == "ctrl+c" || msg.String() == "q" {
-				return m, tea.Quit
-			}
-			return m, nil
+		return m.handleKeyMsg(msg, spinnerCmd)
+	case pipelineTickMsg:
+		return m.handlePipelineTickMsg()
+	case favoritesLoadedMsg:
+		return m.handleFavoritesLoaded(msg)
+	case preferencesLoadedMsg:
+		return m.handlePreferencesLoaded(msg)
+	}
+	return m.routeAsyncMsg(msg)
+}
+
+// handleWindowSize updates layout-dependent state when the terminal is resized.
+func (m Model) handleWindowSize(msg tea.WindowSizeMsg, spinnerCmd tea.Cmd) (tea.Model, tea.Cmd) {
+	m.width = msg.Width
+	m.height = msg.Height
+	m.help.Width = msg.Width
+	m.refreshPreviewHighlight()
+	m.updateViewportSizes()
+	return m, spinnerCmd
+}
+
+// handleKeyMsg processes global key bindings (quit on too-small terminal, help
+// toggle, error clear, theme toggle) before falling through to the mode-aware
+// dispatcher.
+func (m Model) handleKeyMsg(msg tea.KeyMsg, spinnerCmd tea.Cmd) (tea.Model, tea.Cmd) {
+	if m.width < MinTerminalWidth || m.height < MinTerminalHeight {
+		if msg.String() == "ctrl+c" || msg.String() == "q" {
+			return m, tea.Quit
 		}
-		// Handle help toggle globally
-		if key.Matches(msg, m.keys.Help) {
-			m.showHelp = !m.showHelp
-			return m, spinnerCmd
-		}
-		if m.showHelp && key.Matches(msg, m.keys.CloseHelp) {
-			m.showHelp = false
-			return m, spinnerCmd
-		}
-		if m.showHelp {
-			return m, spinnerCmd
-		}
-		// Handle clear error
-		if key.Matches(msg, m.keys.ClearError) {
-			m.err = nil
-			m.status = ""
-			return m, spinnerCmd
-		}
-		// Handle theme toggle globally so it works in all panes and overlays.
-		// Skip when a text input is active so ~ can be typed as a character.
-		if key.Matches(msg, m.keys.Theme) && !m.isTextInputActive() {
-			newModel, cmd := m.toggleTheme()
-			return newModel, tea.Batch(spinnerCmd, cmd)
-		}
-		newModel, cmd := m.dispatchKey(msg)
+		return m, nil
+	}
+	if key.Matches(msg, m.keys.Help) {
+		m.showHelp = !m.showHelp
+		return m, spinnerCmd
+	}
+	if m.showHelp && key.Matches(msg, m.keys.CloseHelp) {
+		m.showHelp = false
+		return m, spinnerCmd
+	}
+	if m.showHelp {
+		return m, spinnerCmd
+	}
+	if key.Matches(msg, m.keys.ClearError) {
+		m.err = nil
+		m.status = ""
+		return m, spinnerCmd
+	}
+	if key.Matches(msg, m.keys.Theme) && !m.isTextInputActive() {
+		newModel, cmd := m.toggleTheme()
 		return newModel, tea.Batch(spinnerCmd, cmd)
+	}
+	newModel, cmd := m.dispatchKey(msg)
+	return newModel, tea.Batch(spinnerCmd, cmd)
+}
+
+// handlePipelineTickMsg drives the periodic refresh chain. The chain
+// self-terminates in non-refreshable modes and is restarted via
+// ensurePipelineTickCmd when the user transitions back into one.
+func (m Model) handlePipelineTickMsg() (tea.Model, tea.Cmd) {
+	newModel, cmd := m.handlePipelineTick()
+	m = newModel.(Model)
+	next := continuePipelineTickCmd(&m)
+	switch {
+	case cmd == nil:
+		return m, next
+	case next == nil:
+		return m, cmd
+	}
+	return m, tea.Batch(cmd, next)
+}
+
+// handleFavoritesLoaded applies a freshly loaded favorites snapshot and kicks
+// off the dependent reloads (visible-set prefetch, selected-project change).
+func (m Model) handleFavoritesLoaded(msg favoritesLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.logError("load favorites", "err", msg.err)
+		return m, nil
+	}
+	prevID, prevOK := m.currentSelectedProjectID()
+	m.favOrder = msg.favOrder
+	m.favorites = make(map[int]bool, len(m.favOrder))
+	for _, id := range m.favOrder {
+		m.favorites[id] = true
+	}
+	m.projectList.SetDelegate(projectDelegate{
+		pipelineStatus: m.pipelineStatus,
+		favorites:      m.favorites,
+	})
+	m.invalidateVisibleCache()
+	m.ensureSelectionBounds()
+	m.updateProjectList()
+
+	var cmds []tea.Cmd
+	if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// handlePreferencesLoaded applies persisted layout/screen/theme preferences.
+func (m Model) handlePreferencesLoaded(msg preferencesLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.logError("load preferences", "err", msg.err)
+		return m, nil
+	}
+	m.focus.LayoutMode = msg.layoutMode
+	m.focus.ScreenMode = msg.screenMode
+	applyTheme(msg.theme)
+	m = m.refreshThemeSubComponents()
+	m.invalidateDetailCache()
+	m.updateViewportSizes()
+	return m, nil
+}
+
+// routeAsyncMsg dispatches the remaining async result messages to their typed
+// handlers. Kept separate from [Model.Update] so the central switch stays small.
+func (m Model) routeAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
 	case projectsLoadedMsg:
 		return m.handleProjectsLoaded(msg)
 	case cacheLoadedMsg:
@@ -845,20 +930,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePipelineRetried(msg)
 	case pipelineJobRetriedMsg:
 		return m.handlePipelineJobRetried(msg)
-	case pipelineTickMsg:
-		newModel, cmd := m.handlePipelineTick()
-		m = newModel.(Model)
-		// Self-terminate the chain when the current mode is non-refreshable
-		// (e.g. modeExplorer). A fresh tick is restarted on transitions back
-		// into a refreshable mode via ensurePipelineTickCmd.
-		next := continuePipelineTickCmd(&m)
-		if cmd == nil {
-			return m, next
-		}
-		if next == nil {
-			return m, cmd
-		}
-		return m, tea.Batch(cmd, next)
 	case batchPipelineStatusMsg:
 		return m.handleBatchPipelineStatus(msg)
 	case selectionDebounceTickMsg:
@@ -897,54 +968,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTestReportLoaded(msg)
 	case commitsLoadedMsg:
 		return m.handleCommitsLoaded(msg)
-	case favoritesLoadedMsg:
-		if msg.err != nil {
-			m.logError("load favorites", "err", msg.err)
-		} else {
-			prevID, prevOK := m.currentSelectedProjectID()
-			m.favOrder = msg.favOrder
-			// Rebuild the map from the ordered slice
-			m.favorites = make(map[int]bool, len(m.favOrder))
-			for _, id := range m.favOrder {
-				m.favorites[id] = true
-			}
-			m.projectList.SetDelegate(projectDelegate{
-				pipelineStatus: m.pipelineStatus,
-				favorites:      m.favorites,
-			})
-			m.invalidateVisibleCache()
-			m.ensureSelectionBounds()
-			m.updateProjectList()
-
-			// Favorites may have changed the visible set; reload sidebar data
-			// and batch-prefetch pipeline status for the new visible projects.
-			var cmds []tea.Cmd
-			if cmd := (&m).queueBatchPrefetchPipelineStatus(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			if len(cmds) > 0 {
-				return m, tea.Batch(cmds...)
-			}
-		}
-		return m, nil
 	case favoritesSavedMsg:
 		if msg.err != nil {
 			m.logError("save favorites", "err", msg.err)
-		}
-		return m, nil
-	case preferencesLoadedMsg:
-		if msg.err != nil {
-			m.logError("load preferences", "err", msg.err)
-		} else {
-			m.focus.LayoutMode = msg.layoutMode
-			m.focus.ScreenMode = msg.screenMode
-			applyTheme(msg.theme)
-			m.refreshThemeSubComponents()
-			m.invalidateDetailCache()
-			m.updateViewportSizes()
 		}
 		return m, nil
 	case preferencesSavedMsg:
