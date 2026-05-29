@@ -541,6 +541,32 @@ func TestPaginate_RespectsContextCancellation(t *testing.T) {
 	}
 }
 
+// TestPaginate_ReturnsPartialResultsOnMidPageError guards the documented
+// degrade-gracefully behaviour: when a mid-sequence page fetch fails, the
+// items already accumulated from earlier pages must come back alongside
+// the non-nil error so callers can render what they have.
+func TestPaginate_ReturnsPartialResultsOnMidPageError(t *testing.T) {
+	sentinel := errors.New("page 2 boom")
+	fetch := func(page int) ([]int, *gl.Response, error) {
+		switch page {
+		case 1:
+			return []int{10, 20, 30}, &gl.Response{Response: &http.Response{}, NextPage: 2, TotalPages: 2}, nil
+		case 2:
+			return nil, &gl.Response{Response: &http.Response{StatusCode: 500}}, sentinel
+		}
+		t.Fatalf("unexpected page %d", page)
+		return nil, nil, nil
+	}
+
+	items, err := paginate(context.Background(), fetch)
+	if !errors.Is(err, sentinel) {
+		t.Errorf("expected sentinel in chain, got %v", err)
+	}
+	if len(items) != 3 || items[0] != 10 || items[1] != 20 || items[2] != 30 {
+		t.Errorf("expected partial page-1 items [10 20 30], got %v", items)
+	}
+}
+
 func TestPaginate_StopsAtZeroNextPage(t *testing.T) {
 	calls := 0
 	fetch := func(page int) ([]int, *gl.Response, error) {

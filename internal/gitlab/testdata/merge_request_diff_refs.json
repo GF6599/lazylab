@@ -1,0 +1,15 @@
+{
+  "id": 99,
+  "iid": 42,
+  "project_id": 1,
+  "title": "Add login feature",
+  "state": "opened",
+  "source_branch": "feature/login",
+  "target_branch": "main",
+  "web_url": "https://gitlab.com/team/app/-/merge_requests/42",
+  "diff_refs": {
+    "base_sha": "base123",
+    "head_sha": "head456",
+    "start_sha": "start789"
+  }
+}

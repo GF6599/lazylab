@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
 // wrappersFixture is the canned JSON the httptest handler returns from
@@ -397,10 +399,10 @@ func TestRetryPipeline_Happy(t *testing.T) {
 // pipeline on that ref so the user's "R" key still does something.
 func TestRetryPipeline_FallbackCreate(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v4/projects/42/pipelines/100/retry":
+		switch r.URL.Path {
+		case "/api/v4/projects/42/pipelines/100/retry":
 			http.Error(w, `{"message":"nothing to retry"}`, http.StatusBadRequest)
-		case r.URL.Path == "/api/v4/projects/42/pipeline":
+		case "/api/v4/projects/42/pipeline":
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, wrappersFixture.pipeline)
 		default:
@@ -416,6 +418,66 @@ func TestRetryPipeline_FallbackCreate(t *testing.T) {
 	if p.ID != 100 {
 		t.Errorf("expected fallback pipeline ID=100, got %d", p.ID)
 	}
+}
+
+// TestRetryPipeline_FallbackCreate_PreservesBothErrors guards the H4 fix:
+// when both the retry and the create call fail, the returned error must
+// keep BOTH original errors inspectable through errors.Is. The previous
+// fmt.Errorf("%v; %w", ...) form flattened the retry error to a string,
+// breaking downstream sentinel matches.
+func TestRetryPipeline_FallbackCreate_PreservesBothErrors(t *testing.T) {
+	retrySentinel := errors.New("retry-sentinel")
+	createSentinel := errors.New("create-sentinel")
+
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/retry"):
+			resp := &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Status:     "400 Bad Request",
+				Request:    req,
+				Header:     make(http.Header),
+			}
+			return nil, errors.Join(retrySentinel, &gl.ErrorResponse{
+				Response: resp,
+				Message:  "nothing to retry",
+			})
+		case strings.HasSuffix(req.URL.Path, "/pipeline"):
+			return nil, createSentinel
+		default:
+			t.Errorf("unexpected request: %s %s", req.Method, req.URL.Path)
+			return nil, fmt.Errorf("unexpected request")
+		}
+	})
+
+	api, err := gl.NewClient("test-token",
+		gl.WithBaseURL("http://example.invalid/api/v4"),
+		gl.WithoutRetries(),
+		gl.WithHTTPClient(&http.Client{Transport: transport}),
+	)
+	if err != nil {
+		t.Fatalf("gl.NewClient: %v", err)
+	}
+	client := &Client{api: api, host: "http://example.invalid"}
+
+	_, err = client.RetryPipeline(context.Background(), 42, 100, "main")
+	if err == nil {
+		t.Fatal("expected error when both retry and create fail")
+	}
+	if !errors.Is(err, retrySentinel) {
+		t.Errorf("returned error must wrap retry sentinel: %v", err)
+	}
+	if !errors.Is(err, createSentinel) {
+		t.Errorf("returned error must wrap create sentinel: %v", err)
+	}
+}
+
+// roundTripFunc adapts a function into an http.RoundTripper so tests can
+// inject deterministic errors without standing up a real server.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 // TestAPIError_ErrorAndUnwrap pins the two methods of APIError that

@@ -2,8 +2,11 @@ package gitlab
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -220,6 +223,46 @@ func TestListBranches_Success(t *testing.T) {
 	}
 }
 
+// TestListBranches_WithSearchAndPagination verifies that the search filter is
+// forwarded to the API and that the wrapper requests the first 100-item page.
+func TestListBranches_WithSearchAndPagination(t *testing.T) {
+	data, err := os.ReadFile("testdata/branches_page2.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	var gotSearch, gotPerPage string
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/projects/1/repository/branches" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		gotSearch = r.URL.Query().Get("search")
+		gotPerPage = r.URL.Query().Get("per_page")
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Page", "1")
+		w.Header().Set("X-Next-Page", "2")
+		w.Header().Set("X-Total-Pages", "2")
+		w.Write(data)
+	}))
+
+	branches, err := client.ListBranches(context.Background(), 1, "release")
+	if err != nil {
+		t.Fatalf("ListBranches: %v", err)
+	}
+	if gotSearch != "release" {
+		t.Errorf("expected search=release, got %q", gotSearch)
+	}
+	if gotPerPage != "100" {
+		t.Errorf("expected per_page=100, got %q", gotPerPage)
+	}
+	if len(branches) != 2 {
+		t.Fatalf("expected 2 branches, got %d", len(branches))
+	}
+	if branches[0] != "release/v1" || branches[1] != "release/v2" {
+		t.Errorf("unexpected branches: %v", branches)
+	}
+}
+
 // TestListMRDiffs_Success verifies that diff responses are mapped to MRDiffFile
 // values with correct change-type flags (NewFile, RenamedFile, DeletedFile).
 func TestListMRDiffs_Success(t *testing.T) {
@@ -252,5 +295,223 @@ func TestListMRDiffs_Success(t *testing.T) {
 	d1 := diffs[1]
 	if !d1.NewFile {
 		t.Error("diff[1] should be a new file")
+	}
+}
+
+// readBodyJSON decodes the request body into a generic map for shape assertions.
+func readBodyJSON(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	var m map[string]any
+	if len(body) == 0 {
+		return m
+	}
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatalf("unmarshal body %q: %v", body, err)
+	}
+	return m
+}
+
+// TestAddMergeRequestDiscussionNote_Success verifies the POST endpoint
+// path, method, and that the note body is forwarded in the request body.
+func TestAddMergeRequestDiscussionNote_Success(t *testing.T) {
+	noteJSON := `{
+		"id": 901,
+		"body": "thanks for the review",
+		"author": {"id": 1, "name": "Author"},
+		"system": false,
+		"resolvable": true,
+		"resolved": false,
+		"created_at": "2025-01-15T13:00:00Z"
+	}`
+
+	var gotBody map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		wantPath := "/api/v4/projects/1/merge_requests/42/discussions/disc-1/notes"
+		if r.URL.Path != wantPath {
+			t.Errorf("expected path %s, got %s", wantPath, r.URL.Path)
+		}
+		gotBody = readBodyJSON(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(noteJSON))
+	}))
+
+	err := client.AddMergeRequestDiscussionNote(context.Background(), 1, 42, "disc-1", "thanks for the review")
+	if err != nil {
+		t.Fatalf("AddMergeRequestDiscussionNote: %v", err)
+	}
+	if gotBody["body"] != "thanks for the review" {
+		t.Errorf("expected body=thanks for the review, got %v", gotBody["body"])
+	}
+}
+
+// TestCreateMergeRequestDiscussion_GeneralComment verifies the no-position
+// (top-level comment) branch: only the body field should be sent, with no
+// position payload.
+func TestCreateMergeRequestDiscussion_GeneralComment(t *testing.T) {
+	discData, err := os.ReadFile("testdata/merge_request_discussion.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	var gotBody map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		wantPath := "/api/v4/projects/1/merge_requests/42/discussions"
+		if r.URL.Path != wantPath {
+			t.Errorf("expected path %s, got %s", wantPath, r.URL.Path)
+		}
+		gotBody = readBodyJSON(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write(discData)
+	}))
+
+	err = client.CreateMergeRequestDiscussion(context.Background(), 1, 42, "general note", nil)
+	if err != nil {
+		t.Fatalf("CreateMergeRequestDiscussion: %v", err)
+	}
+	if gotBody["body"] != "general note" {
+		t.Errorf("expected body=general note, got %v", gotBody["body"])
+	}
+	if _, hasPos := gotBody["position"]; hasPos {
+		t.Errorf("position should not be sent for general comment: %v", gotBody)
+	}
+}
+
+// TestCreateMergeRequestDiscussion_InlineComment verifies the positioned
+// (line-level diff) branch: position fields including SHAs and line numbers
+// must be marshalled into the request payload.
+func TestCreateMergeRequestDiscussion_InlineComment(t *testing.T) {
+	discData, err := os.ReadFile("testdata/merge_request_discussion.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	var gotBody map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = readBodyJSON(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write(discData)
+	}))
+
+	pos := &MRCommentPosition{
+		OldPath: "src/main.go",
+		NewPath: "src/main.go",
+		NewLine: 42,
+		DiffRefs: MRDiffRefs{
+			BaseSHA:  "base123",
+			HeadSHA:  "head456",
+			StartSHA: "start789",
+		},
+	}
+	if err = client.CreateMergeRequestDiscussion(context.Background(), 1, 42, "fix this line", pos); err != nil {
+		t.Fatalf("CreateMergeRequestDiscussion: %v", err)
+	}
+	if gotBody["body"] != "fix this line" {
+		t.Errorf("expected body=fix this line, got %v", gotBody["body"])
+	}
+	gotPos, ok := gotBody["position"].(map[string]any)
+	if !ok {
+		t.Fatalf("position should be a map: %v", gotBody["position"])
+	}
+	if gotPos["new_path"] != "src/main.go" {
+		t.Errorf("expected new_path=src/main.go, got %v", gotPos["new_path"])
+	}
+	if gotPos["base_sha"] != "base123" || gotPos["head_sha"] != "head456" || gotPos["start_sha"] != "start789" {
+		t.Errorf("expected SHAs base123/head456/start789, got %v", gotPos)
+	}
+	if v, _ := gotPos["new_line"].(float64); int(v) != 42 {
+		t.Errorf("expected new_line=42, got %v", gotPos["new_line"])
+	}
+	if _, hasOldLine := gotPos["old_line"]; hasOldLine {
+		t.Errorf("old_line should be omitted when zero: %v", gotPos)
+	}
+}
+
+// TestResolveMergeRequestDiscussion_Success verifies the PUT endpoint and
+// that the resolved boolean is forwarded.
+func TestResolveMergeRequestDiscussion_Success(t *testing.T) {
+	discData, err := os.ReadFile("testdata/merge_request_discussion.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	var gotBody map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+		wantPath := "/api/v4/projects/1/merge_requests/42/discussions/disc-1"
+		if r.URL.Path != wantPath {
+			t.Errorf("expected path %s, got %s", wantPath, r.URL.Path)
+		}
+		gotBody = readBodyJSON(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(discData)
+	}))
+
+	if err = client.ResolveMergeRequestDiscussion(context.Background(), 1, 42, "disc-1", true); err != nil {
+		t.Fatalf("ResolveMergeRequestDiscussion: %v", err)
+	}
+	if v, ok := gotBody["resolved"].(bool); !ok || !v {
+		t.Errorf("expected resolved=true in body, got %v", gotBody)
+	}
+}
+
+// TestGetMergeRequestDiffRefs_Success verifies the GET endpoint and that
+// the diff refs from the MR payload are extracted into MRDiffRefs.
+func TestGetMergeRequestDiffRefs_Success(t *testing.T) {
+	data, err := os.ReadFile("testdata/merge_request_diff_refs.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		wantPath := "/api/v4/projects/1/merge_requests/42"
+		if r.URL.Path != wantPath {
+			t.Errorf("expected path %s, got %s", wantPath, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}))
+
+	refs, err := client.GetMergeRequestDiffRefs(context.Background(), 1, 42)
+	if err != nil {
+		t.Fatalf("GetMergeRequestDiffRefs: %v", err)
+	}
+	if refs.BaseSHA != "base123" || refs.HeadSHA != "head456" || refs.StartSHA != "start789" {
+		t.Errorf("unexpected refs: %+v", refs)
+	}
+}
+
+// TestGetMergeRequestDiffRefs_Empty verifies the wrapper rejects MRs whose
+// diff refs are all empty (e.g. unprepared MR or missing source branch).
+func TestGetMergeRequestDiffRefs_Empty(t *testing.T) {
+	body := `{"id": 99, "iid": 42, "title": "x", "diff_refs": {"base_sha": "", "head_sha": "", "start_sha": ""}}`
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(body))
+	}))
+
+	_, err := client.GetMergeRequestDiffRefs(context.Background(), 1, 42)
+	if err == nil {
+		t.Fatal("expected error for empty diff refs")
+	}
+	if !strings.Contains(err.Error(), "diff refs not available") {
+		t.Errorf("error should mention 'diff refs not available': %v", err)
 	}
 }

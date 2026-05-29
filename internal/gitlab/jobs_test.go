@@ -149,6 +149,48 @@ func TestPlayJob_Success(t *testing.T) {
 	}
 }
 
+// TestPlayJob_Unauthorized verifies that a 403 response (e.g. user lacks
+// permission to trigger a manual job) surfaces an error rather than silently
+// returning an empty PipelineJob.
+func TestPlayJob_Unauthorized(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/projects/1/jobs/1001/play" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+
+	_, err := client.PlayJob(context.Background(), 1, 1001)
+	if err == nil {
+		t.Fatal("expected error for 403, got nil")
+	}
+	if !IsForbidden(err) {
+		t.Errorf("IsForbidden should match: %v", err)
+	}
+}
+
+// TestCancelJob_AlreadyFinished verifies the GitLab 403/422 behavior where
+// cancelling a finished job returns an error rather than silently succeeding.
+func TestCancelJob_AlreadyFinished(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/projects/1/jobs/1001/cancel" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		http.Error(w, `{"message":"403 Forbidden  - Job is not cancellable"}`, http.StatusForbidden)
+	}))
+
+	err := client.CancelJob(context.Background(), 1, 1001)
+	if err == nil {
+		t.Fatal("expected error for already-finished job, got nil")
+	}
+	if !IsForbidden(err) {
+		t.Errorf("IsForbidden should match: %v", err)
+	}
+}
+
 // extractFirstJSONArrayElement returns the raw JSON of the first element of a
 // JSON array, leaving the original bytes intact. Used by tests that share the
 // pipeline_jobs.json fixture (a list) with endpoints that expect a single

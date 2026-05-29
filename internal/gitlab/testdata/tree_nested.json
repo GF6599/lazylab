@@ -1,0 +1,16 @@
+[
+  {
+    "id": "11aa",
+    "name": "handlers",
+    "type": "tree",
+    "path": "src/handlers",
+    "mode": "040000"
+  },
+  {
+    "id": "22bb",
+    "name": "main.go",
+    "type": "blob",
+    "path": "src/main.go",
+    "mode": "100644"
+  }
+]
