@@ -111,7 +111,7 @@ func renderPipelineListPane(m Model, width, height int, focused bool) string {
 		b.WriteString(m.pipelineView.pipelineList.View())
 		b.WriteString("\n")
 	}
-	content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
+	content := baseWidthStyle.Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
 	hint := explorerHintStyle.Render(clampLine(" ← back · → stages · R retry · [ ] page · r refresh · Ctrl+O copy", width))
 	return renderWithBottomHint(content, hint, height)
 }
@@ -133,7 +133,7 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 	b.WriteString("\n")
 	hint := explorerHintStyle.Render(clampLine(" j/k stages · ← back · J/K logs · R retry · C cancel · P play · Ctrl+O copy", width))
 	finalize := func() string {
-		content := lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
+		content := baseWidthStyle.Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
 		return renderWithBottomHint(content, hint, height)
 	}
 	if pipeline == nil {

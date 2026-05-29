@@ -147,5 +147,5 @@ func renderPaneGap(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	return lipgloss.NewStyle().Width(width).Height(height).Render("")
+	return baseWidthStyle.Width(width).Height(height).Render("")
 }

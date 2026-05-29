@@ -81,6 +81,12 @@ var (
 	modalBorderStyle          lipgloss.Style
 )
 
+// baseWidthStyle is a zero-value lipgloss.Style used as the seed for per-frame
+// `.Width(w)` calls in render hot paths. Hoisted from inline lipgloss.NewStyle()
+// calls in renderPaneGap, renderPipelineListPane, and renderPipelineStagesPane
+// to avoid allocating a fresh style every frame during 5s auto-refresh.
+var baseWidthStyle = lipgloss.NewStyle()
+
 func init() {
 	applyTheme(ThemeRosePineMoon)
 }
