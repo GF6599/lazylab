@@ -8,6 +8,7 @@ import (
 
 	"github.com/GF6599/lazylab/internal/cliout"
 	"github.com/GF6599/lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 // pipelineStatusRecord is the structured representation of a pipeline
@@ -111,8 +112,9 @@ func writeWatchLine(w io.Writer, spec gitlab.PipelineSpec, p gitlab.PipelineSumm
 		return cliout.PrintJSON(w, toPipelineStatusRecord(spec, p, nil))
 	}
 	ts := time.Now().UTC().Format("15:04:05")
-	_, err := fmt.Fprintf(w, "%s  pipeline %d  %s  ref=%s  sha=%s\n",
-		ts, p.ID, p.Status, p.Ref, shortDisplaySHA(p.SHA))
+	line := redacting.Redact(fmt.Sprintf("%s  pipeline %d  %s  ref=%s  sha=%s\n",
+		ts, p.ID, p.Status, p.Ref, shortDisplaySHA(p.SHA)))
+	_, err := fmt.Fprint(w, line)
 	return err
 }
 
@@ -140,7 +142,7 @@ func writePipelineList(w io.Writer, pipelines []gitlab.PipelineSummary, format c
 		return cliout.PrintJSON(w, records)
 	}
 	if len(pipelines) == 0 {
-		_, err := fmt.Fprintln(w, "no pipelines found")
+		_, err := fmt.Fprintln(w, redacting.Redact("no pipelines found"))
 		return err
 	}
 	tbl := cliout.NewTable("ID", "STATUS", "REF", "SHA", "UPDATED", "SOURCE")

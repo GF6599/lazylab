@@ -17,7 +17,41 @@ import (
 	"time"
 
 	"github.com/mattn/go-runewidth"
+
+	"github.com/GF6599/lazylab/internal/redacting"
 )
+
+// redactingWriter wraps an io.Writer so every byte slice handed downstream
+// passes through redacting.Redact first. The public cliout entrypoints
+// (PrintJSON, PrintKV, Table.Render) wrap their caller-supplied writer in
+// this type exactly once; all internal fmt.Fprintf / Write calls then go
+// through the wrapper. The invariant: nothing reaches the caller's writer
+// without redaction.
+//
+// DO NOT bypass this seam by writing to an unwrapped io.Writer from inside
+// the package — a single missed wrap is a token-leak waiting to happen.
+// New public functions in this package MUST start with `w = redact(w)`.
+type redactingWriter struct {
+	w io.Writer
+}
+
+func (r redactingWriter) Write(p []byte) (int, error) {
+	scrubbed := redacting.Redact(string(p))
+	if _, err := r.w.Write([]byte(scrubbed)); err != nil {
+		return 0, err
+	}
+	// Report the original byte count so fmt.Fprintf's len accounting
+	// stays consistent with what the caller asked us to write.
+	return len(p), nil
+}
+
+// redact wraps w so all writes are scrubbed of GitLab tokens before
+// reaching the underlying writer. Idempotent: wrapping an already-wrapped
+// writer is harmless (double-redaction is a no-op on already-redacted
+// strings).
+func redact(w io.Writer) io.Writer {
+	return redactingWriter{w: w}
+}
 
 // HumanizeTime renders t as a relative duration string suitable for
 // list tables ("2m ago", "1h ago", "3d ago"). Falls back to an ISO date
@@ -96,6 +130,7 @@ type KV struct {
 // downstream `jq` would refuse the whole batch instead of skipping
 // the failing record.
 func PrintJSON(w io.Writer, v any) error {
+	w = redact(w)
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetIndent("", "  ")
@@ -152,6 +187,7 @@ func (t *Table) Render(w io.Writer) error {
 	if len(t.headers) == 0 {
 		return nil
 	}
+	w = redact(w)
 	widths := make([]int, len(t.headers))
 	for i, h := range t.headers {
 		widths[i] = runewidth.StringWidth(h)
@@ -192,7 +228,7 @@ func (t *Table) Render(w io.Writer) error {
 // terminates the line correctly instead of breaking column alignment.
 func writeTableRow(w io.Writer, cells []string, widths []int) error {
 	last := len(widths) - 1
-	for i := 0; i < len(widths); i++ {
+	for i := range widths {
 		cell := ""
 		if i < len(cells) {
 			cell = cells[i]
@@ -219,6 +255,7 @@ func writeTableRow(w io.Writer, cells []string, widths []int) error {
 // deliberately plain (no color, no box drawing) so it remains readable when
 // redirected to a file or piped into another tool.
 func PrintKV(w io.Writer, rows []KV) error {
+	w = redact(w)
 	width := 0
 	for _, r := range rows {
 		// +1 accounts for the trailing colon appended below, so values

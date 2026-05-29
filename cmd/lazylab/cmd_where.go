@@ -12,6 +12,7 @@ import (
 
 	"github.com/GF6599/lazylab/internal/cliout"
 	"github.com/GF6599/lazylab/internal/gitcontext"
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 // newWhereCmd implements `lazylab where` — the diagnostic that explains
@@ -186,7 +187,7 @@ func writeWhere(w io.Writer, r whereReport, format cliout.Format) error {
 		return err
 	}
 	if r.Notice != "" {
-		if _, err := fmt.Fprintf(w, "\nNotice: %s\n", r.Notice); err != nil {
+		if _, err := fmt.Fprintf(w, "\nNotice: %s\n", redacting.Redact(r.Notice)); err != nil {
 			return err
 		}
 	}

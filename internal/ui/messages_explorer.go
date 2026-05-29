@@ -9,6 +9,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 // handleTreeLoaded processes a fetched directory listing. It serves two purposes:
@@ -30,13 +32,13 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		builder := &strings.Builder{}
-		builder.WriteString(fmt.Sprintf("%s/\n", msg.path))
+		fmt.Fprintf(builder, "%s/\n", msg.path)
 		for _, entry := range msg.entries {
 			name := entry.Name
 			if entry.IsDir() {
 				name += "/"
 			}
-			builder.WriteString(fmt.Sprintf("%s %s", explorerEntryIcon(entry), name))
+			fmt.Fprintf(builder, "%s %s", explorerEntryIcon(entry), name)
 			builder.WriteString("\n")
 		}
 		content := builder.String()
@@ -119,7 +121,7 @@ func (m Model) handleFileLoaded(msg fileLoadedMsg) (tea.Model, tea.Cmd) {
 	if err != nil {
 		// Surface syntax highlighting errors to the user
 		m.logDebug("highlight preview", "err", err, "path", msg.path)
-		m.status = fmt.Sprintf("Syntax highlighting unavailable: %v", err)
+		m.status = fmt.Sprintf("Syntax highlighting unavailable: %v", redacting.Redact(err.Error()))
 		// Fall back to plain text
 		m.explorer.preview.err = nil
 		m.explorer.preview.raw = msg.content

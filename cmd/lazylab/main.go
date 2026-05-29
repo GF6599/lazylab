@@ -18,6 +18,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 // version, commit, date are set at build time via -ldflags
@@ -41,7 +43,7 @@ func main() {
 
 	rootCmd := newRootCmd()
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		fmt.Fprintln(os.Stderr, "error:", redacting.Redact(err.Error()))
 		os.Exit(exitCodeFor(err))
 	}
 }

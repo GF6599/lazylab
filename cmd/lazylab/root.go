@@ -141,6 +141,10 @@ func setupContext(cmd *cobra.Command) error {
 
 	baseHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	logger := slog.New(redacting.NewHandler(baseHandler))
+	// Anchor slog.Default() to the redacting handler so any package that
+	// reaches for the global (e.g. internal/gitlab's Warn calls) routes
+	// through the same scrub pipeline as ctx-injected loggers.
+	slog.SetDefault(logger)
 
 	client, err := buildClient(cfg)
 	if err != nil {
