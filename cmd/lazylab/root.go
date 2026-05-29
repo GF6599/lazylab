@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/GF6599/lazylab/internal/config"
 	"github.com/GF6599/lazylab/internal/demo"
 	"github.com/GF6599/lazylab/internal/gitlab"
 	"github.com/GF6599/lazylab/internal/redacting"
-	"github.com/GF6599/lazylab/pkg/config"
 )
 
 // ctxKey is the unexported type for context.WithValue keys stashed by

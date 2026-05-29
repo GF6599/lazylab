@@ -37,7 +37,7 @@ just test
 go test ./... -coverprofile=coverage.out
 
 # Run tests for a single package
-go test ./pkg/config
+go test ./internal/config
 go test ./internal/ui
 go test ./internal/gitlab
 
@@ -119,7 +119,7 @@ Key message types in `internal/ui/project_list_cmds.go`:
 - Pagination is handled via `ProjectPage` and `PipelinePage` types
 - Stage aggregation merges job statuses with priority (failed > canceled > manual > running > success > skipped)
 
-**Configuration** (`pkg/config/config.go`):
+**Configuration** (`internal/config/config.go`):
 - Precedence: defaults → config file → env vars → CLI flags
 - Uses Viper for file parsing (YAML/TOML/JSON)
 - Env prefix: `GITLAB_*` (e.g., `GITLAB_TOKEN`, `GITLAB_HOST`)

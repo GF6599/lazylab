@@ -18,7 +18,7 @@ import (
 // rules stay identical across `pipeline status`, `pipeline list`,
 // `job log`, and any future verbs.
 //
-// Inputs flow through pkg/config in this precedence (highest first):
+// Inputs flow through internal/config in this precedence (highest first):
 //
 //  1. --project / --remote flags
 //  2. GITLAB_PROJECT / LAZYLAB_PROJECT, GITLAB_REMOTE env vars

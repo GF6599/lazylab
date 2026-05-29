@@ -159,7 +159,7 @@ Config files can be YAML, TOML, or JSON (parsed by Viper).
 
 ## Architecture
 
-- `pkg/config`: Loads host/token settings from environment, config file, and CLI flags (Viper-based precedence)
+- `internal/config`: Loads host/token settings from environment, config file, and CLI flags (Viper-based precedence)
 - `internal/gitlab`: Lightweight wrapper around GitLab client-go for projects, pipelines, jobs, merge requests, trees, and file blobs
 - `internal/ui`: Bubble Tea model with multi-panel layout, view logic, caching, and lipgloss styling
 - `cmd/lazylab`: CLI entrypoint
@@ -183,7 +183,7 @@ go test ./... -coverprofile=coverage.out
 go tool cover -func=coverage.out | grep total
 
 # Run tests for a single package
-go test ./pkg/config
+go test ./internal/config
 go test ./internal/ui
 go test ./internal/gitlab
 ```
