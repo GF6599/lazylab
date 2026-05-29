@@ -64,7 +64,7 @@ func (m Model) descendDirectory(entry gitlab.TreeNode) (tea.Model, tea.Cmd) {
 
 func (m Model) navigateExplorerUp() (tea.Model, tea.Cmd) {
 	if len(m.explorer.stack) <= 1 {
-		m.closeExplorer("Back to projects")
+		m = m.closeExplorer("Back to projects")
 		return m, ensurePipelineTickCmd(&m)
 	}
 	m.explorer.stack = m.explorer.stack[:len(m.explorer.stack)-1]
@@ -87,7 +87,7 @@ func (m Model) reloadExplorerPath() (tea.Model, tea.Cmd) {
 	return m, fetchTreeCmd(m.ctx, m.client, m.opts.APITimeout, m.explorer.project.ID, displayRef(m.explorer), cur.path)
 }
 
-func (m *Model) closeExplorer(status string) {
+func (m Model) closeExplorer(status string) Model {
 	if m.mode != modeMultiPanel {
 		m.mode = modeProjects
 	}
@@ -95,6 +95,7 @@ func (m *Model) closeExplorer(status string) {
 	if status != "" {
 		m.status = status
 	}
+	return m
 }
 
 // resetPreview clears the preview content while preserving the viewport
@@ -132,21 +133,21 @@ func (m *Model) queueExplorerPreview() tea.Cmd {
 	return fetchFileCmd(m.ctx, m.client, m.opts.APITimeout, m.explorer.project.ID, displayRef(m.explorer), entry.Path)
 }
 
-func (m *Model) currentDirState() *dirState {
+func (m Model) currentDirState() *dirState {
 	if len(m.explorer.stack) == 0 {
 		return nil
 	}
 	return &m.explorer.stack[len(m.explorer.stack)-1]
 }
 
-func (m *Model) parentDirState() *dirState {
+func (m Model) parentDirState() *dirState {
 	if len(m.explorer.stack) < 2 {
 		return nil
 	}
 	return &m.explorer.stack[len(m.explorer.stack)-2]
 }
 
-func (m *Model) selectedEntry() *gitlab.TreeNode {
+func (m Model) selectedEntry() *gitlab.TreeNode {
 	dir := m.currentDirState()
 	if dir == nil || len(dir.entries) == 0 {
 		return nil
@@ -158,15 +159,15 @@ func (m *Model) selectedEntry() *gitlab.TreeNode {
 }
 
 // copyExplorerURL copies the GitLab web URL for the selected file or directory.
-func (m *Model) copyExplorerURL() {
+func (m Model) copyExplorerURL() Model {
 	entry := m.selectedEntry()
 	if entry == nil {
 		m.status = "No file selected"
-		return
+		return m
 	}
 	if m.explorer.project.WebURL == "" {
 		m.status = "Project has no URL"
-		return
+		return m
 	}
 	ref := displayRef(m.explorer)
 	var kind string
@@ -179,7 +180,8 @@ func (m *Model) copyExplorerURL() {
 	if err := clipboard.WriteAll(url); err != nil {
 		m.status = "Failed to copy URL"
 		m.logError("copy clipboard", "err", err)
-		return
+		return m
 	}
 	m.status = fmt.Sprintf("Copied %s URL", entry.Name)
+	return m
 }

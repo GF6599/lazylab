@@ -273,7 +273,7 @@ func TestCloseExplorer_ReturnsToProjects(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
-	m.closeExplorer("Back")
+	m = m.closeExplorer("Back")
 	if m.mode != modeProjects {
 		t.Fatalf("expected mode=modeProjects after close, got %d", m.mode)
 	}
@@ -287,7 +287,7 @@ func TestCloseExplorer_ClearsState(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
-	m.closeExplorer("Back to projects")
+	m = m.closeExplorer("Back to projects")
 	if m.explorer.project.ID != 0 {
 		t.Fatal("expected explorer project to be cleared")
 	}
@@ -304,7 +304,7 @@ func TestCloseExplorer_SetsStatus(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
-	m.closeExplorer("Back to projects")
+	m = m.closeExplorer("Back to projects")
 	if m.status != "Back to projects" {
 		t.Fatalf("expected status 'Back to projects', got %q", m.status)
 	}
@@ -319,7 +319,7 @@ func TestCloseExplorer_EmptyStatusPreservesExisting(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
-	m.closeExplorer("")
+	m = m.closeExplorer("")
 	if m.status != "Previous status" {
 		t.Fatalf("expected preserved status, got %q", m.status)
 	}
@@ -333,7 +333,7 @@ func TestCloseExplorer_FromMultiPanel_StaysInMultiPanel(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
-	m.closeExplorer("Done")
+	m = m.closeExplorer("Done")
 	if m.mode != modeMultiPanel {
 		t.Fatalf("expected mode=modeMultiPanel when closing from multi-panel, got %d", m.mode)
 	}
@@ -469,7 +469,7 @@ func TestRoundTrip_MultiPanel_Explorer(t *testing.T) {
 	}
 
 	// Close explorer — stays in multi-panel
-	m.closeExplorer("Back to projects")
+	m = m.closeExplorer("Back to projects")
 	if m.mode != modeMultiPanel {
 		t.Fatalf("expected modeMultiPanel after close, got %d", m.mode)
 	}
@@ -508,7 +508,7 @@ func TestRoundTrip_ExplorerUsesCorrectBranch(t *testing.T) {
 	}
 
 	// Close and open project 3 (no default branch)
-	m.closeExplorer("")
+	m = m.closeExplorer("")
 	result, _ = m.openExplorer(m.allProjects[2])
 	m = result.(Model)
 	if m.explorer.ref != "main" {

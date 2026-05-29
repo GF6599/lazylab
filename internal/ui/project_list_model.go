@@ -561,7 +561,7 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 		commitLoading:         make(map[int]bool),
 		batchInFlight:         &atomic.Bool{},
 	}
-	m.attachPersistentStores()
+	m = m.attachPersistentStores()
 	return m
 }
 
@@ -630,7 +630,7 @@ func newProjectListModel(pipelineStatus *LRUCache[int, pipelineState], favorites
 // attachPersistentStores opens the on-disk caches for projects, favorites,
 // and preferences. Failures are logged but non-fatal; the app falls back to
 // API-only mode for the affected store.
-func (m *Model) attachPersistentStores() {
+func (m Model) attachPersistentStores() Model {
 	if cache, err := newProjectCache(m.opts.Host); err == nil {
 		m.cache = cache
 	} else {
@@ -646,12 +646,13 @@ func (m *Model) attachPersistentStores() {
 	} else {
 		m.logError("init preferences store", "err", err)
 	}
+	return m
 }
 
 // refreshThemeSubComponents re-applies theme colors to Bubble Tea sub-components
 // that store their own style copies (search input, spinner, help, paginator,
 // stage table). Called after applyTheme() on theme changes.
-func (m *Model) refreshThemeSubComponents() {
+func (m Model) refreshThemeSubComponents() Model {
 	m.search.input.TextStyle = lipgloss.NewStyle().Foreground(colorText)
 	m.search.input.PlaceholderStyle = lipgloss.NewStyle().Foreground(colorMuted)
 	m.search.input.PromptStyle = lipgloss.NewStyle().Foreground(colorSubtle)
@@ -682,11 +683,12 @@ func (m *Model) refreshThemeSubComponents() {
 	s.Cell = s.Cell.
 		Foreground(colorText)
 	m.pipelineView.stageTable.SetStyles(s)
+	return m
 }
 
 // isTextInputActive returns true when a text input has focus and keystrokes
 // should be routed to it rather than interpreted as global hotkeys.
-func (m *Model) isTextInputActive() bool {
+func (m Model) isTextInputActive() bool {
 	return m.search.active || m.mrView.reply.active || m.mrView.createMR.active
 }
 
@@ -695,9 +697,9 @@ func (m *Model) isTextInputActive() bool {
 func (m Model) toggleTheme() (tea.Model, tea.Cmd) {
 	next := NextTheme(currentTheme)
 	applyTheme(next)
-	m.refreshThemeSubComponents()
+	m = m.refreshThemeSubComponents()
 	m.invalidateDetailCache()
-	m.clearPreviewHighlightCache()
+	m = m.clearPreviewHighlightCache()
 	m.refreshExplorerPreview()
 	m.status = "Theme: " + ThemeLabel(next)
 	var cmd tea.Cmd
@@ -709,11 +711,12 @@ func (m Model) toggleTheme() (tea.Model, tea.Cmd) {
 
 // clearPreviewHighlightCache discards all cached syntax-highlighted preview
 // strings so they are re-generated with the current theme's environment.
-func (m *Model) clearPreviewHighlightCache() {
+func (m Model) clearPreviewHighlightCache() Model {
 	if m.previewHighlightCache != nil {
 		c := NewLRUCache[string, previewHighlightEntry](maxPreviewHighlightEntries)
 		m.previewHighlightCache = &c
 	}
+	return m
 }
 
 // refreshExplorerPreview re-highlights the explorer preview content after a

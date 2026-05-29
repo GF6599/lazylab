@@ -1679,7 +1679,7 @@ func TestCopyExplorerURL_File(t *testing.T) {
 			}},
 		},
 	}
-	m.copyExplorerURL()
+	m = m.copyExplorerURL()
 	if !strings.Contains(m.status, "Copied main.go URL") {
 		t.Fatalf("expected success status, got %q", m.status)
 	}
@@ -1699,7 +1699,7 @@ func TestCopyExplorerURL_Dir(t *testing.T) {
 			}},
 		},
 	}
-	m.copyExplorerURL()
+	m = m.copyExplorerURL()
 	if !strings.Contains(m.status, "Copied src URL") {
 		t.Fatalf("expected success status, got %q", m.status)
 	}
@@ -1713,7 +1713,7 @@ func TestCopyExplorerURL_NoEntry(t *testing.T) {
 			stack:   []dirState{{path: "", entries: nil}},
 		},
 	}
-	m.copyExplorerURL()
+	m = m.copyExplorerURL()
 	if m.status != "No file selected" {
 		t.Fatalf("expected 'No file selected', got %q", m.status)
 	}
