@@ -230,7 +230,7 @@ Note: `GITLAB_TOKEN` is required; the app will exit with an error if not provide
 
 When adding features or fixing bugs:
 
-- **File Naming**: Prefix UI model files with the domain (e.g., `project_list_*.go`)
+- **File Naming**: Group UI files by concern: `state_<area>.go` for per-mode state, `view_<area>.go` for renderers, `panel_<name>.go` for panel implementations, `keys_<area>.go` for key handlers, `messages_<area>.go` for `tea.Cmd` message handlers. The original `project_list_*.go` files (model, cmds, helpers, style, view, keys) remain as the central Bubble Tea wiring.
 - **Bubble Tea Patterns**: Keep `Update` functions under ~40 lines; extract mode-specific handlers
 - **Function Size**: Keep functions under ~40 lines; extract helpers for clarity
 - **Comments**: Only add comments for non-obvious logic (e.g., tricky Bubble Tea layout math)
