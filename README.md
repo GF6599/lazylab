@@ -4,215 +4,90 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/GF6599/lazylab)](https://goreportcard.com/report/github.com/GF6599/lazylab)
 
-A terminal UI for browsing GitLab projects, pipelines, merge requests, and repository files — without leaving the keyboard.
-
-Navigate your GitLab instance the way lazygit navigates git: with a multi-panel TUI, instant keyboard shortcuts, and real-time updates.
+Keyboard-driven terminal UI and scripting CLI for GitLab projects, pipelines, jobs, and merge requests.
 
 ![Lazylab Demo](doc/demo.gif)
 
-## Features
+## Background
 
-- **Multi-panel layout**: Lazygit-style accordion sidebar with Projects, Pipelines, Stages, and Merge Requests panels, plus a detail pane on the right
-- **Pipeline monitoring**: Real-time pipeline status with auto-refresh every 5 seconds, stage/job drill-down, and log preview with auto-follow
-- **Merge Requests panel**: Browse open/merged MRs with discussions, diffs, and info tabs in the detail pane
-- **Matrix job grouping**: CI matrix jobs are collapsed into expandable groups in the stages view
-- **Favorites**: Mark projects with `f` for quick access via the Favorites tab; persisted across sessions
-- **Explorer mode**: Yazi/ranger-inspired file browser with syntax-highlighted preview pane
-- **Project search**: Fuzzy search across all projects with `/`
-- **Persistent cache**: Project list cached in the system cache directory for instant startup
-- **Layout modes**: Toggle between default (30/70) and wide (50/50) sidebar-to-detail split with `+`; cycle accordion sizing with `=`
+Lazylab navigates GitLab the way `lazygit` navigates git. A multi-panel TUI with vim-style keys, pipeline auto-refresh, and a yazi-inspired file explorer. The same binary exposes a non-interactive CLI (`whoami`, `where`, `pipeline`, `job`) that shares config, cache, and credentials with the TUI. Useful when you want to watch a pipeline from a script or pipe a job log into `grep`.
 
-## Installation
-
-### go install
+## Install
 
 ```bash
 go install github.com/GF6599/lazylab/cmd/lazylab@latest
 ```
 
-### From source
+Or build from source:
 
 ```bash
 git clone https://github.com/GF6599/lazylab.git
-cd lazylab
-go build ./cmd/lazylab
+cd lazylab && go build ./cmd/lazylab
 ```
 
-### Requirements
-
-- Go 1.24+
-- GitLab personal access token with `api` scope
+Requires Go 1.26+ and a GitLab personal access token with `api` scope.
 
 ## Usage
 
+### TUI
+
 ```bash
 export GITLAB_TOKEN=glpat-xxxx
-# export GITLAB_HOST=https://gitlab.mycompany.com if needed
-
-go run ./cmd/lazylab
+lazylab
 ```
 
-Flags override env variables when needed:
+The UI opens on the alternate screen. Press `?` for the contextual help overlay, which lists every keybinding for the focused panel. Quit with `q` or `Ctrl+C`.
+
+To explore the UI without a token, pass `--demo` for fake data.
+
+### CLI
+
+The same binary runs non-interactively:
 
 ```bash
-go run ./cmd/lazylab --token glpat-xxxx --host https://gitlab.mycompany.com --projects-per-page 100
+lazylab whoami                     # who does my token belong to?
+lazylab where                      # what context will the CLI use?
+lazylab pipeline status @main      # latest pipeline on main
+lazylab pipeline watch HEAD        # tail the pipeline for the current commit
+lazylab job log 4567890 --follow   # tail -f a job's trace
 ```
 
-The UI opens in an alternate screen. Quit anytime with `q` or `Ctrl+C`.
-
-## Controls
-
-### Global
-
-| Key | Action |
-|-----|--------|
-| `q` / `Ctrl+C` | Quit |
-| `Tab` / `Shift+Tab` | Cycle sidebar panels forward/backward |
-| `1`-`4` | Jump to sidebar panel (Projects, Pipelines, Stages, MRs) |
-| `+` / `-` | Toggle layout mode (default 30/70 vs wide 50/50) |
-| `=` | Cycle screen mode (Normal, Half, Full) |
-| `Right` | Focus detail pane |
-| `Left` / `h` / `Esc` | Return from detail pane to sidebar |
-
-### Projects Panel
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` / Arrow keys | Move selection |
-| `Ctrl+D` / `Ctrl+U` | Page down/up |
-| `<` / `>` | Jump to start/end |
-| `Enter` / `l` | Drill into pipelines for selected project |
-| `e` | Open explorer (file browser) overlay |
-| `/` | Search projects |
-| `f` | Toggle favorite |
-| `t` | Switch between Favorites and All tabs |
-| `[` / `]` | Previous/next page |
-| `Ctrl+R` | Force refresh project list |
-| `Ctrl+O` | Copy SSH clone command |
-
-### Pipelines Panel
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate pipelines |
-| `Enter` / `l` | Drill into stages/jobs |
-| `h` / `Esc` | Back to projects |
-| `R` | Retry selected pipeline |
-| `C` | Cancel selected pipeline |
-| `r` | Reload pipeline list |
-| `[` / `]` | Previous/next pipeline page |
-| `Ctrl+O` | Copy pipeline URL |
-
-### Stages Panel
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate jobs |
-| `h` / `Esc` | Back to pipelines |
-| `Enter` / `Space` | Toggle matrix group expand/collapse |
-| `R` | Retry selected job |
-| `P` | Play manual job |
-| `C` | Cancel selected job |
-| `Ctrl+O` | Copy job URL |
-
-### MRs Panel
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate merge requests |
-| `h` / `Esc` | Back to projects |
-| `Ctrl+O` | Copy MR URL |
-
-### Detail Pane
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Scroll viewport |
-| `J` / `K` / `Ctrl+D` / `Ctrl+U` | Half-page scroll |
-| `<` / `>` | Jump to top/bottom |
-| `t` | Cycle detail tab (Log/Tests/Artifacts for pipelines; Info/Comments/Diff for MRs) |
-| `R` | Retry pipeline or job (depending on context) |
-
-### Explorer Mode
-
-| Key | Action |
-|-----|--------|
-| `Enter` / `Right` / `l` | Open directory or preview file |
-| `Left` / `h` / `Backspace` | Navigate up (from root returns to projects) |
-| `J` / `K` | Scroll preview pane |
-| `r` | Reload current directory |
-| `Esc` | Exit explorer |
+Pipeline references accept `@<ref>`, `HEAD`, `latest`, a numeric ID, or a full GitLab URL. Run `lazylab <cmd> --help` for the per-command surface.
 
 ## Configuration
 
-Lazylab reads settings from environment variables, CLI flags, or a config file. Precedence (highest to lowest): CLI flags > env vars > config file > defaults.
+The token is the only required value. Everything else has a default. Precedence (highest first): CLI flags > env vars (`GITLAB_*` prefix) > config file > compiled defaults.
 
-| Setting | Env Variable | CLI Flag | Default |
-|---------|-------------|----------|---------|
-| Token | `GITLAB_TOKEN` | `--token` | (required) |
-| Host | `GITLAB_HOST` | `--host` | `https://gitlab.com` |
-| Projects per page | — | `--projects-per-page` | `30` |
-| Log level | — | `--log-level` | `info` |
-| Config file | `LAZYLAB_CONFIG` | `--config` | — |
+The same precedence applies to the TUI and the CLI subcommands. Run `lazylab --help` for the persistent flag surface. Defaults and validation rules live in `internal/config/config.go`.
 
-Config files can be YAML, TOML, or JSON (parsed by Viper).
+Config files are optional. Viper parses YAML, TOML, and JSON. Point at one with `--config <path>` or `$LAZYLAB_CONFIG`.
 
 ## Architecture
 
-- `internal/config`: Loads host/token settings from environment, config file, and CLI flags (Viper-based precedence)
-- `internal/gitlab`: Lightweight wrapper around GitLab client-go for projects, pipelines, jobs, merge requests, trees, and file blobs
-- `internal/ui`: Bubble Tea model with multi-panel layout, view logic, caching, and lipgloss styling
-- `cmd/lazylab`: CLI entrypoint
+| Package               | Role                                                                  |
+| --------------------- | --------------------------------------------------------------------- |
+| `cmd/lazylab`         | Cobra command tree. Root runs the TUI; subcommands handle CLI verbs.  |
+| `internal/config`     | Viper-driven loader with flag/env/file/default precedence.            |
+| `internal/gitlab`     | Thin wrapper around `client-go` for projects, pipelines, jobs, MRs.   |
+| `internal/ui`         | Bubble Tea model: multi-panel layout, state machines, caching.        |
+| `internal/cliout`     | Output formatters (table, JSON) shared by every subcommand.           |
+| `internal/gitcontext` | Reads project, branch, and commit from the surrounding git remote.    |
+| `internal/redacting`  | slog handler that scrubs tokens before they reach stderr.             |
+| `internal/demo`       | In-memory `gitlab.Service` for `--demo` runs.                         |
 
 ### Caching
 
-- **Project list**: Cached at `<os-cache-dir>/lazylab/projects_<host>.json` for instant startup (`~/Library/Caches` on macOS, `~/.cache` on Linux). Use `Ctrl+R` to force refresh.
-- **Favorites**: Persisted at `<os-cache-dir>/lazylab/favorites_<host>.json`.
-- **Pipeline status**: In-memory LRU cache (last 100 projects) with 5-second refresh interval.
+The TUI persists three files under the OS cache directory (`~/Library/Caches/lazylab` on macOS, `~/.cache/lazylab` on Linux), each keyed by GitLab host:
+
+- `projects_<host>.json` holds the project list. Force-refresh with `Ctrl+R`.
+- `favorites_<host>.json` holds pinned projects.
+- `preferences_<host>.json` holds layout, theme, and tab state.
+
+Pipeline status lives in an in-memory LRU (last 100 projects) with a 5-second refresh tick. Delete the files on disk to start over.
 
 ## Development
 
-### Testing
-
-```bash
-# Run all tests
-go test ./...
-
-# Run tests with coverage
-go test ./... -coverprofile=coverage.out
-go tool cover -func=coverage.out | grep total
-
-# Run tests for a single package
-go test ./internal/config
-go test ./internal/ui
-go test ./internal/gitlab
-```
-
-### Building
-
-```bash
-# Build for current platform
-go build ./cmd/lazylab
-
-# Build for all platforms
-just build
-
-# Clean build artifacts
-just clean
-```
-
-### Code Quality
-
-```bash
-# Format code
-go fmt ./...
-
-# Run static analysis
-go vet ./...
-
-# Keep dependencies tidy
-go mod tidy
-```
+The project ships a justfile. Run `just --list` for the recipe surface. Tests use `go test -race ./...`; coverage targets `>80%` for `internal/gitlab`, per `CLAUDE.md`.
 
 ## License
 
