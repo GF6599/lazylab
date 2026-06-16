@@ -12,6 +12,40 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
+// PipelineService covers everything the TUI needs about a CI run: the
+// pipeline itself, its stages, jobs (including bridges to child pipelines),
+// retries / cancels / manual plays, and trace retrieval. Job methods live
+// alongside pipelines on this interface because every job is scoped to a
+// pipeline and the UI fans them out together.
+type PipelineService interface {
+	LatestPipeline(ctx context.Context, projectID int, ref string) (PipelineSummary, error)
+	ListPipelines(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error)
+	PipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error)
+	ListPipelineJobs(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error)
+	GetJobTrace(ctx context.Context, projectID, jobID int) (string, error)
+	RetryPipeline(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error)
+	RetryJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+	CancelPipeline(ctx context.Context, projectID, pipelineID int) error
+	CancelJob(ctx context.Context, projectID, jobID int) error
+	PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+	ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error)
+	GetPipelineTestReport(ctx context.Context, projectID, pipelineID int) (*TestReport, error)
+	// GetPipeline fetches a single pipeline by ID. Used by ref resolution
+	// when the user passes a numeric pipeline argument and we need the
+	// concrete record (status, ref, SHA) for display.
+	GetPipeline(ctx context.Context, projectID, pipelineID int) (PipelineSummary, error)
+	// LatestPipelineForSHA returns the most recent pipeline anchored to a
+	// specific commit SHA. Distinct from LatestPipeline (which filters by
+	// ref) because a commit can outlive its branch, and the CLI's HEAD-
+	// resolution path needs the SHA, not the ref name.
+	LatestPipelineForSHA(ctx context.Context, projectID int, sha string) (PipelineSummary, error)
+	// GetJob fetches a single job by ID. Used by the streaming-log path
+	// to poll the job's status alongside trace bytes, and by future
+	// commands that need a job's full record (artifacts, runner, etc.)
+	// without first listing the whole pipeline.
+	GetJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+}
+
 // GetPipeline fetches a single pipeline by ID. Stages are not pre-loaded —
 // callers needing them should pair this with PipelineStages, matching the
 // lazy-loading pattern ListPipelines already uses.

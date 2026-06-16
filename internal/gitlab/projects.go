@@ -7,6 +7,17 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
+// ProjectService exposes project-level lookups: paginated listing for the
+// browser and single-record resolution for the CLI's --project flag.
+type ProjectService interface {
+	ListProjects(ctx context.Context, opts ProjectListOptions) (ProjectPage, error)
+	// GetProject resolves a project by numeric ID (passed as a string) or
+	// by namespace path ("group/subgroup/project"). The GitLab API accepts
+	// both forms via the same endpoint, so the resolver can hand its
+	// --project arg through verbatim.
+	GetProject(ctx context.Context, idOrPath string) (ProjectNode, error)
+}
+
 // GetProject fetches a single project by numeric ID (as a string) or by
 // namespace path ("group/subgroup/project"). GitLab's API accepts both
 // forms at the same endpoint — the SDK URL-encodes string paths

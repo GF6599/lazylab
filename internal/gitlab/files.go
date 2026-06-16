@@ -12,6 +12,20 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
+// RepoService covers everything anchored to a project's git repository:
+// tree browsing, file content reads, recent commits for the detail pane,
+// and branch listings used by the MR-creation flow. Implementations of
+// ListBranches live in mrs.go for historical reasons but the call is a
+// repo concern, so it surfaces here.
+type RepoService interface {
+	ListTree(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error)
+	GetFileContent(ctx context.Context, projectID int, path, ref string) (string, error)
+	// ListProjectCommits returns recent commits for display in the detail pane.
+	// Pass an empty ref to use the project's default branch.
+	ListProjectCommits(ctx context.Context, projectID int, ref string, limit int) ([]CommitSummary, error)
+	ListBranches(ctx context.Context, projectID int, search string) ([]string, error)
+}
+
 // ListTree returns the immediate children of a directory in the repository,
 // sorted directories-first then case-insensitively by name — matching the
 // convention used by file managers like yazi and ranger. Results are fetched

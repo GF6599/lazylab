@@ -7,6 +7,21 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
+// MRService covers merge request listing, diffs, discussions, and creation —
+// the full write surface needed by the review-style commands. Line-level
+// commenting requires both GetMergeRequestDiffRefs (for the SHA triad) and
+// CreateMergeRequestDiscussion (for the comment itself).
+type MRService interface {
+	ListMergeRequests(ctx context.Context, projectID int, opts MRListOptions) (MRPage, error)
+	ListMergeRequestDiscussions(ctx context.Context, projectID, mrIID int) ([]MRDiscussion, error)
+	ListMergeRequestDiffs(ctx context.Context, projectID, mrIID int) ([]MRDiffFile, error)
+	ResolveMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error
+	AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
+	CreateMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, body string, pos *MRCommentPosition) error
+	GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error)
+	CreateMergeRequest(ctx context.Context, projectID int, opts CreateMROptions) (MergeRequestSummary, error)
+}
+
 // ListMergeRequests returns a single page of merge requests for a project.
 // Filter by state ("opened", "closed", "merged", "all") via opts.State; an
 // empty State omits the filter and defaults to GitLab's server-side default

@@ -7,6 +7,11 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
+// UserService covers identity calls for the authenticated GitLab user.
+type UserService interface {
+	CurrentUser(ctx context.Context) (UserInfo, error)
+}
+
 // UserInfo is the flat representation of the authenticated GitLab user as
 // returned by GET /user. The TUI does not consume this today; the CLI uses
 // it for `lazylab whoami` to confirm a token is valid and identify which

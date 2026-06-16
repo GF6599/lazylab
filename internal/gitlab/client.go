@@ -66,54 +66,19 @@ func NewClient(token, host string) (*Client, error) {
 // mock without network access. Every method must be safe for concurrent use;
 // the TUI may fire several calls in parallel (e.g., pipeline status + stage
 // list) from a single Bubble Tea Cmd.
+//
+// Service is a compound of per-domain sub-interfaces (ProjectService,
+// PipelineService, MRService, RepoService, UserService). Call sites that
+// need only a slice of the surface can depend on the relevant sub-interface
+// directly, which keeps test doubles small. *Client satisfies every
+// sub-interface, so existing consumers that take Service continue to work
+// unchanged.
 type Service interface {
-	ListProjects(ctx context.Context, opts ProjectListOptions) (ProjectPage, error)
-	ListTree(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error)
-	GetFileContent(ctx context.Context, projectID int, path, ref string) (string, error)
-	LatestPipeline(ctx context.Context, projectID int, ref string) (PipelineSummary, error)
-	ListPipelines(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error)
-	PipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error)
-	ListPipelineJobs(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error)
-	GetJobTrace(ctx context.Context, projectID, jobID int) (string, error)
-	RetryPipeline(ctx context.Context, projectID, pipelineID int, ref string) (PipelineSummary, error)
-	RetryJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
-	CancelPipeline(ctx context.Context, projectID, pipelineID int) error
-	CancelJob(ctx context.Context, projectID, jobID int) error
-	PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
-	ListMergeRequests(ctx context.Context, projectID int, opts MRListOptions) (MRPage, error)
-	ListMergeRequestDiscussions(ctx context.Context, projectID, mrIID int) ([]MRDiscussion, error)
-	ListMergeRequestDiffs(ctx context.Context, projectID, mrIID int) ([]MRDiffFile, error)
-	ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error)
-	GetPipelineTestReport(ctx context.Context, projectID, pipelineID int) (*TestReport, error)
-	// ListProjectCommits returns recent commits for display in the detail pane.
-	// Pass an empty ref to use the project's default branch.
-	ListProjectCommits(ctx context.Context, projectID int, ref string, limit int) ([]CommitSummary, error)
-	ResolveMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, discussionID string, resolved bool) error
-	AddMergeRequestDiscussionNote(ctx context.Context, projectID, mrIID int, discussionID string, body string) error
-	CreateMergeRequestDiscussion(ctx context.Context, projectID, mrIID int, body string, pos *MRCommentPosition) error
-	GetMergeRequestDiffRefs(ctx context.Context, projectID, mrIID int) (MRDiffRefs, error)
-	ListBranches(ctx context.Context, projectID int, search string) ([]string, error)
-	CreateMergeRequest(ctx context.Context, projectID int, opts CreateMROptions) (MergeRequestSummary, error)
-	CurrentUser(ctx context.Context) (UserInfo, error)
-	// GetProject resolves a project by numeric ID (passed as a string) or
-	// by namespace path ("group/subgroup/project"). The GitLab API accepts
-	// both forms via the same endpoint, so the resolver can hand its
-	// --project arg through verbatim.
-	GetProject(ctx context.Context, idOrPath string) (ProjectNode, error)
-	// GetPipeline fetches a single pipeline by ID. Used by ref resolution
-	// when the user passes a numeric pipeline argument and we need the
-	// concrete record (status, ref, SHA) for display.
-	GetPipeline(ctx context.Context, projectID, pipelineID int) (PipelineSummary, error)
-	// LatestPipelineForSHA returns the most recent pipeline anchored to a
-	// specific commit SHA. Distinct from LatestPipeline (which filters by
-	// ref) because a commit can outlive its branch, and the CLI's HEAD-
-	// resolution path needs the SHA, not the ref name.
-	LatestPipelineForSHA(ctx context.Context, projectID int, sha string) (PipelineSummary, error)
-	// GetJob fetches a single job by ID. Used by the streaming-log path
-	// to poll the job's status alongside trace bytes, and by future
-	// commands that need a job's full record (artifacts, runner, etc.)
-	// without first listing the whole pipeline.
-	GetJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+	ProjectService
+	PipelineService
+	MRService
+	RepoService
+	UserService
 }
 
 // Verify at compile time that *Client satisfies Service.
