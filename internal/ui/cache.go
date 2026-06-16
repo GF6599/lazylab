@@ -34,11 +34,24 @@ const (
 
 var errCacheNotFound = errors.New("cache not found")
 
+// cacheBaseOverride, when non-empty, replaces os.UserCacheDir as the base
+// directory for the lazylab cache. It exists solely so the test suite (via
+// TestMain) can redirect persistent stores to a throwaway directory: a
+// NewModel-based test that drives saveCacheCmd would otherwise write test
+// fixtures into the developer's real cache for whatever host resolves
+// (sanitizeHost("") == "https_gitlab_com", i.e. gitlab.com). Empty in
+// production runs.
+var cacheBaseOverride string
+
 // ensureCacheDir returns the lazylab cache directory path, creating it if needed.
 func ensureCacheDir() (string, error) {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("user cache dir: %w", err)
+	base := cacheBaseOverride
+	if base == "" {
+		var err error
+		base, err = os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("user cache dir: %w", err)
+		}
 	}
 	dir := filepath.Join(base, "lazylab")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

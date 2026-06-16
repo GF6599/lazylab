@@ -13,6 +13,24 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
+// TestEnsureCacheDir_HonorsOverride locks in the test-isolation fix: ensureCacheDir
+// (and thus every NewModel-constructed persistent store) must resolve under the
+// TestMain-provided override directory, never the developer's real user cache.
+// Regression guard for the diagnostic that wrote test fixtures into the real
+// projects_https_gitlab_com.json.
+func TestEnsureCacheDir_HonorsOverride(t *testing.T) {
+	if cacheBaseOverride == "" {
+		t.Fatal("expected TestMain to set cacheBaseOverride for the suite")
+	}
+	dir, err := ensureCacheDir()
+	if err != nil {
+		t.Fatalf("ensureCacheDir: %v", err)
+	}
+	if !strings.HasPrefix(dir, cacheBaseOverride) {
+		t.Fatalf("cache dir %q escaped the test override %q (would touch the real user cache)", dir, cacheBaseOverride)
+	}
+}
+
 func TestProjectCache_SaveAndLoad(t *testing.T) {
 	tmpDir := t.TempDir()
 	cachePath := filepath.Join(tmpDir, "test_cache.json")
