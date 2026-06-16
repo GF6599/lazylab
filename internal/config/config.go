@@ -134,6 +134,13 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	// case — AutomaticEnv only consults the prefixed form.
 	_ = v.BindEnv(FlagProject, "GITLAB_PROJECT", "LAZYLAB_PROJECT")
 	v.AutomaticEnv()
+	// BindPFlags wires each pflag into viper's precedence chain. Viper
+	// consults pflag.Flag.Changed() before flag.Value, so unset CLI flags
+	// fall through to env vars, then the config file, then SetDefault —
+	// preserving the documented order: defaults < file < env < flags.
+	if err := v.BindPFlags(fs); err != nil {
+		return cfg, fmt.Errorf("bind flags: %w", err)
+	}
 
 	configPath, _ := fs.GetString(FlagConfig)
 	if configPath == "" {
@@ -155,11 +162,10 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	cfg.Token = v.GetString(FlagToken)
 	cfg.ProjectsPerPage = v.GetInt(FlagProjectsPerPage)
 	cfg.LogLevel = strings.ToLower(v.GetString(FlagLogLevel))
+	cfg.Demo = v.GetBool(FlagDemo)
 	cfg.DiffContextLines = v.GetInt(FlagDiffContextLines)
 	cfg.Project = strings.TrimSpace(v.GetString(FlagProject))
 	cfg.Remote = strings.TrimSpace(v.GetString(FlagRemote))
-
-	overrideFromFlags(fs, &cfg)
 
 	// Apply defaults uniformly. Demo mode skips network/token validation but
 	// still uses the same default values as a normal run.
@@ -194,42 +200,6 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// overrideFromFlags applies only explicitly-set CLI flags, leaving Viper's
-// merged values intact for anything the user didn't pass on the command line.
-func overrideFromFlags(fs *pflag.FlagSet, cfg *Config) {
-	if fs.Changed(FlagHost) {
-		cfg.Host, _ = fs.GetString(FlagHost)
-	}
-	if fs.Changed(FlagToken) {
-		cfg.Token, _ = fs.GetString(FlagToken)
-	}
-	if fs.Changed(FlagProjectsPerPage) {
-		cfg.ProjectsPerPage, _ = fs.GetInt(FlagProjectsPerPage)
-	}
-	if fs.Changed(FlagLogLevel) {
-		v, _ := fs.GetString(FlagLogLevel)
-		cfg.LogLevel = strings.ToLower(v)
-	}
-	if fs.Changed(FlagConfig) {
-		v, _ := fs.GetString(FlagConfig)
-		cfg.ConfigFile = filepath.Clean(v)
-	}
-	if fs.Changed(FlagDemo) {
-		cfg.Demo, _ = fs.GetBool(FlagDemo)
-	}
-	if fs.Changed(FlagDiffContextLines) {
-		cfg.DiffContextLines, _ = fs.GetInt(FlagDiffContextLines)
-	}
-	if fs.Changed(FlagProject) {
-		v, _ := fs.GetString(FlagProject)
-		cfg.Project = strings.TrimSpace(v)
-	}
-	if fs.Changed(FlagRemote) {
-		v, _ := fs.GetString(FlagRemote)
-		cfg.Remote = strings.TrimSpace(v)
-	}
 }
 
 // validateHostURL rejects URLs without a scheme or hostname early, before
