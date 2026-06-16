@@ -74,7 +74,7 @@ func renderPipelineListPane(m Model, width, height int, focused bool) string {
 		b.WriteString("\n")
 	}
 	if m.pipelineView.err != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" "+m.pipelineView.err.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+formatLoadErr("pipelines", m.pipelineView.err), width)))
 		b.WriteString("\n")
 	}
 	if m.pipelineView.retrying {
@@ -159,11 +159,11 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 		b.WriteString("\n")
 	}
 	if err := m.pipelineView.jobs.Err(pipeline.ID); err != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" "+err.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+formatLoadErr("jobs", err), width)))
 		b.WriteString("\n")
 	}
 	if err := m.pipelineView.stages.Err(pipeline.ID); err != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" "+err.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+formatLoadErr("stages", err), width)))
 		b.WriteString("\n")
 		if len(stages) == 0 {
 			return finalize()
@@ -225,7 +225,7 @@ func renderPipelineLogPane(m Model, width int, focused bool) string {
 		return b.String()
 	}
 	if preview.err != nil && preview.content == "" {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" "+preview.err.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+formatLoadErr("job log", preview.err), width)))
 		b.WriteString("\n")
 		return b.String()
 	}

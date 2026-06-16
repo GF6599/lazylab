@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -12,62 +13,60 @@ import (
 // log viewport or the MR viewport depending on which sidebar panel the user
 // came from.
 func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
 	isMR := m.focus.PrevActive == PanelMRs
 	isMRComments := isMR && m.mrView.detailTab == mrDetailTabComments
 
 	// MR comments tab: j/k navigates discussions, r resolves, enter replies
 	if isMRComments {
-		switch key {
-		case "left", "h":
+		switch {
+		case key.Matches(msg, m.keys.Left):
 			m.focus.Active = m.focus.PrevActive
 			return m, nil
-		case "esc":
+		case key.Matches(msg, m.keys.Back):
 			m.focus.Active = PanelProjects
 			return m, nil
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			return m.moveDiscussionSelection(1)
-		case "up", "k":
+		case key.Matches(msg, m.keys.Up):
 			return m.moveDiscussionSelection(-1)
-		case "J", "ctrl+d":
+		case key.Matches(msg, m.keys.ScrollDown) || key.Matches(msg, m.keys.HalfDown):
 			m.mrView.mrViewport.HalfPageDown()
 			return m, nil
-		case "K", "ctrl+u":
+		case key.Matches(msg, m.keys.ScrollUp) || key.Matches(msg, m.keys.HalfUp):
 			m.mrView.mrViewport.HalfPageUp()
 			return m, nil
-		case "<", "g":
+		case key.Matches(msg, m.keys.Top):
 			m.mrView.selectedDiscussion = 0
 			return m.refreshMRCommentsViewport()
-		case ">", "G":
+		case key.Matches(msg, m.keys.Bottom):
 			return m.moveDiscussionToEnd()
-		case "r":
+		case key.Matches(msg, m.keys.ResolveDiscussion):
 			return m.toggleDiscussionResolved()
-		case "enter":
+		case key.Matches(msg, m.keys.Enter):
 			return m.openMRReplyModal()
-		case "c":
+		case key.Matches(msg, m.keys.Comment):
 			return m.openMRNewCommentModal()
-		case "t":
+		case key.Matches(msg, m.keys.CycleTab):
 			return m.cycleDetailTab()
-		case "T":
+		case key.Matches(msg, m.keys.CycleTabRv):
 			return m.cycleDetailTabReverse()
-		case "ctrl+o":
-			m.copyMRComment()
-			return m, nil
+		case key.Matches(msg, m.keys.Copy):
+			return m, m.copyMRComment()
 		}
 		return m, nil
 	}
 
 	isMRDiff := isMR && m.mrView.detailTab == mrDetailTabDiff
 
-	switch key {
-	case "left", "h":
+	switch {
+	case key.Matches(msg, m.keys.Left):
 		m.focus.Active = m.focus.PrevActive
 		return m, nil
-	case "esc":
+	case key.Matches(msg, m.keys.Back):
 		// Jump to Projects (home)
 		m.focus.Active = PanelProjects
 		return m, nil
-	case "down", "j":
+	case key.Matches(msg, m.keys.Down):
 		if isMRDiff {
 			return m.moveDiffCursor(1)
 		} else if isMR {
@@ -77,7 +76,7 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		}
 		return m, nil
-	case "up", "k":
+	case key.Matches(msg, m.keys.Up):
 		if isMRDiff {
 			return m.moveDiffCursor(-1)
 		} else if isMR {
@@ -87,7 +86,7 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pipelineView.logAutoFollow = false
 		}
 		return m, nil
-	case "J", "ctrl+d":
+	case key.Matches(msg, m.keys.ScrollDown) || key.Matches(msg, m.keys.HalfDown):
 		if isMR {
 			m.mrView.mrViewport.HalfPageDown()
 		} else {
@@ -95,7 +94,7 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		}
 		return m, nil
-	case "K", "ctrl+u":
+	case key.Matches(msg, m.keys.ScrollUp) || key.Matches(msg, m.keys.HalfUp):
 		if isMR {
 			m.mrView.mrViewport.HalfPageUp()
 		} else {
@@ -103,7 +102,7 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pipelineView.logAutoFollow = false
 		}
 		return m, nil
-	case "<", "g":
+	case key.Matches(msg, m.keys.Top):
 		if isMRDiff {
 			return m.moveDiffCursorTo(0)
 		} else if isMR {
@@ -113,7 +112,7 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pipelineView.logAutoFollow = false
 		}
 		return m, nil
-	case ">", "G":
+	case key.Matches(msg, m.keys.Bottom):
 		if isMRDiff && len(m.mrView.diffLineMap) > 0 {
 			return m.moveDiffCursorTo(len(m.mrView.diffLineMap) - 1)
 		} else if isMR {
@@ -123,33 +122,33 @@ func (m Model) handleDetailPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.pipelineView.logAutoFollow = true
 		}
 		return m, nil
-	case "c":
+	case key.Matches(msg, m.keys.Comment):
 		if isMRDiff {
 			return m.openMRDiffCommentModal()
 		} else if isMR {
 			return m.openMRNewCommentModal()
 		}
-	case "t":
+	case key.Matches(msg, m.keys.CycleTab):
 		return m.cycleDetailTab()
-	case "T":
+	case key.Matches(msg, m.keys.CycleTabRv):
 		return m.cycleDetailTabReverse()
-	case "R":
+	case key.Matches(msg, m.keys.Retry):
 		switch m.focus.PrevActive {
 		case PanelPipelines:
 			return m.openRetryModal()
 		case PanelStages:
 			return m.openRetryModalForJob()
 		}
-	case "ctrl+o":
+	case key.Matches(msg, m.keys.Copy):
 		switch m.focus.PrevActive {
 		case PanelProjects:
-			m.copyCloneCommand()
+			return m, m.copyCloneCommand()
 		case PanelPipelines:
-			m.copyPipelineURL()
+			return m, m.copyPipelineURL()
 		case PanelStages:
-			m.copyJobURL()
+			return m, m.copyJobURL()
 		case PanelMRs:
-			m.copyMRURL()
+			return m, m.copyMRURL()
 		}
 	}
 	return m, nil

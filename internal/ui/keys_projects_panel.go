@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -19,53 +20,53 @@ import (
 // handleProjectsPanelKey handles keys when the Projects panel is focused.
 func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	prevID, prevOK := m.currentSelectedProjectID()
-	key := msg.String()
 
 	if m.search.active {
 		return m.handleProjectSearchKey(msg)
 	}
 
-	switch key {
-	case "/":
+	switch {
+	case key.Matches(msg, m.keys.Search):
 		return m.startSearch()
-	case "e":
+	case key.Matches(msg, m.keys.Explorer):
 		// Open explorer overlay
 		if project, ok := m.selectedProject(); ok {
 			return m.openExplorer(project)
 		}
-	case "enter":
+	case key.Matches(msg, m.keys.Enter):
 		// Drill into Pipelines panel for selected project
 		if project, ok := m.selectedProject(); ok {
 			m.focus.Active = PanelPipelines
 			return m, m.loadProjectPipelines(project)
 		}
-	case "l", "right":
+	case key.Matches(msg, m.keys.Right):
 		// Focus Detail pane
 		m.focus.PrevActive = PanelProjects
 		m.focus.Active = PanelDetail
 		return m, nil
-	case "down", "j", "up", "k":
+	case key.Matches(msg, m.keys.Down) || key.Matches(msg, m.keys.Up):
 		m.projectList, _ = m.projectList.Update(msg)
 		m.selected = m.projectList.Index()
-	case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
-		if newIdx, handled := bigStepIdx(key, m.projectList.Index(), len(m.visibleProjects()), m.height); handled {
+	case key.Matches(msg, m.keys.HalfDown) || key.Matches(msg, m.keys.HalfUp) ||
+		key.Matches(msg, m.keys.Top) || key.Matches(msg, m.keys.Bottom):
+		if newIdx, handled := bigStepIdx(msg.String(), m.projectList.Index(), len(m.visibleProjects()), m.height); handled {
 			m.projectList.Select(newIdx)
 			m.selected = newIdx
 		}
-	case "h", "left":
+	case key.Matches(msg, m.keys.Left):
 		// Projects is the topmost panel — no-op (nothing to go back to)
 		return m, nil
-	case "[":
+	case key.Matches(msg, m.keys.PrevPage):
 		pageCmd := m.movePage(-1)
 		prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
 		selectionCmd := (&m).handleSelectedProjectChange(prevID, prevOK)
 		return m, tea.Batch(pageCmd, prefetchCmd, selectionCmd)
-	case "]":
+	case key.Matches(msg, m.keys.NextPage):
 		pageCmd := m.movePage(1)
 		prefetchCmd := (&m).queueBatchPrefetchPipelineStatus()
 		selectionCmd := (&m).handleSelectedProjectChange(prevID, prevOK)
 		return m, tea.Batch(pageCmd, prefetchCmd, selectionCmd)
-	case "r", "ctrl+r":
+	case key.Matches(msg, m.keys.Refresh):
 		m.loading = true
 		m.err = nil
 		m.status = "Refreshing projects..."
@@ -73,7 +74,7 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.page = 1
 		m.paginator.Page = 0
 		return m, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, 1, false)
-	case "f":
+	case key.Matches(msg, m.keys.Favorite):
 		project, ok := m.selectedProject()
 		if ok {
 			if m.favorites[project.ID] {
@@ -110,7 +111,7 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
-	case "t":
+	case key.Matches(msg, m.keys.CycleTab):
 		m.projectTab = (m.projectTab + 1) % projectTabCount
 		m.selected = 0
 		m.invalidateVisibleCache()
@@ -127,16 +128,20 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		return m, nil
-	case "{":
+	case key.Matches(msg, m.keys.MoveFavUp):
 		if m.projectTab == projectTabFavorites {
 			return m.moveFavorite(-1)
 		}
-	case "}":
+	case key.Matches(msg, m.keys.MoveFavDn):
 		if m.projectTab == projectTabFavorites {
 			return m.moveFavorite(1)
 		}
-	case "ctrl+o":
-		m.copyCloneCommand()
+	case key.Matches(msg, m.keys.Copy):
+		clipCmd := m.copyCloneCommand()
+		if loadCmd := (&m).handleSelectedProjectChange(prevID, prevOK); loadCmd != nil {
+			return m, tea.Batch(clipCmd, loadCmd)
+		}
+		return m, clipCmd
 	}
 
 	// Auto-load sidebar panels when selection changes
@@ -156,6 +161,11 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 	m.pipelineView.pipelineList = newPipelineListModel()
 	m.pipelineView.stageTable = newStageTable(m.stageTableWidth())
 	m.pipelineView.logViewport = m.newLogViewport()
+	// The sub-components above are freshly built at zero size; re-apply the
+	// current layout so the new pipeline list (and table/viewport) get real
+	// dimensions. Without this the list renders empty until the next resize,
+	// because the multi-panel pane sizes the list from state, not in View.
+	m.updateViewportSizes()
 
 	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, 1, pipelinePerPage)
 }
@@ -180,28 +190,35 @@ func (m *Model) stageTableWidth() int {
 }
 
 // newStageTable builds a job-per-row stage table styled to match the active
-// theme. Used at fresh-load time; theme changes go through
-// refreshThemeSubComponents which re-applies styles in place.
+// theme. This is the single source of truth for stage-table construction —
+// both the initial open and the theme-refresh path style through stageTableStyles.
 func newStageTable(width int) table.Model {
 	t := table.New(
 		table.WithColumns(stageTableColumns(width)),
 		table.WithFocused(false),
 		table.WithHeight(stageTableDefaultHeight),
 	)
+	t.SetStyles(stageTableStyles())
+	return t
+}
+
+// stageTableStyles returns the themed table.Styles used by every stage-table
+// callsite. Selected is built from scratch to avoid inheriting the default
+// Color("212") (bright pink) foreground from DefaultStyles().
+func stageTableStyles() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(colorSubtle).
 		BorderBottom(true).
-		BorderTop(false).
-		BorderLeft(false).
-		BorderRight(false).
 		Bold(false).
 		Foreground(colorSubtle)
-	s.Selected = lipgloss.NewStyle().Foreground(colorText).Background(colorHighlightMed)
-	s.Cell = s.Cell.Foreground(colorText)
-	t.SetStyles(s)
-	return t
+	s.Selected = lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorHighlightMed)
+	s.Cell = s.Cell.
+		Foreground(colorText)
+	return s
 }
 
 // newLogViewport sizes the pipeline-log viewport from the current layout.
@@ -253,8 +270,8 @@ func (m *Model) loadSelectedProjectData(project gitlab.ProjectNode) tea.Cmd {
 	if cmd := m.queuePipelineFetch(project, false); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	if _, cached := m.commitCache.Get(project.ID); !cached && !m.commitLoading[project.ID] {
-		m.commitLoading[project.ID] = true
+	if _, cached := m.commitCache.Get(project.ID); !cached && !m.commitCache.IsLoading(project.ID) {
+		m.commitCache.SetLoading(project.ID)
 		cmds = append(cmds, fetchCommitsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, project.DefaultBranch))
 	}
 	// Only reload MRs if the project changed

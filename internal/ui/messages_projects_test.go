@@ -10,53 +10,78 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// TestLoadProjectsStatusForErr verifies that the typed-error UI helper picks
-// the right status line for each HTTP status the GitLab client can surface.
-// Errors are fabricated directly via *gl.ErrorResponse rather than provoked
-// through the SDK, because the helper only cares about what errors.As can
-// extract from the chain.
-func TestLoadProjectsStatusForErr(t *testing.T) {
+// TestFormatLoadErr verifies that the typed-error UI helper picks the right
+// status line for each HTTP status the GitLab client can surface. Errors are
+// fabricated directly via *gl.ErrorResponse rather than provoked through the
+// SDK, because the helper only cares about what errors.As can extract from
+// the chain.
+func TestFormatLoadErr(t *testing.T) {
 	tests := []struct {
-		name string
-		err  error
-		want string
+		name   string
+		action string
+		err    error
+		want   string
 	}{
 		{
-			name: "401 token rejected",
-			err:  wrapHTTPErr(http.StatusUnauthorized),
-			want: "GitLab token rejected (401) — refresh GITLAB_TOKEN",
+			name:   "401 token rejected",
+			action: "projects",
+			err:    wrapHTTPErr(http.StatusUnauthorized),
+			want:   "GitLab token rejected (401) — refresh GITLAB_TOKEN",
 		},
 		{
-			name: "429 rate limited",
-			err:  wrapHTTPErr(http.StatusTooManyRequests),
-			want: "GitLab rate-limited (429) — retrying after backoff",
+			name:   "429 rate limited",
+			action: "projects",
+			err:    wrapHTTPErr(http.StatusTooManyRequests),
+			want:   "GitLab rate-limited (429) — retrying after backoff",
 		},
 		{
-			name: "403 forbidden",
-			err:  wrapHTTPErr(http.StatusForbidden),
-			want: "GitLab denied access (403) — check token scopes",
+			name:   "403 forbidden",
+			action: "projects",
+			err:    wrapHTTPErr(http.StatusForbidden),
+			want:   "GitLab denied access (403) — check token scopes",
 		},
 		{
-			name: "502 server error",
-			err:  wrapHTTPErr(http.StatusBadGateway),
-			want: "GitLab server error — will retry",
+			name:   "404 not found uses action noun",
+			action: "pipelines",
+			err:    wrapHTTPErr(http.StatusNotFound),
+			want:   "GitLab pipelines not found (404)",
 		},
 		{
-			name: "non-API error falls back to generic",
-			err:  errors.New("network unreachable"),
-			want: "Failed to load projects",
+			name:   "502 server error",
+			action: "projects",
+			err:    wrapHTTPErr(http.StatusBadGateway),
+			want:   "GitLab server error — will retry",
 		},
 		{
-			name: "wrapped 401 still detected through extra layer",
-			err:  fmt.Errorf("higher-level: %w", wrapHTTPErr(http.StatusUnauthorized)),
-			want: "GitLab token rejected (401) — refresh GITLAB_TOKEN",
+			name:   "non-API error falls back to generic with action",
+			action: "projects",
+			err:    errors.New("network unreachable"),
+			want:   "Failed to load projects",
+		},
+		{
+			name:   "generic fallback with custom action",
+			action: "merge requests",
+			err:    errors.New("network unreachable"),
+			want:   "Failed to load merge requests",
+		},
+		{
+			name:   "wrapped 401 still detected through extra layer",
+			action: "projects",
+			err:    fmt.Errorf("higher-level: %w", wrapHTTPErr(http.StatusUnauthorized)),
+			want:   "GitLab token rejected (401) — refresh GITLAB_TOKEN",
+		},
+		{
+			name:   "nil error returns empty string",
+			action: "projects",
+			err:    nil,
+			want:   "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := loadProjectsStatusForErr(tt.err); got != tt.want {
-				t.Errorf("loadProjectsStatusForErr() = %q, want %q", got, tt.want)
+			if got := formatLoadErr(tt.action, tt.err); got != tt.want {
+				t.Errorf("formatLoadErr(%q, err) = %q, want %q", tt.action, got, tt.want)
 			}
 		})
 	}

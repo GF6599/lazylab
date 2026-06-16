@@ -28,6 +28,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
@@ -61,12 +62,12 @@ const (
 	maxPipelineStatusCacheSize = 100       // Keep last 100 pipeline statuses
 	maxPreviewHighlightEntries = 25        // Keep last 25 syntax highlights
 	maxPreviewHighlightBytes   = 200_000   // 200KB max per highlight
-	maxCommitCacheSize         = 50        // Keep last 50 projects' commits
 
 	// UI layout constants
-	stageTableDefaultHeight = 10 // Default row count for the pipeline stage table
-	projectTabCount         = 2  // Number of project tabs (Favorites, All)
-	pipelineDetailTabCount  = 3  // Number of pipeline detail tabs (Log, Info, Tests)
+	stageTableDefaultHeight  = 10 // Default row count for the pipeline stage table
+	projectTabCount          = 2  // Number of project tabs (Favorites, All)
+	pipelineDetailTabCount   = 3  // Number of pipeline detail tabs (Log, Info, Tests)
+	pipelineLogHeaderReserve = 6  // Rows the log pane reserves above the viewport (title + KVs + divider)
 )
 
 // projectTab selects the active tab in the projects panel.
@@ -146,7 +147,7 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 
 	// Add pipeline status icon if available
 	statusIcon := ""
-	if state, ok := d.pipelineStatus.Get(proj.project.ID); ok {
+	if state, ok := d.pipelineStatus.Peek(proj.project.ID); ok {
 		switch {
 		case state.hasInfo:
 			statusIcon = pipelineStatusIcon(state.info.Status) + " "
@@ -326,18 +327,17 @@ type Model struct {
 	// never run, which would otherwise double the API refresh rate.
 	pipelineTickAlive bool
 	// Bubble components
-	keys           keyMap
-	help           help.Model
-	spinner        spinner.Model
-	paginator      paginator.Model
-	projectList    list.Model
-	showHelp       bool
-	recentProjects []int // IDs of recently visited projects
-	favorites      map[int]bool
-	favOrder       []int // User-defined ordering of favorite project IDs
-	favStore       *favoritesStore
-	prefStore      *preferencesStore
-	projectTab     projectTab
+	keys        keyMap
+	help        help.Model
+	spinner     spinner.Model
+	paginator   paginator.Model
+	projectList list.Model
+	showHelp    bool
+	favorites   map[int]bool
+	favOrder    []int // User-defined ordering of favorite project IDs
+	favStore    *favoritesStore
+	prefStore   *preferencesStore
+	projectTab  projectTab
 
 	// visibleProjects cache — avoids recomputing the filtered/paged project
 	// slice on every View call. Invalidated by search query changes, page
@@ -368,12 +368,18 @@ type Model struct {
 
 	previewHighlightCache *LRUCache[string, previewHighlightEntry]
 
-	// commitCache and commitLoading track per-project recent commits, keyed
-	// by project ID. Fetched lazily when a project is selected in the multi-panel
-	// layout and cached indefinitely (commits rarely change fast enough to matter
-	// during a single session). Unlike pipeline status, there is no periodic refresh.
-	commitCache   *LRUCache[int, []gitlab.CommitSummary]
-	commitLoading map[int]bool
+	// glamourRenderers pools glamour.TermRenderer instances by terminal width
+	// to amortize their expensive style-compilation cost. Owned by Model
+	// (rather than a package singleton) so parallel tests stay isolated and
+	// theme changes can drop the cache without racing with another program
+	// instance. Bubble Tea's serial Update loop makes a mutex unnecessary.
+	glamourRenderers map[int]*glamour.TermRenderer
+
+	// commitCache tracks per-project recent commits, keyed by project ID.
+	// Fetched lazily when a project is selected in the multi-panel layout and
+	// cached indefinitely (commits rarely change fast enough to matter during a
+	// single session). Unlike pipeline status, there is no periodic refresh.
+	commitCache AsyncCache[int, []gitlab.CommitSummary]
 }
 
 // searchState implements debounced search: keystrokes update pendingQuery
@@ -534,7 +540,6 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 	opts = applyOptionDefaults(opts)
 	pipelineStatus := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
 	previewHighlight := NewLRUCache[string, previewHighlightEntry](maxPreviewHighlightEntries)
-	commits := NewLRUCache[int, []gitlab.CommitSummary](maxCommitCacheSize)
 	favorites := make(map[int]bool)
 
 	m := Model{
@@ -553,12 +558,11 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 		spinner:               newAppSpinner(),
 		paginator:             newAppPaginator(opts.ProjectsPerPage),
 		projectList:           newProjectListModel(&pipelineStatus, favorites),
+		pipelineView:          newPipelineViewState(),
 		favorites:             favorites,
 		projectTab:            projectTabFavorites,
-		recentProjects:        make([]int, 0, 10),
 		previewHighlightCache: &previewHighlight,
-		commitCache:           &commits,
-		commitLoading:         make(map[int]bool),
+		commitCache:           NewAsyncCache[int, []gitlab.CommitSummary](),
 		batchInFlight:         &atomic.Bool{},
 	}
 	m = m.attachPersistentStores()
@@ -668,21 +672,7 @@ func (m Model) refreshThemeSubComponents() Model {
 	m.paginator.ActiveDot = lipgloss.NewStyle().Foreground(colorActive).Render("•")
 	m.paginator.InactiveDot = lipgloss.NewStyle().Foreground(colorMuted).Render("•")
 
-	// Refresh stage table styles. Selected is built from scratch to avoid
-	// inheriting the default Color("212") (bright pink) from DefaultStyles().
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(colorSubtle).
-		BorderBottom(true).
-		Bold(false).
-		Foreground(colorSubtle)
-	s.Selected = lipgloss.NewStyle().
-		Foreground(colorText).
-		Background(colorHighlightMed)
-	s.Cell = s.Cell.
-		Foreground(colorText)
-	m.pipelineView.stageTable.SetStyles(s)
+	m.pipelineView.stageTable.SetStyles(stageTableStyles())
 	return m
 }
 
@@ -699,8 +689,11 @@ func (m Model) toggleTheme() (tea.Model, tea.Cmd) {
 	applyTheme(next)
 	m = m.refreshThemeSubComponents()
 	m.invalidateDetailCache()
+	m.populateDetailCache()
 	m = m.clearPreviewHighlightCache()
+	m = m.clearGlamourRenderers()
 	m.refreshExplorerPreview()
+	m.refreshMRViewportContent()
 	m.status = "Theme: " + ThemeLabel(next)
 	var cmd tea.Cmd
 	if m.prefStore != nil {
@@ -716,6 +709,13 @@ func (m Model) clearPreviewHighlightCache() Model {
 		c := NewLRUCache[string, previewHighlightEntry](maxPreviewHighlightEntries)
 		m.previewHighlightCache = &c
 	}
+	return m
+}
+
+// clearGlamourRenderers drops cached glamour renderers so they are rebuilt
+// with options that match the freshly applied theme.
+func (m Model) clearGlamourRenderers() Model {
+	m.glamourRenderers = nil
 	return m
 }
 
@@ -897,8 +897,11 @@ func (m Model) handlePreferencesLoaded(msg preferencesLoadedMsg) (tea.Model, tea
 	m.focus.ScreenMode = msg.screenMode
 	applyTheme(msg.theme)
 	m = m.refreshThemeSubComponents()
+	m = m.clearGlamourRenderers()
 	m.invalidateDetailCache()
 	m.updateViewportSizes()
+	m.populateDetailCache()
+	m.refreshMRViewportContent()
 	return m, nil
 }
 
@@ -981,6 +984,19 @@ func (m Model) routeAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logError("save preferences", "err", msg.err)
 		}
 		return m, nil
+	case clipboardWroteMsg:
+		return m.handleClipboardWrote(msg)
+	}
+	return m, nil
+}
+
+// handleClipboardWrote applies the result of an async clipboard write to the
+// status line. The error is logged with the same "copy clipboard" key the
+// pre-refactor synchronous code used, so log scrapers don't break.
+func (m Model) handleClipboardWrote(msg clipboardWroteMsg) (tea.Model, tea.Cmd) {
+	m.status = msg.status
+	if msg.err != nil {
+		m.logError("copy clipboard", "err", msg.err)
 	}
 	return m, nil
 }

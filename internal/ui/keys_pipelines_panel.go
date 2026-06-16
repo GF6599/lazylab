@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // handlePipelinesPanelKey handles keys when the Pipelines panel is focused.
 func (m Model) handlePipelinesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-	switch key {
-	case "down", "j", "up", "k":
+	switch {
+	case key.Matches(msg, m.keys.Down) || key.Matches(msg, m.keys.Up):
 		prevIdx := m.pipelineView.pipelineList.Index()
 		var cmd tea.Cmd
 		m.pipelineView.pipelineList, cmd = m.pipelineView.pipelineList.Update(msg)
@@ -29,63 +29,65 @@ func (m Model) handlePipelinesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmd, stagesCmd, jobsCmd)
 		}
 		return m, cmd
-	case "enter":
+	case key.Matches(msg, m.keys.Enter):
 		// Focus stages panel
 		m.focus.Active = PanelStages
 		return m, m.queuePipelineLogPreview()
-	case "l", "right":
+	case key.Matches(msg, m.keys.Right):
 		// Focus Detail pane
 		m.focus.PrevActive = PanelPipelines
 		m.focus.Active = PanelDetail
 		return m, nil
-	case "h", "left":
+	case key.Matches(msg, m.keys.Left):
 		// Back to projects
 		m.focus.Active = PanelProjects
 		return m, nil
-	case "esc":
+	case key.Matches(msg, m.keys.Back):
 		// Jump to Projects (home)
 		m.focus.Active = PanelProjects
 		return m, nil
-	case "]":
+	case key.Matches(msg, m.keys.NextPage):
 		if cmd := m.changePipelinePage(1); cmd != nil {
 			return m, cmd
 		}
-	case "[":
+	case key.Matches(msg, m.keys.PrevPage):
 		if cmd := m.changePipelinePage(-1); cmd != nil {
 			return m, cmd
 		}
-	case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
-		newIdx, handled := bigStepIdx(key, m.pipelineView.selected, len(m.pipelineView.pipelines), m.height)
+	case key.Matches(msg, m.keys.HalfDown) || key.Matches(msg, m.keys.HalfUp) ||
+		key.Matches(msg, m.keys.Top) || key.Matches(msg, m.keys.Bottom):
+		s := msg.String()
+		newIdx, handled := bigStepIdx(s, m.pipelineView.selected, len(m.pipelineView.pipelines), m.height)
 		if !handled || newIdx == m.pipelineView.selected {
 			return m, nil
 		}
 		m.pipelineView.selected = newIdx
 		m.pipelineView.stageSelected = 0
-		if key == "ctrl+d" || key == "ctrl+u" {
+		if key.Matches(msg, m.keys.HalfDown) || key.Matches(msg, m.keys.HalfUp) {
 			m.pipelineView.stageTable.SetCursor(0)
 		}
 		m.resetPipelineLogPreview()
 		return m, tea.Batch(m.queuePipelineStagesForSelection(), m.queuePipelineJobsForSelection())
-	case "r", "ctrl+r":
+	case key.Matches(msg, m.keys.Refresh):
 		return m.reloadPipelineView()
-	case "R":
+	case key.Matches(msg, m.keys.Retry):
 		return m.openRetryModal()
-	case "C":
+	case key.Matches(msg, m.keys.Cancel):
 		return m.cancelPipelineAction()
-	case "J":
+	case key.Matches(msg, m.keys.ScrollDown):
 		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		return m, nil
-	case "K":
+	case key.Matches(msg, m.keys.ScrollUp):
 		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
 		return m, nil
-	case "t":
+	case key.Matches(msg, m.keys.CycleTab):
 		return m.cycleDetailTab()
-	case "T":
+	case key.Matches(msg, m.keys.CycleTabRv):
 		return m.cycleDetailTabReverse()
-	case "ctrl+o":
-		m.copyPipelineURL()
+	case key.Matches(msg, m.keys.Copy):
+		return m, m.copyPipelineURL()
 	}
 	return m, nil
 }

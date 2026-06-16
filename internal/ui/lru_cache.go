@@ -11,6 +11,9 @@ import "container/list"
 // keyed by the user key holds *list.Element references for direct removal and
 // promotion without a linear scan.
 //
+// Get reorders the LRU list as a side effect; use Peek for read-only access
+// from render paths so View() never mutates shared state.
+//
 // This is not concurrency-safe; it relies on Bubble Tea's single-goroutine
 // Update loop for all mutations.
 type LRUCache[K comparable, V any] struct {
@@ -46,6 +49,18 @@ func (c *LRUCache[K, V]) Get(key K) (V, bool) {
 		return zero, false
 	}
 	c.order.MoveToFront(elem)
+	return elem.Value.(*lruEntry[K, V]).value, true
+}
+
+// Peek returns the cached value for key without touching the LRU order. Use
+// from render paths (View) where mutation would smuggle Update-style side
+// effects into the read-only View contract.
+func (c *LRUCache[K, V]) Peek(key K) (V, bool) {
+	elem, ok := c.data[key]
+	if !ok {
+		var zero V
+		return zero, false
+	}
 	return elem.Value.(*lruEntry[K, V]).value, true
 }
 

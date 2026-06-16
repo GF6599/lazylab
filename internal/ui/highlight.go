@@ -8,7 +8,6 @@ import (
 	"hash/fnv"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/charmbracelet/glamour"
 )
@@ -16,26 +15,6 @@ import (
 type previewHighlightEntry struct {
 	content     string
 	highlighted bool
-}
-
-// glamourRendererCache pools glamour.TermRenderer instances by terminal width.
-// Glamour renderers are expensive to create (they compile markdown styles) but
-// safe to reuse, so we cache one per distinct width. The cache is global and
-// mutex-protected because terminal resize events can trigger concurrent access.
-var glamourRendererCache = struct {
-	mu      sync.Mutex
-	byWidth map[int]*glamour.TermRenderer
-}{
-	byWidth: make(map[int]*glamour.TermRenderer),
-}
-
-// clearGlamourCache discards all cached glamour renderers so they are
-// recreated on next use. Called by applyTheme to ensure renderer options
-// stay in sync with the active theme.
-func clearGlamourCache() {
-	glamourRendererCache.mu.Lock()
-	glamourRendererCache.byWidth = make(map[int]*glamour.TermRenderer)
-	glamourRendererCache.mu.Unlock()
 }
 
 // highlightPreview applies glamour syntax highlighting to file content and
@@ -63,7 +42,7 @@ func (m *Model) highlightPreview(path, content string, width int) (string, bool,
 			return entry.content, entry.highlighted, nil
 		}
 	}
-	highlighted, err := highlightWithGlamour(path, content, width)
+	highlighted, err := m.highlightWithGlamour(path, content, width)
 	if err != nil {
 		return "", false, err
 	}
@@ -94,7 +73,7 @@ func (m *Model) storePreviewHighlight(key string, entry previewHighlightEntry) {
 // highlightWithGlamour wraps content in a fenced code block with language
 // detection and renders it through glamour. The fence delimiter is extended
 // if the content itself contains triple-backticks to avoid parsing ambiguity.
-func highlightWithGlamour(path, content string, width int) (string, error) {
+func (m *Model) highlightWithGlamour(path, content string, width int) (string, error) {
 	lang := languageFromPath(path)
 	fence := "```"
 	for strings.Contains(content, fence) {
@@ -105,7 +84,7 @@ func highlightWithGlamour(path, content string, width int) (string, error) {
 		header += lang
 	}
 	markdown := header + "\n" + content + "\n" + fence + "\n"
-	renderer, err := cachedGlamourRenderer(width)
+	renderer, err := m.cachedGlamourRenderer(width)
 	if err != nil {
 		return "", err
 	}
@@ -116,14 +95,19 @@ func highlightWithGlamour(path, content string, width int) (string, error) {
 	return strings.TrimSuffix(out, "\n"), nil
 }
 
-func cachedGlamourRenderer(width int) (*glamour.TermRenderer, error) {
+// cachedGlamourRenderer reuses a glamour.TermRenderer per terminal width.
+// Renderers are expensive to construct (they compile markdown styles) but
+// safe to reuse within a single Bubble Tea program — Update runs sequentially
+// so no mutex is needed. The cache lives on Model so test isolation is
+// preserved and theme changes can drop it via clearGlamourRenderers.
+func (m *Model) cachedGlamourRenderer(width int) (*glamour.TermRenderer, error) {
 	if width <= 0 {
 		width = 80
 	}
-	glamourRendererCache.mu.Lock()
-	renderer := glamourRendererCache.byWidth[width]
-	glamourRendererCache.mu.Unlock()
-	if renderer != nil {
+	if m.glamourRenderers == nil {
+		m.glamourRenderers = make(map[int]*glamour.TermRenderer)
+	}
+	if renderer, ok := m.glamourRenderers[width]; ok {
 		return renderer, nil
 	}
 	newRenderer, err := glamour.NewTermRenderer(
@@ -133,13 +117,7 @@ func cachedGlamourRenderer(width int) (*glamour.TermRenderer, error) {
 	if err != nil {
 		return nil, err
 	}
-	glamourRendererCache.mu.Lock()
-	if existing := glamourRendererCache.byWidth[width]; existing != nil {
-		glamourRendererCache.mu.Unlock()
-		return existing, nil
-	}
-	glamourRendererCache.byWidth[width] = newRenderer
-	glamourRendererCache.mu.Unlock()
+	m.glamourRenderers[width] = newRenderer
 	return newRenderer, nil
 }
 

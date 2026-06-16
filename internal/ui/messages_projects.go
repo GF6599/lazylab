@@ -14,25 +14,6 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
-// loadProjectsStatusForErr returns a user-friendly status line for a failed
-// project load, branching on the HTTP status carried by the underlying SDK
-// error. 401 prompts the user to refresh their token; 429 explains the brief
-// wait; everything else uses a generic message.
-func loadProjectsStatusForErr(err error) string {
-	switch {
-	case gitlab.IsUnauthorized(err):
-		return "GitLab token rejected (401) — refresh GITLAB_TOKEN"
-	case gitlab.IsRateLimited(err):
-		return "GitLab rate-limited (429) — retrying after backoff"
-	case gitlab.IsForbidden(err):
-		return "GitLab denied access (403) — check token scopes"
-	case gitlab.IsServerError(err):
-		return "GitLab server error — will retry"
-	default:
-		return "Failed to load projects"
-	}
-}
-
 // handleCacheLoaded processes the on-disk project cache result. On a cache hit,
 // all pages are marked ready immediately and the pipeline refresh ticker starts.
 // On a miss (or error), it falls back to a foreground API fetch. In multi-panel
@@ -106,7 +87,7 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 			m.status = "Background load failed"
 		} else {
 			m.loading = false
-			m.status = loadProjectsStatusForErr(msg.err)
+			m.status = formatLoadErr("projects", msg.err)
 		}
 		m.err = msg.err
 		m.logError("load projects", "err", msg.err, "background", msg.background)
@@ -222,6 +203,7 @@ func (m Model) handlePipelineStatus(msg pipelineStatusMsg) (tea.Model, tea.Cmd) 
 	m.pipelineStatus.Set(msg.projectID, state)
 	if msg.projectID == selectedID {
 		(&m).invalidateDetailCache()
+		(&m).populateDetailCache()
 	}
 	return m, nil
 }
@@ -268,6 +250,9 @@ func (m Model) handleBatchPipelineStatus(msg batchPipelineStatusMsg) (tea.Model,
 		if projectID == selectedID {
 			(&m).invalidateDetailCache()
 		}
+	}
+	if selectedID != 0 {
+		(&m).populateDetailCache()
 	}
 
 	return m, nil
@@ -331,8 +316,8 @@ func (m Model) handleSelectionDebounce(msg selectionDebounceTickMsg) (tea.Model,
 // cache so the "Recent Commits" section renders on the next frame. Errors are
 // logged but not surfaced to the user — missing commits are non-critical.
 func (m Model) handleCommitsLoaded(msg commitsLoadedMsg) (tea.Model, tea.Cmd) {
-	m.commitLoading[msg.projectID] = false
 	if msg.err != nil {
+		m.commitCache.SetErr(msg.projectID, msg.err)
 		m.logError("load commits", "err", msg.err, "project", msg.projectID)
 		return m, nil
 	}
@@ -344,6 +329,7 @@ func (m Model) handleCommitsLoaded(msg commitsLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	if msg.projectID == selectedID {
 		(&m).invalidateDetailCache()
+		(&m).populateDetailCache()
 	}
 	return m, nil
 }

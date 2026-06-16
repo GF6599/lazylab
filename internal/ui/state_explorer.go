@@ -5,7 +5,6 @@ package ui
 import (
 	"fmt"
 
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -158,30 +157,24 @@ func (m Model) selectedEntry() *gitlab.TreeNode {
 	return &dir.entries[dir.selected]
 }
 
-// copyExplorerURL copies the GitLab web URL for the selected file or directory.
-func (m Model) copyExplorerURL() Model {
+// copyExplorerURL returns the model plus a Cmd that copies the GitLab web URL
+// for the selected file or directory to the clipboard off the event loop.
+// Guard paths still set m.status synchronously and return a nil Cmd.
+func (m Model) copyExplorerURL() (Model, tea.Cmd) {
 	entry := m.selectedEntry()
 	if entry == nil {
 		m.status = "No file selected"
-		return m
+		return m, nil
 	}
 	if m.explorer.project.WebURL == "" {
 		m.status = "Project has no URL"
-		return m
+		return m, nil
 	}
 	ref := displayRef(m.explorer)
-	var kind string
+	kind := "blob"
 	if entry.IsDir() {
 		kind = "tree"
-	} else {
-		kind = "blob"
 	}
 	url := fmt.Sprintf("%s/-/%s/%s/%s", m.explorer.project.WebURL, kind, ref, entry.Path)
-	if err := clipboard.WriteAll(url); err != nil {
-		m.status = "Failed to copy URL"
-		m.logError("copy clipboard", "err", err)
-		return m
-	}
-	m.status = fmt.Sprintf("Copied %s URL", entry.Name)
-	return m
+	return m, writeClipboardCmd(url, fmt.Sprintf("Copied %s URL", entry.Name))
 }

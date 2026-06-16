@@ -6,45 +6,43 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/atotto/clipboard"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
-// copyMRURL copies the selected merge request's web URL to the clipboard.
-func (m *Model) copyMRURL() {
+// copyMRURL returns a Cmd that copies the selected merge request's web URL
+// to the clipboard off the event loop. Guard paths still set m.status
+// synchronously and return a nil Cmd.
+func (m *Model) copyMRURL() tea.Cmd {
 	if len(m.mrView.mrs) == 0 || m.mrView.selected >= len(m.mrView.mrs) {
 		m.status = "No merge request selected"
-		return
+		return nil
 	}
 	mr := m.mrView.mrs[m.mrView.selected]
 	if mr.WebURL == "" {
 		m.status = "Merge request has no URL"
-		return
+		return nil
 	}
-	if err := clipboard.WriteAll(mr.WebURL); err != nil {
-		m.status = "Failed to copy MR URL"
-		m.logError("copy clipboard", "err", err)
-		return
-	}
-	m.status = fmt.Sprintf("Copied !%d URL", mr.IID)
+	return writeClipboardCmd(mr.WebURL, fmt.Sprintf("Copied !%d URL", mr.IID))
 }
 
-// copyMRComment copies the selected discussion's comment body (with file
-// reference if present) to the clipboard.
-func (m *Model) copyMRComment() {
+// copyMRComment returns a Cmd that copies the selected discussion's comment
+// body (with file reference if present) to the clipboard off the event loop.
+// Guard paths short-circuit with a synchronous status update and nil Cmd.
+func (m *Model) copyMRComment() tea.Cmd {
 	if len(m.mrView.mrs) == 0 || m.mrView.selected >= len(m.mrView.mrs) {
 		m.status = "No merge request selected"
-		return
+		return nil
 	}
 	mr := m.mrView.mrs[m.mrView.selected]
 	discussions, ok := m.mrView.discussions.Get(mr.IID)
 	if !ok || len(discussions) == 0 {
 		m.status = "No discussions loaded"
-		return
+		return nil
 	}
 	filtered := filterUserDiscussions(discussions)
 	if len(filtered) == 0 || m.mrView.selectedDiscussion >= len(filtered) {
 		m.status = "No discussion selected"
-		return
+		return nil
 	}
 	disc := filtered[m.mrView.selectedDiscussion]
 	var b strings.Builder
@@ -67,12 +65,7 @@ func (m *Model) copyMRComment() {
 	text := b.String()
 	if text == "" {
 		m.status = "No comment to copy"
-		return
+		return nil
 	}
-	if err := clipboard.WriteAll(text); err != nil {
-		m.status = "Failed to copy comment"
-		m.logError("copy clipboard", "err", err)
-		return
-	}
-	m.status = "Copied comment to clipboard"
+	return writeClipboardCmd(text, "Copied comment to clipboard")
 }

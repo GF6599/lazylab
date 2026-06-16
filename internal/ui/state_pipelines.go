@@ -8,14 +8,37 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
+
+// newPipelineViewState returns a blank-but-valid pipeline view: every Bubble
+// Tea sub-component (list, stage table, log viewport) is built with a non-nil
+// delegate and the per-pipeline AsyncCaches are initialized, so the model is
+// safe to size and render before any project is selected. This matters because
+// the first WindowSizeMsg — which arrives before selection in modeMultiPanel —
+// drives applyMultiPanelLayout into pipelineList.SetSize, and a zero-value
+// list.Model panics there on a nil delegate. openPipelineView and
+// loadProjectPipelines later overwrite this with project-scoped state.
+func newPipelineViewState() pipelineViewState {
+	return pipelineViewState{
+		pipelineList:  newPipelineListModel(),
+		stageTable:    newStageTable(minSidebarWidth),
+		page:          1,
+		totalPages:    1,
+		perPage:       pipelinePerPage,
+		stages:        NewAsyncCache[int, []gitlab.PipelineStage](),
+		jobs:          NewAsyncCache[int, []gitlab.PipelineJob](),
+		logs:          NewAsyncCache[int, string](),
+		bridges:       NewAsyncCache[int, []gitlab.PipelineBridge](),
+		childJobs:     NewAsyncCache[int, []gitlab.PipelineJob](),
+		logAutoFollow: true,
+		focus:         pipelineFocusPipelines,
+	}
+}
 
 // openPipelineView transitions to the pipeline list for a project. All
 // pipeline caches (stages, jobs, logs, bridges, child jobs) are freshly
@@ -26,29 +49,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 
 	// Initialize stage table (job-per-row layout)
 	_, stagesInner, _, _, _ := pipelinePaneLayout(m.width, m.height)
-	columns := stageTableColumns(max(stagesInner, 56))
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithFocused(false),
-		table.WithHeight(stageTableDefaultHeight),
-	)
-
-	// Style the table with theme colors (matching pane borders).
-	// Selected is built from scratch to avoid inheriting the default
-	// Color("212") (bright pink) foreground from DefaultStyles().
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(colorSubtle).
-		BorderBottom(true).
-		Bold(false).
-		Foreground(colorSubtle)
-	s.Selected = lipgloss.NewStyle().
-		Foreground(colorText).
-		Background(colorHighlightMed)
-	s.Cell = s.Cell.
-		Foreground(colorText)
-	t.SetStyles(s)
+	t := newStageTable(max(stagesInner, 56))
 
 	// Initialize pipeline list
 	delegate := pipelineDelegate{}
@@ -93,11 +94,132 @@ func (m *Model) clearAllRetryState() {
 	m.pipelineView.retryErr = nil
 }
 
+// handlePipelineRetryRequest opens the retry confirmation modal for either a
+// pipeline or a specific job, depending on the current focus.
+func (m Model) handlePipelineRetryRequest() (tea.Model, tea.Cmd) {
+	if m.pipelineView.retrying {
+		m.status = "Retry already in progress"
+		return m, nil
+	}
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		m.status = msgNoPipeline
+		return m, nil
+	}
+	if m.pipelineView.focus == pipelineFocusStages {
+		return m.requestStageRetry(pipeline)
+	}
+	m.pipelineView.retryConfirm = retryConfirmState{
+		active: true,
+		id:     pipeline.ID,
+		ref:    pipeline.Ref,
+	}
+	return m, nil
+}
+
+// requestStageRetry prepares a job-scoped retry confirmation, queueing the
+// stage/job fetch if the cached data is missing.
+func (m Model) requestStageRetry(pipeline *gitlab.PipelineSummary) (tea.Model, tea.Cmd) {
+	job := m.selectedPipelineJob()
+	if job == nil {
+		return m.queuePipelineDataForRetry()
+	}
+	m.pipelineView.retryConfirm = retryConfirmState{
+		active:   true,
+		isJob:    true,
+		id:       pipeline.ID,
+		jobID:    job.ID,
+		jobName:  job.Name,
+		jobStage: job.Stage,
+	}
+	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.ChildProjectID != 0 {
+		m.pipelineView.retryConfirm.projectID = row.ChildProjectID
+	}
+	return m, nil
+}
+
+// queuePipelineDataForRetry batches the stage and job fetches needed before a
+// job-retry can resolve a target job.
+func (m Model) queuePipelineDataForRetry() (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	if cmd := m.queuePipelineStagesForSelection(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.queuePipelineJobsForSelection(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) > 0 {
+		m.status = "Loading pipeline jobs..."
+		return m, tea.Batch(cmds...)
+	}
+	m.status = "No job selected"
+	return m, nil
+}
+
+// confirmPipelineRetry runs the modal's accept action: dispatches a job retry
+// or a pipeline retry depending on the stored retryConfirmState.
+func (m Model) confirmPipelineRetry() (tea.Model, tea.Cmd) {
+	rc := m.pipelineView.retryConfirm
+	(&m).clearRetryConfirm()
+	if m.pipelineView.project.ID == 0 || m.pipelineView.retrying {
+		return m, nil
+	}
+	if rc.isJob {
+		return m.dispatchJobRetry(rc)
+	}
+	return m.dispatchPipelineRetry(rc)
+}
+
+// dispatchJobRetry issues a single-job retry. Falls back to the currently
+// selected pipeline when the confirmation state lacks a pipeline ID (e.g.,
+// the modal was opened on a stale selection).
+func (m Model) dispatchJobRetry(rc retryConfirmState) (tea.Model, tea.Cmd) {
+	if rc.jobID == 0 {
+		return m, nil
+	}
+	pipelineID := rc.id
+	if pipelineID == 0 {
+		if pipeline := m.selectedPipeline(); pipeline != nil {
+			pipelineID = pipeline.ID
+		}
+	}
+	m.pipelineView.retrying = true
+	m.pipelineView.retryErr = nil
+	jobLabel := fmt.Sprintf("#%d", rc.jobID)
+	if rc.jobName != "" {
+		jobLabel = fmt.Sprintf("%s (#%d)", rc.jobName, rc.jobID)
+	}
+	m.status = fmt.Sprintf("Retrying job %s", jobLabel)
+	projectID := m.pipelineView.project.ID
+	if rc.projectID != 0 {
+		projectID = rc.projectID
+	}
+	return m, retryJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, pipelineID, rc.jobID)
+}
+
+// dispatchPipelineRetry issues a whole-pipeline retry, defaulting ref to the
+// project's default branch when the stored ref is empty.
+func (m Model) dispatchPipelineRetry(rc retryConfirmState) (tea.Model, tea.Cmd) {
+	if rc.id == 0 {
+		return m, nil
+	}
+	ref := strings.TrimSpace(rc.ref)
+	if ref == "" {
+		ref = strings.TrimSpace(m.pipelineView.project.DefaultBranch)
+	}
+	m.pipelineView.retrying = true
+	m.pipelineView.retryErr = nil
+	m.status = fmt.Sprintf("Retrying pipeline #%d", rc.id)
+	return m, retryPipelineCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, rc.id, ref)
+}
+
 // closePipelineView exits pipeline mode and returns to the project list,
 // clearing all pipeline view state.
 func (m *Model) closePipelineView() {
 	m.mode = modeProjects
-	m.pipelineView = pipelineViewState{}
+	// Reset to a blank-but-valid state (not the zero value) so a later layout
+	// pass can size the pipeline list without dereferencing a nil delegate.
+	m.pipelineView = newPipelineViewState()
 }
 
 // resetPipelineViewCaches reinitializes all per-pipeline caches (stages, jobs,
@@ -503,42 +625,37 @@ func (m *Model) resetPipelineLogPreview() {
 	m.pipelineView.logAutoFollow = true
 }
 
-// copyPipelineURL copies the selected pipeline's web URL to the clipboard.
-func (m *Model) copyPipelineURL() {
+// copyPipelineURL returns a Cmd that copies the selected pipeline's web URL
+// to the clipboard off the event loop. The result lands in m.status via
+// clipboardWroteMsg. Guard paths (no selection, empty URL) still set
+// m.status synchronously and return a nil Cmd.
+func (m *Model) copyPipelineURL() tea.Cmd {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
 		m.status = msgNoPipeline
-		return
+		return nil
 	}
 	if pipeline.WebURL == "" {
 		m.status = "Pipeline has no URL"
-		return
+		return nil
 	}
-	if err := clipboard.WriteAll(pipeline.WebURL); err != nil {
-		m.status = "Failed to copy pipeline URL"
-		m.logError("copy clipboard", "err", err)
-		return
-	}
-	m.status = fmt.Sprintf("Copied pipeline #%d URL", pipeline.ID)
+	return writeClipboardCmd(pipeline.WebURL, fmt.Sprintf("Copied pipeline #%d URL", pipeline.ID))
 }
 
-// copyJobURL copies the selected job's web URL to the clipboard.
-func (m *Model) copyJobURL() {
+// copyJobURL returns a Cmd that copies the selected job's web URL to the
+// clipboard off the event loop. Guard paths short-circuit with a synchronous
+// status update and nil Cmd.
+func (m *Model) copyJobURL() tea.Cmd {
 	job := m.selectedPipelineJob()
 	if job == nil {
 		m.status = "No job selected"
-		return
+		return nil
 	}
 	if job.WebURL == "" {
 		m.status = "Job has no URL"
-		return
+		return nil
 	}
-	if err := clipboard.WriteAll(job.WebURL); err != nil {
-		m.status = "Failed to copy job URL"
-		m.logError("copy clipboard", "err", err)
-		return
-	}
-	m.status = fmt.Sprintf("Copied job %s URL", job.Name)
+	return writeClipboardCmd(job.WebURL, fmt.Sprintf("Copied job %s URL", job.Name))
 }
 
 // evictOldLogs removes oldest entries from logCache if it exceeds maxLogCacheEntries.

@@ -7,27 +7,26 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 // handleMRsPanelKey handles keys when the MRs panel is focused.
 func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-	switch key {
-	case "down", "j":
+	switch {
+	case key.Matches(msg, m.keys.Down):
 		if m.mrView.selected < len(m.mrView.mrs)-1 {
 			m.mrView.selected++
 		}
-	case "up", "k":
+	case key.Matches(msg, m.keys.Up):
 		if m.mrView.selected > 0 {
 			m.mrView.selected--
 		}
-	case "]":
+	case key.Matches(msg, m.keys.NextPage):
 		// Next page
 		if m.mrView.nextPage > 0 {
 			m.mrView.loading = true
@@ -35,7 +34,7 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), m.mrView.nextPage, mrPerPage)
 		}
 		return m, nil
-	case "[":
+	case key.Matches(msg, m.keys.PrevPage):
 		// Prev page
 		if m.mrView.prevPage > 0 {
 			m.mrView.loading = true
@@ -43,30 +42,31 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), m.mrView.prevPage, mrPerPage)
 		}
 		return m, nil
-	case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
-		if newIdx, handled := bigStepIdx(key, m.mrView.selected, len(m.mrView.mrs), m.height); handled {
+	case key.Matches(msg, m.keys.HalfDown) || key.Matches(msg, m.keys.HalfUp) ||
+		key.Matches(msg, m.keys.Top) || key.Matches(msg, m.keys.Bottom):
+		if newIdx, handled := bigStepIdx(msg.String(), m.mrView.selected, len(m.mrView.mrs), m.height); handled {
 			m.mrView.selected = newIdx
 		}
 		return m, nil
-	case "enter", "l", "right":
+	case key.Matches(msg, m.keys.Enter) || key.Matches(msg, m.keys.Right):
 		// Focus Detail pane
 		m.focus.PrevActive = PanelMRs
 		m.focus.Active = PanelDetail
 		return m, nil
-	case "h", "left":
+	case key.Matches(msg, m.keys.Left):
 		// Back to Stages
 		m.focus.Active = PanelStages
 		return m, nil
-	case "esc":
+	case key.Matches(msg, m.keys.Back):
 		m.focus.Active = PanelProjects
 		return m, nil
-	case "J":
+	case key.Matches(msg, m.keys.ScrollDown):
 		m.mrView.mrViewport.HalfPageDown()
 		return m, nil
-	case "K":
+	case key.Matches(msg, m.keys.ScrollUp):
 		m.mrView.mrViewport.HalfPageUp()
 		return m, nil
-	case "t":
+	case key.Matches(msg, m.keys.CycleTab):
 		// Cycle MR sidebar tabs (Open → Merged → Closed)
 		m.mrView.tab = (m.mrView.tab + 1) % 3
 		m.mrView.loading = true
@@ -74,7 +74,7 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mrView.selected = 0
 		m.mrView.detailTab = mrDetailTabInfo
 		return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage)
-	case "T":
+	case key.Matches(msg, m.keys.CycleTabRv):
 		// Cycle MR sidebar tabs backward (Closed → Merged → Open)
 		m.mrView.tab = (m.mrView.tab + 2) % 3
 		m.mrView.loading = true
@@ -82,12 +82,12 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mrView.selected = 0
 		m.mrView.detailTab = mrDetailTabInfo
 		return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage)
-	case "c":
+	case key.Matches(msg, m.keys.Comment):
 		return m.openMRNewCommentModal()
-	case "N":
+	case key.Matches(msg, m.keys.CreateMR):
 		return m.openCreateMRModal()
-	case "ctrl+o":
-		m.copyMRURL()
+	case key.Matches(msg, m.keys.Copy):
+		return m, m.copyMRURL()
 	}
 	return m, nil
 }
@@ -327,17 +327,17 @@ func (m Model) openMRDiffCommentModal() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	info := m.mrView.diffLineMap[m.mrView.diffCursor]
-	if info.kind != '+' && info.kind != '-' && info.kind != ' ' {
+	if info.Kind != '+' && info.Kind != '-' && info.Kind != ' ' {
 		m.status = "Cannot comment on this line (select a code line)"
 		return m, nil
 	}
 
 	diffs, ok := m.mrView.diffs.Get(mr.IID)
-	if !ok || info.fileIdx >= len(diffs) {
+	if !ok || info.FileIdx >= len(diffs) {
 		m.status = "Diff data not available"
 		return m, nil
 	}
-	d := diffs[info.fileIdx]
+	d := diffs[info.FileIdx]
 
 	if m.mrView.diffRefs.BaseSHA == "" {
 		m.status = "Diff refs not loaded yet — try again shortly"
@@ -346,8 +346,8 @@ func (m Model) openMRDiffCommentModal() (tea.Model, tea.Cmd) {
 	pos := &gitlab.MRCommentPosition{
 		OldPath:  d.OldPath,
 		NewPath:  d.NewPath,
-		OldLine:  info.oldLine,
-		NewLine:  info.newLine,
+		OldLine:  info.OldLine,
+		NewLine:  info.NewLine,
 		DiffRefs: m.mrView.diffRefs,
 	}
 
@@ -364,16 +364,18 @@ func (m Model) openMRDiffCommentModal() (tea.Model, tea.Cmd) {
 }
 
 // newMRTextarea creates a styled textarea for MR comment/reply modals.
+// Styles are populated at theme-rebuild time (see theme.go) so this hot
+// modal-open path performs no lipgloss.Style allocations.
 func (m Model) newMRTextarea(placeholder string) textarea.Model {
 	ta := textarea.New()
 	ta.Placeholder = placeholder
 	ta.SetWidth(50)
 	ta.SetHeight(5)
-	ta.FocusedStyle.Base = lipgloss.NewStyle().Foreground(colorText)
-	ta.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(colorMuted)
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle().Foreground(colorText).Background(colorHighlightLow)
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(colorSubtle)
-	ta.Cursor.Style = lipgloss.NewStyle().Foreground(colorActive)
+	ta.FocusedStyle.Base = mrTextareaBaseStyle
+	ta.FocusedStyle.Placeholder = mrTextareaPlaceholderStyle
+	ta.FocusedStyle.CursorLine = mrTextareaCursorLineStyle
+	ta.FocusedStyle.Prompt = mrTextareaPromptStyle
+	ta.Cursor.Style = mrTextareaCursorStyle
 	ta.BlurredStyle = ta.FocusedStyle
 	ta.Focus()
 	return ta
@@ -384,10 +386,10 @@ func newMRTextinput(placeholder string) textinput.Model {
 	ti := textinput.New()
 	ti.Placeholder = placeholder
 	ti.CharLimit = 256
-	ti.TextStyle = lipgloss.NewStyle().Foreground(colorText)
-	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(colorMuted)
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(colorSubtle)
-	ti.Cursor.Style = lipgloss.NewStyle().Foreground(colorActive)
+	ti.TextStyle = mrTextinputTextStyle
+	ti.PlaceholderStyle = mrTextinputPlaceholderSt
+	ti.PromptStyle = mrTextinputPromptStyle
+	ti.Cursor.Style = mrTextinputCursorStyle
 	return ti
 }
 

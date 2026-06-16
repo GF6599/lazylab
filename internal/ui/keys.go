@@ -57,12 +57,20 @@ type keyMap struct {
 	ScrollDown key.Binding
 
 	// MR actions
-	CreateMR key.Binding
+	CreateMR          key.Binding
+	ResolveDiscussion key.Binding
 
 	// Help
 	Help       key.Binding
 	CloseHelp  key.Binding
 	ClearError key.Binding
+
+	// Multi-panel layout / routing
+	NextPanel      key.Binding
+	PrevPanel      key.Binding
+	ToggleLayout   key.Binding
+	NextScreenMode key.Binding
+	JumpPanel      key.Binding
 }
 
 // newKeyMap returns the default keybinding set. Each binding carries its own
@@ -164,6 +172,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("N"),
 			key.WithHelp("N", "new MR"),
 		),
+		ResolveDiscussion: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "resolve discussion"),
+		),
 		CycleTab: key.NewBinding(
 			key.WithKeys("t"),
 			key.WithHelp("t", "next tab"),
@@ -221,6 +233,28 @@ func newKeyMap() keyMap {
 		ClearError: key.NewBinding(
 			key.WithKeys("ctrl+l"),
 			key.WithHelp("ctrl+l", "clear status"),
+		),
+
+		// Multi-panel layout / routing
+		NextPanel: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "next panel"),
+		),
+		PrevPanel: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("shift+tab", "prev panel"),
+		),
+		ToggleLayout: key.NewBinding(
+			key.WithKeys("+", "-"),
+			key.WithHelp("+/-", "toggle layout"),
+		),
+		NextScreenMode: key.NewBinding(
+			key.WithKeys("="),
+			key.WithHelp("=", "next screen mode"),
+		),
+		JumpPanel: key.NewBinding(
+			key.WithKeys("1", "2", "3", "4", "5"),
+			key.WithHelp("1-5", "jump to panel"),
 		),
 	}
 }
@@ -297,10 +331,7 @@ func pipelinesKeyMap() []key.Binding {
 // in multi-panel mode, tailored to the currently focused panel.
 func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding {
 	k := newKeyMap()
-	resolve := key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "resolve discussion"),
-	)
+	resolve := k.ResolveDiscussion
 	switch panel {
 	case PanelProjects:
 		return []key.Binding{

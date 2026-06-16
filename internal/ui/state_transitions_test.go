@@ -2,10 +2,12 @@ package ui
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -56,11 +58,7 @@ func newTestModel() Model {
 			logs:    NewAsyncCache[int, string](),
 			bridges: NewAsyncCache[int, []gitlab.PipelineBridge](),
 		},
-		commitCache: func() *LRUCache[int, []gitlab.CommitSummary] {
-			c := NewLRUCache[int, []gitlab.CommitSummary](maxCommitCacheSize)
-			return &c
-		}(),
-		commitLoading: make(map[int]bool),
+		commitCache: NewAsyncCache[int, []gitlab.CommitSummary](),
 	}
 }
 
@@ -571,6 +569,70 @@ func TestNewModel_CustomOptions(t *testing.T) {
 
 	if m.opts.ProjectsPerPage != 50 {
 		t.Fatalf("expected ProjectsPerPage=50, got %d", m.opts.ProjectsPerPage)
+	}
+}
+
+// TestNewModel_FirstWindowSizeNoPanic guards the startup crash where the very
+// first WindowSizeMsg — which arrives before any project is selected — drives
+// the multi-panel layout pass into sizing the pipeline list. If NewModel leaves
+// pipelineView zero-valued, list.SetSize dereferences a nil delegate and panics
+// (bubbles/list updatePagination: m.delegate.Height()). The window must clear
+// computeLayout's minimums (width >= 63) so the layout pass actually runs and
+// sizes the sidebar panels. A panic here fails the test.
+func TestNewModel_FirstWindowSizeNoPanic(t *testing.T) {
+	client := &mockService{}
+	m := NewModel(context.Background(), client, Options{})
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	if updated.(Model).mode != modeMultiPanel {
+		t.Fatalf("expected modeMultiPanel after resize, got %d", updated.(Model).mode)
+	}
+}
+
+// TestLoadProjectPipelines_SizesPipelineList guards the blank-pane bug: selecting
+// a project rebuilds the pipeline list (newPipelineListModel) at zero size, and
+// the multi-panel pane sizes the list from state — not in View — so without
+// re-applying the layout the loaded pipelines render into a 0x0 list (blank pane
+// until the next terminal resize). loadProjectPipelines must re-push dimensions.
+func TestLoadProjectPipelines_SizesPipelineList(t *testing.T) {
+	project := gitlab.ProjectNode{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha", DefaultBranch: "main"}
+	svc := &mockService{
+		ListPipelinesFn: func(_ context.Context, _ int, _ gitlab.PipelineListOptions) (gitlab.PipelinePage, error) {
+			return gitlab.PipelinePage{
+				Pipelines:  []gitlab.PipelineSummary{{ID: 11, Status: "success", Ref: "main"}},
+				Page:       1,
+				TotalPages: 1,
+			}, nil
+		},
+	}
+	m := NewModel(context.Background(), svc, Options{ProjectsPerPage: 10})
+	m.allProjects = []gitlab.ProjectNode{project}
+
+	// First resize establishes the multi-panel layout (sizes the initial list).
+	res, _ := m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	m = res.(Model)
+
+	// Selecting a project rebuilds the pipeline sub-components from scratch.
+	_ = (&m).loadProjectPipelines(project)
+	if w, h := m.pipelineView.pipelineList.Width(), m.pipelineView.pipelineList.Height(); w == 0 || h == 0 {
+		t.Fatalf("pipeline list not sized after load: %dx%d", w, h)
+	}
+
+	// Simulate the fetched pipelines arriving; the pane must render them.
+	res, _ = m.Update(pipelinesLoadedMsg{
+		projectID:  project.ID,
+		pipelines:  []gitlab.PipelineSummary{{ID: 11, Status: "success", Ref: "main"}},
+		page:       1,
+		totalPages: 1,
+	})
+	m = res.(Model)
+
+	pane := strings.TrimSpace(renderPipelinesPanelContent(m, 50, 20))
+	if pane == "" {
+		t.Fatal("pipeline pane rendered empty despite loaded pipelines")
+	}
+	if !strings.Contains(pane, "#11") {
+		t.Fatalf("pipeline pane missing pipeline entry #11, got:\n%s", pane)
 	}
 }
 

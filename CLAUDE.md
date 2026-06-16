@@ -75,17 +75,20 @@ go mod tidy
 
 The UI uses Bubble Tea's Elm-like architecture with a single `Model` that acts as a state machine with multiple modes:
 
-- **`modeProjects`**: Project list with search and pagination
-- **`modeProjectActions`**: Modal menu for "View pipelines" or "Browse files"
-- **`modeExplorer`**: File tree navigation with preview pane
-- **`modePipelines`**: Pipeline list with stages/jobs and log preview
+- **`modeMultiPanel`**: Default startup mode — a four-pane layout (projects, MRs, pipelines, explorer) with overlay-driven modals
+- **`modeProjects`**: Legacy standalone project list with search and pagination
+- **`modeExplorer`**: Legacy standalone file tree (still in the enum for message guards in `messages_explorer.go`; the explorer is now an in-panel surface plus a modal overlay)
+- **`modePipelines`**: Legacy standalone pipeline view (still in the enum for message guards in `messages_pipelines.go`; pipelines are now a panel inside `modeMultiPanel`)
 
 Mode transitions follow this flow:
 ```
-projects → project_actions → {explorer, pipelines}
-                 ↓                   ↓
-              projects ← ────────────┘
+multipanel (default) ─┬─ panel: projects
+                      ├─ panel: pipelines
+                      ├─ panel: mrs
+                      └─ panel: explorer (also surfaces as a modal overlay)
 ```
+
+The legacy standalone `modeExplorer` and `modePipelines` constants remain load-bearing for the per-message mode guards (e.g., `messages_pipelines.go` discards stale messages when `m.mode != modePipelines`) and for a few tests, but they no longer have dedicated view branches as a normal startup path.
 
 ### Message Flow and Async Operations
 

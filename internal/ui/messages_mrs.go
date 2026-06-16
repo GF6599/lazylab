@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/GF6599/lazylab/internal/diffutil"
 	"github.com/GF6599/lazylab/internal/redacting"
 )
 
@@ -79,7 +80,7 @@ func (m Model) handleMRDiffsLoaded(msg mrDiffsLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.mrView.diffs.Set(msg.mrIID, msg.diffs)
 	m.mrView.diffCursor = 0
-	m.mrView.diffLineMap = buildDiffLineMap(msg.diffs)
+	m.mrView.diffLineMap = diffutil.BuildLineMap(toDiffutilFiles(msg.diffs))
 	var cmd tea.Cmd
 	mr := m.mrView.selectedMR()
 	if mr != nil && mr.IID == msg.mrIID {

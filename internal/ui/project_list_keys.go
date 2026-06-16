@@ -10,12 +10,9 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 // handleProjectSearchKey handles key events while the search input is focused.
@@ -135,8 +132,9 @@ func (m Model) handleExplorerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r", "ctrl+r":
 		return m.reloadExplorerPath()
 	case "ctrl+o":
-		m = m.copyExplorerURL()
-		return m, nil
+		var cmd tea.Cmd
+		m, cmd = m.copyExplorerURL()
+		return m, cmd
 	}
 	return m, nil
 }
@@ -232,11 +230,9 @@ func (m Model) handlePipelineLogScroll(key string) (tea.Model, tea.Cmd) {
 // (a job when focused on stages, otherwise the pipeline itself).
 func (m Model) copyPipelineSelectionURL() (tea.Model, tea.Cmd) {
 	if m.pipelineView.focus == pipelineFocusStages {
-		m.copyJobURL()
-	} else {
-		m.copyPipelineURL()
+		return m, m.copyJobURL()
 	}
-	return m, nil
+	return m, m.copyPipelineURL()
 }
 
 // handlePipelineBack collapses focus from stages → pipelines, or closes the
@@ -365,68 +361,6 @@ func (m Model) handlePipelineItemNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	return m, cmd
 }
 
-// handlePipelineRetryRequest opens the retry confirmation modal for either a
-// pipeline or a specific job, depending on the current focus.
-func (m Model) handlePipelineRetryRequest() (tea.Model, tea.Cmd) {
-	if m.pipelineView.retrying {
-		m.status = "Retry already in progress"
-		return m, nil
-	}
-	pipeline := m.selectedPipeline()
-	if pipeline == nil {
-		m.status = msgNoPipeline
-		return m, nil
-	}
-	if m.pipelineView.focus == pipelineFocusStages {
-		return m.requestStageRetry(pipeline)
-	}
-	m.pipelineView.retryConfirm = retryConfirmState{
-		active: true,
-		id:     pipeline.ID,
-		ref:    pipeline.Ref,
-	}
-	return m, nil
-}
-
-// requestStageRetry prepares a job-scoped retry confirmation, queueing the
-// stage/job fetch if the cached data is missing.
-func (m Model) requestStageRetry(pipeline *gitlab.PipelineSummary) (tea.Model, tea.Cmd) {
-	job := m.selectedPipelineJob()
-	if job == nil {
-		return m.queuePipelineDataForRetry()
-	}
-	m.pipelineView.retryConfirm = retryConfirmState{
-		active:   true,
-		isJob:    true,
-		id:       pipeline.ID,
-		jobID:    job.ID,
-		jobName:  job.Name,
-		jobStage: job.Stage,
-	}
-	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.ChildProjectID != 0 {
-		m.pipelineView.retryConfirm.projectID = row.ChildProjectID
-	}
-	return m, nil
-}
-
-// queuePipelineDataForRetry batches the stage and job fetches needed before a
-// job-retry can resolve a target job.
-func (m Model) queuePipelineDataForRetry() (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-	if cmd := m.queuePipelineStagesForSelection(); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	if cmd := m.queuePipelineJobsForSelection(); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	if len(cmds) > 0 {
-		m.status = "Loading pipeline jobs..."
-		return m, tea.Batch(cmds...)
-	}
-	m.status = "No job selected"
-	return m, nil
-}
-
 // handlePipelineRetryConfirmKey processes input on the retry confirmation modal.
 // Uses clearRetryConfirm (not clearAllRetryState) because the retrying/retryErr
 // flags must only be set after the user confirms — dismissing the modal should
@@ -442,61 +376,4 @@ func (m Model) handlePipelineRetryConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		return m.confirmPipelineRetry()
 	}
 	return m, nil
-}
-
-// confirmPipelineRetry runs the modal's accept action: dispatches a job retry
-// or a pipeline retry depending on the stored retryConfirmState.
-func (m Model) confirmPipelineRetry() (tea.Model, tea.Cmd) {
-	rc := m.pipelineView.retryConfirm
-	(&m).clearRetryConfirm()
-	if m.pipelineView.project.ID == 0 || m.pipelineView.retrying {
-		return m, nil
-	}
-	if rc.isJob {
-		return m.dispatchJobRetry(rc)
-	}
-	return m.dispatchPipelineRetry(rc)
-}
-
-// dispatchJobRetry issues a single-job retry. Falls back to the currently
-// selected pipeline when the confirmation state lacks a pipeline ID (e.g.,
-// the modal was opened on a stale selection).
-func (m Model) dispatchJobRetry(rc retryConfirmState) (tea.Model, tea.Cmd) {
-	if rc.jobID == 0 {
-		return m, nil
-	}
-	pipelineID := rc.id
-	if pipelineID == 0 {
-		if pipeline := m.selectedPipeline(); pipeline != nil {
-			pipelineID = pipeline.ID
-		}
-	}
-	m.pipelineView.retrying = true
-	m.pipelineView.retryErr = nil
-	jobLabel := fmt.Sprintf("#%d", rc.jobID)
-	if rc.jobName != "" {
-		jobLabel = fmt.Sprintf("%s (#%d)", rc.jobName, rc.jobID)
-	}
-	m.status = fmt.Sprintf("Retrying job %s", jobLabel)
-	projectID := m.pipelineView.project.ID
-	if rc.projectID != 0 {
-		projectID = rc.projectID
-	}
-	return m, retryJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, pipelineID, rc.jobID)
-}
-
-// dispatchPipelineRetry issues a whole-pipeline retry, defaulting ref to the
-// project's default branch when the stored ref is empty.
-func (m Model) dispatchPipelineRetry(rc retryConfirmState) (tea.Model, tea.Cmd) {
-	if rc.id == 0 {
-		return m, nil
-	}
-	ref := strings.TrimSpace(rc.ref)
-	if ref == "" {
-		ref = strings.TrimSpace(m.pipelineView.project.DefaultBranch)
-	}
-	m.pipelineView.retrying = true
-	m.pipelineView.retryErr = nil
-	m.status = fmt.Sprintf("Retrying pipeline #%d", rc.id)
-	return m, retryPipelineCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, rc.id, ref)
 }

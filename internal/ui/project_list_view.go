@@ -35,7 +35,7 @@ func (m Model) View() string {
 		if m.explorer.project.ID != 0 && len(m.explorer.stack) > 0 {
 			return renderExplorerView(m, width)
 		}
-		base := renderMultiPanelView(&m, width, m.height)
+		base := renderMultiPanelView(m, width, m.height)
 		if modal, ok := m.activeModalOverlay(width); ok {
 			return overlayCentered(base, modal, width)
 		}

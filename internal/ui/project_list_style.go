@@ -81,6 +81,22 @@ var (
 	modalBorderStyle          lipgloss.Style
 )
 
+// MR modal input styles: cached at theme-rebuild time so newMRTextarea /
+// newMRTextinput don't allocate a fresh lipgloss.Style every modal open.
+// Each MR comment, reply, or create-MR action would otherwise pay 9 style
+// allocations per open on a hot interactive path.
+var (
+	mrTextareaBaseStyle        lipgloss.Style
+	mrTextareaPlaceholderStyle lipgloss.Style
+	mrTextareaCursorLineStyle  lipgloss.Style
+	mrTextareaPromptStyle      lipgloss.Style
+	mrTextareaCursorStyle      lipgloss.Style
+	mrTextinputTextStyle       lipgloss.Style
+	mrTextinputPlaceholderSt   lipgloss.Style
+	mrTextinputPromptStyle     lipgloss.Style
+	mrTextinputCursorStyle     lipgloss.Style
+)
+
 // baseWidthStyle is a zero-value lipgloss.Style used as the seed for per-frame
 // `.Width(w)` calls in render hot paths. Hoisted from inline lipgloss.NewStyle()
 // calls in renderPaneGap, renderPipelineListPane, and renderPipelineStagesPane

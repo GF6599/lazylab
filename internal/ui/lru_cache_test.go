@@ -59,6 +59,33 @@ func TestLRUCache_GetPromotes(t *testing.T) {
 	}
 }
 
+func TestLRUCache_PeekDoesNotPromote(t *testing.T) {
+	c := NewLRUCache[string, int](2)
+
+	c.Set("a", 1)
+	c.Set("b", 2)
+
+	// Peek "a" — must NOT promote it; "a" stays oldest.
+	if v, ok := c.Peek("a"); !ok || v != 1 {
+		t.Fatalf("Peek(a) = %d, %v; want 1, true", v, ok)
+	}
+	c.Set("c", 3) // should evict "a" (still oldest), not "b"
+
+	if _, ok := c.Peek("a"); ok {
+		t.Fatal("expected 'a' to be evicted; Peek must not promote")
+	}
+	if v, ok := c.Peek("b"); !ok || v != 2 {
+		t.Fatalf("Peek(b) = %d, %v; want 2, true", v, ok)
+	}
+}
+
+func TestLRUCache_PeekMissing(t *testing.T) {
+	c := NewLRUCache[string, int](2)
+	if v, ok := c.Peek("missing"); ok || v != 0 {
+		t.Fatalf("Peek(missing) = %d, %v; want 0, false", v, ok)
+	}
+}
+
 func TestLRUCache_SetExistingNoEviction(t *testing.T) {
 	c := NewLRUCache[string, int](2)
 

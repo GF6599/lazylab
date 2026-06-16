@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/GF6599/lazylab/internal/diffutil"
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
@@ -16,7 +17,7 @@ func TestExtractDiffContext_Addition(t *testing.T) {
 		Diff: "@@ -10,4 +10,6 @@ func init() {\n ctx := context.Background()\n fmt.Println(ctx)\n+\tnewLine1()\n+\tnewLine2()\n return nil\n }\n",
 	}}
 	// Target new line 12 = the first addition
-	got := extractDiffContext(diffs, "main.go", 0, 12, 2)
+	got := diffutil.ExtractContext(toDiffutilFiles(diffs), "main.go", 0, 12, 2)
 	if got == nil {
 		t.Fatal("expected non-nil context")
 	}
@@ -34,7 +35,7 @@ func TestExtractDiffContext_Deletion(t *testing.T) {
 		Diff: "@@ -5,4 +5,3 @@ package main\n import \"fmt\"\n-var old = true\n var keep = false\n",
 	}}
 	// Target old line 6 = the deletion
-	got := extractDiffContext(diffs, "main.go", 6, 0, 2)
+	got := diffutil.ExtractContext(toDiffutilFiles(diffs), "main.go", 6, 0, 2)
 	if got == nil {
 		t.Fatal("expected non-nil context")
 	}
@@ -52,7 +53,7 @@ func TestExtractDiffContext_ContextLine(t *testing.T) {
 		Diff: "@@ -1,3 +1,4 @@\n package main\n import \"fmt\"\n+import \"os\"\n var x = 1\n",
 	}}
 	// Context line at new=2, old=2 (import "fmt")
-	got := extractDiffContext(diffs, "main.go", 2, 2, 2)
+	got := diffutil.ExtractContext(toDiffutilFiles(diffs), "main.go", 2, 2, 2)
 	if got == nil {
 		t.Fatal("expected non-nil context")
 	}
@@ -67,7 +68,7 @@ func TestExtractDiffContext_NoMatchingFile(t *testing.T) {
 		OldPath: "other.go", NewPath: "other.go",
 		Diff: "@@ -1,2 +1,3 @@\n line1\n+line2\n line3\n",
 	}}
-	got := extractDiffContext(diffs, "main.go", 0, 2, 5)
+	got := diffutil.ExtractContext(toDiffutilFiles(diffs), "main.go", 0, 2, 5)
 	if got != nil {
 		t.Errorf("expected nil for non-matching file, got %d lines", len(got))
 	}
@@ -78,7 +79,7 @@ func TestExtractDiffContext_NoMatchingLine(t *testing.T) {
 		OldPath: "main.go", NewPath: "main.go",
 		Diff: "@@ -1,2 +1,3 @@\n line1\n+line2\n line3\n",
 	}}
-	got := extractDiffContext(diffs, "main.go", 0, 999, 5)
+	got := diffutil.ExtractContext(toDiffutilFiles(diffs), "main.go", 0, 999, 5)
 	if got != nil {
 		t.Errorf("expected nil for non-matching line, got %d lines", len(got))
 	}
@@ -89,14 +90,14 @@ func TestExtractDiffContext_DisabledWhenZero(t *testing.T) {
 		OldPath: "main.go", NewPath: "main.go",
 		Diff: "@@ -1,2 +1,3 @@\n line1\n+line2\n line3\n",
 	}}
-	got := extractDiffContext(diffs, "main.go", 0, 2, 0)
+	got := diffutil.ExtractContext(toDiffutilFiles(diffs), "main.go", 0, 2, 0)
 	if got != nil {
 		t.Errorf("expected nil when contextLines=0, got %d lines", len(got))
 	}
 }
 
 func TestExtractDiffContext_NilDiffs(t *testing.T) {
-	got := extractDiffContext(nil, "main.go", 0, 2, 5)
+	got := diffutil.ExtractContext(nil, "main.go", 0, 2, 5)
 	if got != nil {
 		t.Errorf("expected nil for nil diffs, got %d lines", len(got))
 	}
@@ -111,7 +112,7 @@ func TestRenderDiffSnippet(t *testing.T) {
 		"-removed line",
 		"@@ -1,2 +1,3 @@",
 	}
-	result := renderDiffSnippet(lines, 80)
+	result := diffutil.RenderSnippet(lines, 80, mrSnippetStyles())
 	if !strings.Contains(result, "context line") {
 		t.Error("expected context line in output")
 	}

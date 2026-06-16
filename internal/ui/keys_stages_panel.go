@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -15,9 +16,8 @@ func (m Model) handleStagesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Ensure table accepts key events
 	m.pipelineView.stageTable.Focus()
 
-	key := msg.String()
-	switch key {
-	case "enter":
+	switch {
+	case key.Matches(msg, m.keys.Enter):
 		// Toggle bridge expand/collapse
 		row := m.selectedStageJobRow()
 		if row != nil && row.Kind == rowKindBridge && !row.IsLast {
@@ -39,7 +39,7 @@ func (m Model) handleStagesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-	case "down", "j", "up", "k":
+	case key.Matches(msg, m.keys.Down) || key.Matches(msg, m.keys.Up):
 		prevIdx := m.pipelineView.stageTable.Cursor()
 		var cmd tea.Cmd
 		m.pipelineView.stageTable, cmd = m.pipelineView.stageTable.Update(msg)
@@ -50,43 +50,44 @@ func (m Model) handleStagesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmd, m.queuePipelineLogPreview())
 		}
 		return m, cmd
-	case "l", "right":
+	case key.Matches(msg, m.keys.Right):
 		// Focus Detail pane
 		m.focus.PrevActive = PanelStages
 		m.focus.Active = PanelDetail
 		return m, nil
-	case "h", "left":
+	case key.Matches(msg, m.keys.Left):
 		// Back to Pipelines
 		m.focus.Active = PanelPipelines
 		return m, nil
-	case "esc":
+	case key.Matches(msg, m.keys.Back):
 		// Jump to Projects (home)
 		m.focus.Active = PanelProjects
 		return m, nil
-	case "J":
+	case key.Matches(msg, m.keys.ScrollDown):
 		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
 		return m, nil
-	case "K":
+	case key.Matches(msg, m.keys.ScrollUp):
 		m.pipelineView.logViewport.HalfPageUp()
 		m.pipelineView.logAutoFollow = false
 		return m, nil
-	case "ctrl+d", "ctrl+u", "<", "g", ">", "G":
-		switch key {
-		case "ctrl+d":
+	case key.Matches(msg, m.keys.HalfDown) || key.Matches(msg, m.keys.HalfUp) ||
+		key.Matches(msg, m.keys.Top) || key.Matches(msg, m.keys.Bottom):
+		switch {
+		case key.Matches(msg, m.keys.HalfDown):
 			m.pipelineView.logViewport.HalfPageDown()
 			m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()
-		case "ctrl+u":
+		case key.Matches(msg, m.keys.HalfUp):
 			m.pipelineView.logViewport.HalfPageUp()
 			m.pipelineView.logAutoFollow = false
-		case "<", "g":
+		case key.Matches(msg, m.keys.Top):
 			m.pipelineView.logViewport.GotoTop()
 			m.pipelineView.logAutoFollow = false
-		case ">", "G":
+		case key.Matches(msg, m.keys.Bottom):
 			m.pipelineView.logViewport.GotoBottom()
 			m.pipelineView.logAutoFollow = true
 		}
-		newIdx, handled := bigStepIdx(key, m.pipelineView.stageSelected, len(m.pipelineView.jobRows), m.height)
+		newIdx, handled := bigStepIdx(msg.String(), m.pipelineView.stageSelected, len(m.pipelineView.jobRows), m.height)
 		if !handled || newIdx == m.pipelineView.stageSelected {
 			return m, nil
 		}
@@ -94,20 +95,20 @@ func (m Model) handleStagesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pipelineView.stageTable.SetCursor(newIdx)
 		m.resetPipelineLogPreview()
 		return m, m.queuePipelineLogPreview()
-	case "R":
+	case key.Matches(msg, m.keys.Retry):
 		return m.openRetryModalForJob()
-	case "C":
+	case key.Matches(msg, m.keys.Cancel):
 		return m.cancelJobAction()
-	case "P":
+	case key.Matches(msg, m.keys.Play):
 		return m.playManualJob()
-	case "r", "ctrl+r":
+	case key.Matches(msg, m.keys.Refresh):
 		return m.reloadPipelineView()
-	case "t":
+	case key.Matches(msg, m.keys.CycleTab):
 		return m.cycleDetailTab()
-	case "T":
+	case key.Matches(msg, m.keys.CycleTabRv):
 		return m.cycleDetailTabReverse()
-	case "ctrl+o":
-		m.copyJobURL()
+	case key.Matches(msg, m.keys.Copy):
+		return m, m.copyJobURL()
 	}
 	return m, nil
 }

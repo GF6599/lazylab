@@ -47,32 +47,32 @@ func newSnapshotModel(active PanelID, width, height int) Model {
 
 func TestSnapshot_MultiPanel_Default(t *testing.T) {
 	m := newSnapshotModel(PanelProjects, 120, 40)
-	output := renderMultiPanelView(&m, m.width, m.height)
+	output := renderMultiPanelView(m, m.width, m.height)
 	golden.RequireEqual(t, output)
 }
 
 func TestSnapshot_MultiPanel_Small(t *testing.T) {
 	m := newSnapshotModel(PanelProjects, 80, 24)
-	output := renderMultiPanelView(&m, m.width, m.height)
+	output := renderMultiPanelView(m, m.width, m.height)
 	golden.RequireEqual(t, output)
 }
 
 func TestSnapshot_MultiPanel_PipelinesFocused(t *testing.T) {
 	m := newSnapshotModel(PanelPipelines, 120, 40)
-	output := renderMultiPanelView(&m, m.width, m.height)
+	output := renderMultiPanelView(m, m.width, m.height)
 	golden.RequireEqual(t, output)
 }
 
 func TestSnapshot_MultiPanel_DetailFocused(t *testing.T) {
 	m := newSnapshotModel(PanelDetail, 120, 40)
 	m.focus.PrevActive = PanelProjects
-	output := renderMultiPanelView(&m, m.width, m.height)
+	output := renderMultiPanelView(m, m.width, m.height)
 	golden.RequireEqual(t, output)
 }
 
 func TestSnapshot_MultiPanel_TooSmall(t *testing.T) {
 	m := newSnapshotModel(PanelProjects, 30, 10)
-	output := renderMultiPanelView(&m, m.width, m.height)
+	output := renderMultiPanelView(m, m.width, m.height)
 	golden.RequireEqual(t, output)
 }
 
@@ -94,7 +94,7 @@ func TestSnapshot_ProjectsPanel_Empty(t *testing.T) {
 	m.allProjects = nil
 	m.projectList.SetItems(nil)
 	m.invalidateVisibleCache()
-	output := renderProjectsPanelContent(&m, 40, 10)
+	output := renderProjectsPanelContent(m, 40, 10)
 	golden.RequireEqual(t, output)
 }
 
@@ -103,14 +103,14 @@ func TestSnapshot_ProjectsPanel_FavoritesEmpty(t *testing.T) {
 	m.projectTab = projectTabFavorites
 	m.favorites = make(map[int]bool) // no favorites set
 	m.invalidateVisibleCache()
-	output := renderProjectsPanelContent(&m, 40, 10)
+	output := renderProjectsPanelContent(m, 40, 10)
 	golden.RequireEqual(t, output)
 }
 
 func TestSnapshot_PipelinesPanel_NoProject(t *testing.T) {
 	m := newSnapshotModel(PanelPipelines, 120, 40)
 	m.pipelineView.project = gitlab.ProjectNode{}
-	output := renderPipelinesPanelContent(&m, 40, 10)
+	output := renderPipelinesPanelContent(m, 40, 10)
 	golden.RequireEqual(t, output)
 }
 
@@ -118,14 +118,14 @@ func TestSnapshot_PipelinesPanel_Loading(t *testing.T) {
 	m := newSnapshotModel(PanelPipelines, 120, 40)
 	m.pipelineView.loading = true
 	m.pipelineView.pipelines = nil
-	output := renderPipelinesPanelContent(&m, 40, 10)
+	output := renderPipelinesPanelContent(m, 40, 10)
 	golden.RequireEqual(t, output)
 }
 
 func TestSnapshot_StagesPanel_NoSelection(t *testing.T) {
 	m := newSnapshotModel(PanelStages, 120, 40)
 	m.pipelineView.pipelines = nil
-	output := renderStagesPanelContent(&m, 40, 10)
+	output := renderStagesPanelContent(m, 40, 10)
 	golden.RequireEqual(t, output)
 }
 

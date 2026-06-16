@@ -82,7 +82,7 @@ func renderExplorerParents(m Model, width, height int, focused bool) string {
 		b.WriteString("\n")
 	}
 	if parent.err != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" "+parent.err.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+formatLoadErr("directory", parent.err), width)))
 		b.WriteString("\n")
 		return b.String()
 	}
@@ -129,7 +129,7 @@ func renderExplorerCurrent(m Model, width, height int, focused bool) string {
 		b.WriteString("\n")
 	}
 	if cur.err != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" "+cur.err.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+formatLoadErr("directory", cur.err), width)))
 		b.WriteString("\n")
 		return finalize()
 	}
@@ -164,7 +164,7 @@ func renderExplorerPreview(m Model, width int, focused bool) string {
 		return b.String()
 	}
 	if preview.err != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" "+preview.err.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+formatLoadErr("file", preview.err), width)))
 		b.WriteString("\n")
 		return b.String()
 	}

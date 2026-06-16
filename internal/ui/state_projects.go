@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -58,6 +57,7 @@ func (m *Model) handleSelectedProjectChange(prevID int, prevOK bool) tea.Cmd {
 		return nil
 	}
 	m.invalidateDetailCache()
+	m.populateDetailCache()
 	if m.mode != modeMultiPanel || !currOK {
 		m.clearSelectionDebounce()
 		return nil
@@ -276,16 +276,17 @@ type detailCacheState struct {
 	output      string
 }
 
-// cachedDetailPane returns the detail pane view, using cache when valid.
-func (m *Model) cachedDetailPane(width, height int) string {
+// renderDetailCached returns the cached detail pane render if it matches the
+// current inputs, otherwise renders fresh without mutating cache. This is a
+// read-only View-time accessor; populateDetailCache writes the cache from
+// Update paths.
+func (m Model) renderDetailCached(width, height int) string {
 	visible := m.visibleProjects()
 	if len(visible) == 0 {
-		m.detailCache = detailCacheState{}
-		return renderDetailPane(m, width)
+		return renderDetailPane(&m, width)
 	}
-
 	project := visible[m.selected]
-	pipelineState, _ := m.pipelineStatus.Get(project.ID)
+	pipelineState, _ := m.pipelineStatus.Peek(project.ID)
 	key := detailCacheState{
 		projectID:   project.ID,
 		pipelineID:  pipelineState.info.ID,
@@ -301,9 +302,36 @@ func (m *Model) cachedDetailPane(width, height int) string {
 		m.detailCache.height == key.height {
 		return m.detailCache.output
 	}
-	key.output = renderDetailPane(m, width)
-	m.detailCache = key
-	return key.output
+	return renderDetailPane(&m, width)
+}
+
+// populateDetailCache pre-renders the project detail pane and stores it so
+// subsequent View calls hit the cache. Called from Update paths when any input
+// to the cache key changes (selection, pipeline status, window size).
+func (m *Model) populateDetailCache() {
+	if m.mode != modeMultiPanel {
+		return
+	}
+	layout := computeLayout(m.width, m.height, m.focus)
+	if !layout.OK {
+		return
+	}
+	width, height := layout.DetailWidth, layout.DetailHeight
+	visible := m.visibleProjects()
+	if len(visible) == 0 || m.selected >= len(visible) {
+		m.detailCache = detailCacheState{}
+		return
+	}
+	project := visible[m.selected]
+	pipelineState, _ := m.pipelineStatus.Peek(project.ID)
+	m.detailCache = detailCacheState{
+		projectID:   project.ID,
+		pipelineID:  pipelineState.info.ID,
+		pipelineHas: pipelineState.hasInfo,
+		width:       width,
+		height:      height,
+		output:      renderDetailPane(m, width),
+	}
 }
 
 // invalidateDetailCache clears the detail pane render cache.
@@ -404,26 +432,26 @@ func (m *Model) movePage(delta int) tea.Cmd {
 	return nil
 }
 
-func (m *Model) copyCloneCommand() {
+// copyCloneCommand returns a Cmd that copies "git clone <ssh-url>" for the
+// selected project to the clipboard off the event loop. Guard paths still
+// set m.status synchronously and return a nil Cmd.
+func (m *Model) copyCloneCommand() tea.Cmd {
 	project, ok := m.selectedProject()
 	if !ok {
 		m.status = "No project selected"
-		return
+		return nil
 	}
 	if project.SSHURLToRepo == "" {
 		m.status = "Project has no SSH URL"
-		return
+		return nil
 	}
 	cmd := fmt.Sprintf("git clone %s", project.SSHURLToRepo)
-	if err := clipboard.WriteAll(cmd); err != nil {
-		m.status = "Failed to copy clone command"
-		m.logError("copy clipboard", "err", err)
-		return
-	}
-	m.status = "Copied clone command to clipboard"
+	return writeClipboardCmd(cmd, "Copied clone command to clipboard")
 }
 
-// updateViewportSizes updates viewport dimensions when terminal resizes.
+// updateViewportSizes propagates the latest layout dimensions into every
+// sub-component that caches its own size (lists, tables, viewports). View
+// renderers must be pure, so all dimensional state is pushed from here.
 // viewport.Model exposes Width/Height as public fields (no SetSize method).
 func (m *Model) updateViewportSizes() {
 	if m.mode == modeExplorer || (m.mode == modeMultiPanel && m.explorer.project.ID != 0) {
@@ -434,18 +462,14 @@ func (m *Model) updateViewportSizes() {
 			m.explorer.preview.viewport.Height = height
 		}
 	}
-	if m.mode == modePipelines || m.mode == modeMultiPanel {
-		var width, height int
-		if m.mode == modeMultiPanel {
-			layout := computeLayout(m.width, m.height, m.focus)
-			if layout.OK {
-				width = layout.DetailWidth
-				height = layout.DetailHeight
-			}
-		} else {
-			width = pipelineLogContentWidth(m.width)
-			height = pipelineLogContentHeight(m.height)
+	if m.mode == modeMultiPanel {
+		layout := computeLayout(m.width, m.height, m.focus)
+		if layout.OK {
+			m.applyMultiPanelLayout(layout)
 		}
+	} else if m.mode == modePipelines {
+		width := pipelineLogContentWidth(m.width)
+		height := pipelineLogContentHeight(m.height)
 		if width > 0 && height > 0 {
 			if m.pipelineView.logViewport.Width != width || m.pipelineView.logViewport.Height != height {
 				m.pipelineView.logViewport.Width = width
@@ -457,4 +481,45 @@ func (m *Model) updateViewportSizes() {
 			}
 		}
 	}
+}
+
+// applyMultiPanelLayout pushes per-panel dimensions into every sub-component
+// from a freshly computed layout. Called on every resize and on any state
+// change that affects the panel geometry (focus, screen mode, layout mode).
+func (m *Model) applyMultiPanelLayout(layout layoutResult) {
+	sidebarWidth := layout.SidebarWidth
+	detailWidth, detailHeight := layout.DetailWidth, layout.DetailHeight
+
+	// Projects list
+	projHeight := max(1, layout.PanelHeights[PanelProjects])
+	m.projectList.SetSize(sidebarWidth, projHeight)
+
+	// Pipelines list
+	pipelinesHeight := max(1, layout.PanelHeights[PanelPipelines])
+	m.pipelineView.pipelineList.SetSize(sidebarWidth, pipelinesHeight)
+
+	// Stage table: columns scale with width; height excludes header + bottom
+	// hint line (the hint is conditional but we always reserve a row to avoid
+	// reflows when the selected job changes).
+	stagesHeight := max(1, layout.PanelHeights[PanelStages]-3)
+	m.pipelineView.stageTable.SetColumns(stageTableColumns(sidebarWidth))
+	m.pipelineView.stageTable.SetWidth(sidebarWidth)
+	m.pipelineView.stageTable.SetHeight(stagesHeight)
+
+	// Log viewport in the detail pane. The pipeline log renderer prepends a
+	// few header lines (title, KV pairs, divider) before the viewport; we
+	// underestimate slightly so the viewport never overflows the pane.
+	logVPHeight := max(1, detailHeight-pipelineLogHeaderReserve)
+	if m.pipelineView.logViewport.Width != detailWidth || m.pipelineView.logViewport.Height != logVPHeight {
+		m.pipelineView.logViewport.Width = detailWidth
+		m.pipelineView.logViewport.Height = logVPHeight
+	}
+	if m.mrView.mrViewport.Width != detailWidth || m.mrView.mrViewport.Height != detailHeight {
+		m.mrView.mrViewport.Width = detailWidth
+		m.mrView.mrViewport.Height = detailHeight
+	}
+
+	// Detail-pane cache is keyed on width/height; resize invalidates it and
+	// repopulates from the latest project selection so the next View hits cache.
+	m.populateDetailCache()
 }

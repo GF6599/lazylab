@@ -28,7 +28,7 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			vp := m.explorer.preview.viewport
 			m.explorer.preview = previewState{path: msg.path, err: msg.err, viewport: vp}
-			m.status = "Failed to load directory preview"
+			m.status = formatLoadErr("directory preview", msg.err)
 			return m, nil
 		}
 		builder := &strings.Builder{}
@@ -62,7 +62,7 @@ func (m Model) handleTreeLoaded(msg treeLoadedMsg) (tea.Model, tea.Cmd) {
 		dir.loading = false
 		dir.entries = nil
 		dir.err = msg.err
-		m.status = "Failed to load directory"
+		m.status = formatLoadErr("directory", msg.err)
 		return m, nil
 	}
 	dir.loading = false
@@ -113,7 +113,7 @@ func (m Model) handleFileLoaded(msg fileLoadedMsg) (tea.Model, tea.Cmd) {
 		m.explorer.preview.raw = ""
 		m.explorer.preview.highlighted = false
 		m.explorer.preview.highlightWidth = 0
-		m.status = "Failed to load file"
+		m.status = formatLoadErr("file", msg.err)
 		return m, nil
 	}
 	width := previewContentWidth(m.width)

@@ -67,7 +67,7 @@ func renderDetailPane(m *Model, width int) string {
 	// Recent commits section
 	writeDetailDivider(b, width)
 	writeDetailSection(b, "Recent Commits", width)
-	if m.commitLoading[project.ID] {
+	if m.commitCache.IsLoading(project.ID) {
 		b.WriteString(detailValueStyle.Render(" Loading commits..."))
 		b.WriteString("\n")
 	} else if commits, ok := m.commitCache.Get(project.ID); ok && len(commits) > 0 {
@@ -94,7 +94,7 @@ func renderDetailPane(m *Model, width int) string {
 // pane: status, SHA, timestamp, web URL, and per-stage breakdown. Reflects
 // the tri-state loading model (loading/error/ready) from pipelineStatus cache.
 func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) string {
-	state, ok := m.pipelineStatus.Get(project.ID)
+	state, ok := m.pipelineStatus.Peek(project.ID)
 	refLabel := pipelineRefLabel(project, state)
 	if refLabel == "" {
 		refLabel = "all refs"

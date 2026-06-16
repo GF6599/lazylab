@@ -262,6 +262,7 @@ func newMatrixPipelineModel() Model {
 		width:  120,
 		height: 40,
 		focus:  FocusState{Active: PanelStages},
+		keys:   newKeyMap(),
 		pipelineView: pipelineViewState{
 			project:     gitlab.ProjectNode{ID: 1},
 			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main", Status: "failed"}},
@@ -535,6 +536,7 @@ func TestUpdateStageTable_NoMatrixJobs_BackwardsCompatible(t *testing.T) {
 	tbl := table.New(table.WithColumns(stageTableColumns(56)), table.WithHeight(10))
 
 	m := Model{
+		keys: newKeyMap(),
 		pipelineView: pipelineViewState{
 			project:     gitlab.ProjectNode{ID: 1},
 			pipelines:   []gitlab.PipelineSummary{{ID: 10}},
@@ -856,6 +858,7 @@ func TestUpdateStageTable_BridgeOnlyStageInjected(t *testing.T) {
 		width:  120,
 		height: 40,
 		focus:  FocusState{Active: PanelStages},
+		keys:   newKeyMap(),
 		pipelineView: pipelineViewState{
 			project:     gitlab.ProjectNode{ID: 1},
 			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main", Status: "success"}},
@@ -1119,6 +1122,7 @@ func newBridgePipelineModel() Model {
 		width:  120,
 		height: 40,
 		focus:  FocusState{Active: PanelStages},
+		keys:   newKeyMap(),
 		pipelineView: pipelineViewState{
 			project:     gitlab.ProjectNode{ID: 1},
 			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main", Status: "success"}},

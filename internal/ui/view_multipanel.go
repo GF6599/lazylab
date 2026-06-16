@@ -21,7 +21,7 @@ import (
 )
 
 // renderMultiPanelView composes the full screen: sidebar | gap | detail + info bar.
-func renderMultiPanelView(m *Model, width, height int) string {
+func renderMultiPanelView(m Model, width, height int) string {
 	layout := computeLayout(width, height, m.focus)
 	if !layout.OK {
 		return renderTooSmallView(width, height)
@@ -38,21 +38,21 @@ func renderMultiPanelView(m *Model, width, height int) string {
 	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, gap, rightArea)
 
 	// Info bar at bottom
-	infoBar := renderInfoBar(m, layout.InfoBarWidth)
+	infoBar := renderInfoBar(&m, layout.InfoBarWidth)
 
 	return main + "\n" + infoBar
 }
 
 // renderSidebar renders all left-side panels stacked vertically.
-func renderSidebar(m *Model, layout layoutResult) string {
+func renderSidebar(m Model, layout layoutResult) string {
 	var panels []string
 	for _, panelID := range SidebarPanels {
 		h := layout.PanelHeights[panelID]
 		focused := m.focus.Active == panelID
 		content := renderSidebarPanelContent(m, panelID, layout.SidebarWidth, h)
-		tabs, activeTab := panelTabs(panelID, m)
-		footer := panelFooter(panelID, m)
-		scroll := panelScrollInfo(panelID, m)
+		tabs, activeTab := panelTabs(panelID, &m)
+		footer := panelFooter(panelID, &m)
+		scroll := panelScrollInfo(panelID, &m)
 		rendered := renderBorderedPane(content, layout.SidebarWidth+borderCharsH, h, focused, panelLabel(panelID), tabs, activeTab, footer, scroll)
 		if rendered != "" {
 			panels = append(panels, rendered)
@@ -62,7 +62,7 @@ func renderSidebar(m *Model, layout layoutResult) string {
 }
 
 // renderSidebarPanelContent renders the content for a sidebar panel.
-func renderSidebarPanelContent(m *Model, panel PanelID, width, height int) string {
+func renderSidebarPanelContent(m Model, panel PanelID, width, height int) string {
 	switch panel {
 	case PanelProjects:
 		return renderProjectsPanelContent(m, width, height)
@@ -71,14 +71,14 @@ func renderSidebarPanelContent(m *Model, panel PanelID, width, height int) strin
 	case PanelStages:
 		return renderStagesPanelContent(m, width, height)
 	case PanelMRs:
-		return renderMRsPanel(m, width, height)
+		return renderMRsPanel(&m, width, height)
 	default:
 		return ""
 	}
 }
 
 // renderProjectsPanelContent renders the projects list for the sidebar.
-func renderProjectsPanelContent(m *Model, width, height int) string {
+func renderProjectsPanelContent(m Model, width, height int) string {
 	if m.loading && len(m.allProjects) == 0 {
 		return explorerHintStyle.Render(clampLine(fmt.Sprintf(" %s Loading projects...", m.spinner.View()), width))
 	}
@@ -93,21 +93,18 @@ func renderProjectsPanelContent(m *Model, width, height int) string {
 		return explorerHintStyle.Render(clampLine(" No projects found", width))
 	}
 
-	// Render project list
-	listHeight := max(1, height)
-	m.projectList.SetSize(width, listHeight)
 	content := m.projectList.View()
 
 	// Add search bar at bottom if active
 	if m.search.active || m.search.query != "" {
-		searchBar := renderSearchBar(*m, width)
+		searchBar := renderSearchBar(m, width)
 		return renderWithBottomHint(content, searchBar, height)
 	}
 	return content
 }
 
 // renderPipelinesPanelContent renders the pipelines list for the sidebar.
-func renderPipelinesPanelContent(m *Model, width, height int) string {
+func renderPipelinesPanelContent(m Model, width, height int) string {
 	if m.pipelineView.project.ID == 0 {
 		return explorerHintStyle.Render(clampLine(" Select a project", width))
 	}
@@ -115,19 +112,16 @@ func renderPipelinesPanelContent(m *Model, width, height int) string {
 		return explorerHintStyle.Render(clampLine(" Loading pipelines...", width))
 	}
 	if m.pipelineView.err != nil {
-		return explorerErrorStyle.Render(clampLine(" "+m.pipelineView.err.Error(), width))
+		return explorerErrorStyle.Render(clampLine(" "+formatLoadErr("pipelines", m.pipelineView.err), width))
 	}
 	if len(m.pipelineView.pipelines) == 0 {
 		return explorerHintStyle.Render(clampLine(" "+msgNoPipelines, width))
 	}
-
-	listHeight := max(1, height)
-	m.pipelineView.pipelineList.SetSize(width, listHeight)
 	return m.pipelineView.pipelineList.View()
 }
 
 // renderStagesPanelContent renders the stages for the sidebar.
-func renderStagesPanelContent(m *Model, width, height int) string {
+func renderStagesPanelContent(m Model, width, height int) string {
 	pipeline := m.selectedPipeline()
 	if pipeline == nil {
 		return explorerHintStyle.Render(clampLine(" Select a pipeline", width))
@@ -138,22 +132,14 @@ func renderStagesPanelContent(m *Model, width, height int) string {
 		return explorerHintStyle.Render(clampLine(" Loading stages...", width))
 	}
 	if err := m.pipelineView.stages.Err(pipeline.ID); err != nil {
-		return explorerErrorStyle.Render(clampLine(" "+err.Error(), width))
+		return explorerErrorStyle.Render(clampLine(" "+formatLoadErr("stages", err), width))
 	}
 	if len(stages) == 0 {
 		return explorerHintStyle.Render(clampLine(" "+msgNoStages, width))
 	}
 
-	// Sync table columns to current pane width and render.
 	// Reserve 1 line for the selected job name hint when it would be truncated.
-	hint := stageTableSelectedHint(m, width)
-	tableHeight := height - 2
-	if hint != "" {
-		tableHeight--
-	}
-	m.pipelineView.stageTable.SetColumns(stageTableColumns(width))
-	m.pipelineView.stageTable.SetWidth(width)
-	m.pipelineView.stageTable.SetHeight(max(1, tableHeight))
+	hint := stageTableSelectedHint(&m, width)
 	content := colorizeStatusIcons(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor())
 	if hint != "" {
 		return renderWithBottomHint(content, hint, height)
@@ -162,12 +148,12 @@ func renderStagesPanelContent(m *Model, width, height int) string {
 }
 
 // renderRightArea renders the detail pane.
-func renderRightArea(m *Model, layout layoutResult) string {
+func renderRightArea(m Model, layout layoutResult) string {
 	detailContent := renderDetailContent(m, layout.DetailWidth, layout.DetailHeight)
 	detailFocused := m.focus.Active == PanelDetail
-	detailTitle := detailPaneTitle(m)
-	detailTabs, detailActiveTab := detailPaneTabs(m)
-	scroll := detailScrollInfo(m)
+	detailTitle := detailPaneTitle(&m)
+	detailTabs, detailActiveTab := detailPaneTabs(&m)
+	scroll := detailScrollInfo(&m)
 	return renderBorderedPane(detailContent, layout.DetailWidth+borderCharsH, layout.DetailHeight, detailFocused, detailTitle, detailTabs, detailActiveTab, "", scroll)
 }
 
@@ -182,33 +168,33 @@ func detailContextPanel(m *Model) PanelID {
 }
 
 // renderDetailContent dispatches to the correct renderer based on context panel.
-func renderDetailContent(m *Model, width, height int) string {
-	switch detailContextPanel(m) {
+func renderDetailContent(m Model, width, height int) string {
+	switch detailContextPanel(&m) {
 	case PanelProjects:
-		return m.cachedDetailPane(width, height)
+		return m.renderDetailCached(width, height)
 	case PanelPipelines, PanelStages:
 		return renderPipelineDetailContent(m, width, height)
 	case PanelMRs:
-		return renderMRDetailContent(m, width, height)
+		return renderMRDetailContent(&m, width, height)
 	default:
-		return m.cachedDetailPane(width, height)
+		return m.renderDetailCached(width, height)
 	}
 }
 
 // renderPipelineDetailContent dispatches to the correct tab content.
-func renderPipelineDetailContent(m *Model, width, height int) string {
+func renderPipelineDetailContent(m Model, width, height int) string {
 	switch m.pipelineView.detailTab {
 	case detailTabTests:
-		return renderTestReportContent(m, width)
+		return renderTestReportContent(&m, width)
 	case detailTabArtifacts:
-		return renderArtifactsContent(m, width)
+		return renderArtifactsContent(&m, width)
 	default:
 		return renderPipelineLogContent(m, width, height)
 	}
 }
 
 // renderPipelineLogContent renders the job log in the detail pane.
-func renderPipelineLogContent(m *Model, width, height int) string {
+func renderPipelineLogContent(m Model, width, height int) string {
 	preview := m.pipelineView.logPreview
 	b := &strings.Builder{}
 
@@ -237,20 +223,12 @@ func renderPipelineLogContent(m *Model, width, height int) string {
 		return b.String()
 	}
 	if preview.err != nil && preview.content == "" {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" "+preview.err.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" "+formatLoadErr("job log", preview.err), width)))
 		return b.String()
 	}
 	if preview.content == "" {
 		b.WriteString(explorerHintStyle.Render(clampLine(" Select a stage to preview logs", width)))
 		return b.String()
-	}
-
-	// Sync viewport dimensions from layout before rendering
-	headerLines := strings.Count(b.String(), "\n")
-	vpHeight := max(1, height-headerLines)
-	if m.pipelineView.logViewport.Width != width || m.pipelineView.logViewport.Height != vpHeight {
-		m.pipelineView.logViewport.Width = width
-		m.pipelineView.logViewport.Height = vpHeight
 	}
 
 	b.WriteString(m.pipelineView.logViewport.View())
@@ -267,7 +245,7 @@ func renderTestReportContent(m *Model, width int) string {
 		return explorerHintStyle.Render(clampLine(" Loading test report...", width))
 	}
 	if m.pipelineView.testReportErr != nil {
-		return explorerErrorStyle.Render(clampLine(" "+m.pipelineView.testReportErr.Error(), width))
+		return explorerErrorStyle.Render(clampLine(" "+formatLoadErr("test report", m.pipelineView.testReportErr), width))
 	}
 	if m.pipelineView.testReport == nil || m.pipelineView.testReportPipelineID != pipeline.ID {
 		return explorerHintStyle.Render(clampLine(" Press 't' to load test report", width))
@@ -410,7 +388,7 @@ func renderMRCommentsPane(m *Model, width, height int) string {
 		return explorerHintStyle.Render(clampLine(" Loading discussions...", width))
 	}
 	if err := m.mrView.discussions.Err(mr.IID); err != nil {
-		return explorerErrorStyle.Render(clampLine(" "+err.Error(), width))
+		return explorerErrorStyle.Render(clampLine(" "+formatLoadErr("discussions", err), width))
 	}
 	discussions, ok := m.mrView.discussions.Get(mr.IID)
 	if !ok {
@@ -419,15 +397,6 @@ func renderMRCommentsPane(m *Model, width, height int) string {
 	if len(discussions) == 0 {
 		return explorerHintStyle.Render(clampLine(" No discussions", width))
 	}
-	// Always re-render so theme changes and selection updates are visible.
-	// See renderMRDiffPane for the rationale: View() is a value receiver,
-	// so dimension changes on the copy are lost — conditional re-rendering
-	// based on dimensions is unreliable.
-	m.mrView.mrViewport.Width = width
-	m.mrView.mrViewport.Height = height
-	diffs, _ := m.mrView.diffs.Get(mr.IID)
-	content := renderMRCommentsText(discussions, width, m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
-	m.setMRViewportContent(content)
 	return m.mrView.mrViewport.View()
 }
 
@@ -441,7 +410,7 @@ func renderMRDiffPane(m *Model, width, height int) string {
 		return explorerHintStyle.Render(clampLine(" Loading diffs...", width))
 	}
 	if err := m.mrView.diffs.Err(mr.IID); err != nil {
-		return explorerErrorStyle.Render(clampLine(" "+err.Error(), width))
+		return explorerErrorStyle.Render(clampLine(" "+formatLoadErr("diff", err), width))
 	}
 	diffs, ok := m.mrView.diffs.Get(mr.IID)
 	if !ok {
@@ -449,20 +418,6 @@ func renderMRDiffPane(m *Model, width, height int) string {
 	}
 	if len(diffs) == 0 {
 		return explorerHintStyle.Render(clampLine(" No changes", width))
-	}
-	// Always sync dimensions and re-render so theme changes and cursor
-	// movement are immediately visible. View() is a value receiver, so
-	// dimension mutations on the copy are lost after each frame — conditional
-	// re-rendering based on dimension changes is unreliable.
-	m.mrView.mrViewport.Width = width
-	m.mrView.mrViewport.Height = height
-	content := renderMRDiffText(diffs, width, m.mrView.diffCursor)
-	m.setMRViewportContent(content)
-	// Ensure the cursor line is visible in the viewport
-	if m.mrView.diffCursor < m.mrView.mrViewport.YOffset {
-		m.mrView.mrViewport.SetYOffset(m.mrView.diffCursor)
-	} else if m.mrView.diffCursor >= m.mrView.mrViewport.YOffset+height {
-		m.mrView.mrViewport.SetYOffset(m.mrView.diffCursor - height + 1)
 	}
 	return m.mrView.mrViewport.View()
 }

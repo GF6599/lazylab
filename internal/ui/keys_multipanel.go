@@ -23,6 +23,7 @@
 package ui
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -33,44 +34,53 @@ import (
 // Global keys (quit, Tab, number shortcuts, layout toggles) are handled first;
 // everything else is delegated to the focused panel's handler.
 func (m Model) handleMultiPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	// Global keys that work regardless of focused panel
-	switch key {
-	case "ctrl+c":
-		return m, tea.Quit
-	case "q":
-		// Only quit if not in search mode
-		if m.focus.Active != PanelProjects || !m.search.active {
+	// Global keys that work regardless of focused panel.
+	// Quit covers both "q" and "ctrl+c"; suppress the printable "q" while
+	// typing in the project search so the user can spell project names freely.
+	// Ctrl+C always quits.
+	if key.Matches(msg, m.keys.Quit) {
+		s := msg.String()
+		if s == "q" && m.focus.Active == PanelProjects && m.search.active {
+			// fall through — let the search handler consume "q"
+		} else {
 			return m, tea.Quit
 		}
-	case "tab", "shift+tab":
+	}
+	if key.Matches(msg, m.keys.NextPanel) {
 		if m.focus.Active == PanelDetail {
 			m.focus.Active = m.focus.PrevActive
 			return m, nil
 		}
-		if key == "tab" {
-			m.focus.Active = nextSidebarPanel(m.focus.Active)
-		} else {
-			m.focus.Active = prevSidebarPanel(m.focus.Active)
-		}
+		m.focus.Active = nextSidebarPanel(m.focus.Active)
 		return m, m.onPanelFocusChanged()
-	case "+", "-":
+	}
+	if key.Matches(msg, m.keys.PrevPanel) {
+		if m.focus.Active == PanelDetail {
+			m.focus.Active = m.focus.PrevActive
+			return m, nil
+		}
+		m.focus.Active = prevSidebarPanel(m.focus.Active)
+		return m, m.onPanelFocusChanged()
+	}
+	if key.Matches(msg, m.keys.ToggleLayout) {
 		m.focus.ToggleLayoutMode()
 		var cmd tea.Cmd
 		if m.prefStore != nil {
 			cmd = savePreferencesCmd(m.prefStore, m.focus.LayoutMode, m.focus.ScreenMode, currentTheme)
 		}
 		return m, cmd
-	case "=":
+	}
+	if key.Matches(msg, m.keys.NextScreenMode) {
 		m.focus.NextScreenMode()
 		var cmd tea.Cmd
 		if m.prefStore != nil {
 			cmd = savePreferencesCmd(m.prefStore, m.focus.LayoutMode, m.focus.ScreenMode, currentTheme)
 		}
 		return m, cmd
-	case "1", "2", "3", "4", "5":
-		n := int(key[0] - '0')
+	}
+	if key.Matches(msg, m.keys.JumpPanel) {
+		s := msg.String()
+		n := int(s[0] - '0')
 		if panel, ok := panelByShortcut(n); ok {
 			m.focus.Active = panel
 			return m, m.onPanelFocusChanged()

@@ -807,6 +807,7 @@ func newMultiPanelModel(active PanelID) Model {
 		projectList:    pl,
 		focus:          FocusState{Active: active},
 		search:         searchState{input: ti},
+		keys:           newKeyMap(),
 		pipelineView: pipelineViewState{
 			project:     projects[0],
 			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main"}},
@@ -816,12 +817,8 @@ func newMultiPanelModel(active PanelID) Model {
 			bridges:     NewAsyncCache[int, []gitlab.PipelineBridge](),
 			logViewport: viewport.New(60, 20),
 		},
-		mrView: mrViewState{project: projects[0]},
-		commitCache: func() *LRUCache[int, []gitlab.CommitSummary] {
-			c := NewLRUCache[int, []gitlab.CommitSummary](maxCommitCacheSize)
-			return &c
-		}(),
-		commitLoading: make(map[int]bool),
+		mrView:      mrViewState{project: projects[0]},
+		commitCache: NewAsyncCache[int, []gitlab.CommitSummary](),
 	}
 }
 
@@ -1603,6 +1600,25 @@ func TestDetailPanelKey_T_CyclesDetailTab(t *testing.T) {
 	}
 }
 
+// runClipboardCmd executes the tea.Cmd returned by a copy method off-loop and,
+// if it produced a clipboardWroteMsg, applies it to the model so tests can
+// assert on m.status the same way they did before the refactor. Returns the
+// post-message status string ("" if the cmd was nil — i.e. a guard short-
+// circuited before the write).
+func runClipboardCmd(t *testing.T, m Model, cmd tea.Cmd) (Model, string) {
+	t.Helper()
+	if cmd == nil {
+		return m, m.status
+	}
+	msg := cmd()
+	clip, ok := msg.(clipboardWroteMsg)
+	if !ok {
+		t.Fatalf("expected clipboardWroteMsg, got %T", msg)
+	}
+	updated, _ := m.handleClipboardWrote(clip)
+	return updated.(Model), updated.(Model).status
+}
+
 func TestCopyMRComment_WithPosition(t *testing.T) {
 	discussions := NewAsyncCache[int, []gitlab.MRDiscussion]()
 	discussions.Set(42, []gitlab.MRDiscussion{
@@ -1622,9 +1638,10 @@ func TestCopyMRComment_WithPosition(t *testing.T) {
 			selectedDiscussion: 0,
 		},
 	}
-	m.copyMRComment()
-	if !strings.Contains(m.status, "Copied comment") {
-		t.Fatalf("expected success status, got %q", m.status)
+	cmd := m.copyMRComment()
+	_, status := runClipboardCmd(t, m, cmd)
+	if !strings.Contains(status, "Copied comment") {
+		t.Fatalf("expected success status, got %q", status)
 	}
 }
 
@@ -1646,9 +1663,10 @@ func TestCopyMRComment_WithoutPosition(t *testing.T) {
 			selectedDiscussion: 0,
 		},
 	}
-	m.copyMRComment()
-	if !strings.Contains(m.status, "Copied comment") {
-		t.Fatalf("expected success status, got %q", m.status)
+	cmd := m.copyMRComment()
+	_, status := runClipboardCmd(t, m, cmd)
+	if !strings.Contains(status, "Copied comment") {
+		t.Fatalf("expected success status, got %q", status)
 	}
 }
 
@@ -1659,7 +1677,10 @@ func TestCopyMRComment_NoDiscussions(t *testing.T) {
 			selected: 0,
 		},
 	}
-	m.copyMRComment()
+	cmd := m.copyMRComment()
+	if cmd != nil {
+		t.Fatalf("expected nil cmd on guard path, got %T", cmd)
+	}
 	if !strings.Contains(m.status, "No discussions") {
 		t.Fatalf("expected no discussions status, got %q", m.status)
 	}
@@ -1679,9 +1700,10 @@ func TestCopyExplorerURL_File(t *testing.T) {
 			}},
 		},
 	}
-	m = m.copyExplorerURL()
-	if !strings.Contains(m.status, "Copied main.go URL") {
-		t.Fatalf("expected success status, got %q", m.status)
+	m, cmd := m.copyExplorerURL()
+	_, status := runClipboardCmd(t, m, cmd)
+	if !strings.Contains(status, "Copied main.go URL") {
+		t.Fatalf("expected success status, got %q", status)
 	}
 }
 
@@ -1699,9 +1721,10 @@ func TestCopyExplorerURL_Dir(t *testing.T) {
 			}},
 		},
 	}
-	m = m.copyExplorerURL()
-	if !strings.Contains(m.status, "Copied src URL") {
-		t.Fatalf("expected success status, got %q", m.status)
+	m, cmd := m.copyExplorerURL()
+	_, status := runClipboardCmd(t, m, cmd)
+	if !strings.Contains(status, "Copied src URL") {
+		t.Fatalf("expected success status, got %q", status)
 	}
 }
 
@@ -1713,7 +1736,10 @@ func TestCopyExplorerURL_NoEntry(t *testing.T) {
 			stack:   []dirState{{path: "", entries: nil}},
 		},
 	}
-	m = m.copyExplorerURL()
+	m, cmd := m.copyExplorerURL()
+	if cmd != nil {
+		t.Fatalf("expected nil cmd on guard path, got %T", cmd)
+	}
 	if m.status != "No file selected" {
 		t.Fatalf("expected 'No file selected', got %q", m.status)
 	}

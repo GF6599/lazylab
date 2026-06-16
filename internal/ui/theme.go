@@ -218,13 +218,14 @@ var currentTheme ThemeName
 //
 // This only updates package-level globals. Bubble Tea sub-components that
 // store their own style copies (spinner, help, paginator, stage table) must
-// be refreshed separately via Model.refreshThemeSubComponents.
+// be refreshed separately via Model.refreshThemeSubComponents, and
+// Model.clearGlamourRenderers should be called to drop stale glamour
+// renderers compiled against the previous theme.
 func applyTheme(t ThemeName) {
 	if t < 0 || t >= themeCount {
 		t = ThemeRosePineMoon
 	}
 	currentTheme = t
-	clearGlamourCache()
 	p := themes[t]
 
 	colorHighlightLow = lipgloss.Color(p.HighlightLow)
@@ -293,6 +294,16 @@ func rebuildStyles() {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorSubtle).
 		Padding(1, 2)
+
+	mrTextareaBaseStyle = lipgloss.NewStyle().Foreground(colorText)
+	mrTextareaPlaceholderStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	mrTextareaCursorLineStyle = lipgloss.NewStyle().Foreground(colorText).Background(colorHighlightLow)
+	mrTextareaPromptStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	mrTextareaCursorStyle = lipgloss.NewStyle().Foreground(colorActive)
+	mrTextinputTextStyle = lipgloss.NewStyle().Foreground(colorText)
+	mrTextinputPlaceholderSt = lipgloss.NewStyle().Foreground(colorMuted)
+	mrTextinputPromptStyle = lipgloss.NewStyle().Foreground(colorSubtle)
+	mrTextinputCursorStyle = lipgloss.NewStyle().Foreground(colorActive)
 
 	rebuildPipelineStatusStyles()
 }
