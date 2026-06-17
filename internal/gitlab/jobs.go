@@ -79,6 +79,12 @@ type cappedTraceFetcher interface {
 // implements it) and emits whatever fit in the first MaxTraceSize bytes
 // — accepting that the tail of the log is unrecoverable without
 // HTTP Range support on the trace endpoint.
+//
+// Concurrency and ownership: StreamJobTrace blocks in the caller's
+// goroutine for the lifetime of the watch and spawns none of its own, so
+// cancellation is the caller's responsibility — cancel ctx to make it
+// return promptly (with ctx.Err()). It writes to but never closes
+// opts.Writer; the caller owns that writer's lifecycle.
 func StreamJobTrace(ctx context.Context, c Service, projectID, jobID int, opts StreamTraceOptions) (string, error) {
 	if opts.Writer == nil {
 		return "", fmt.Errorf("stream trace: writer is required")
@@ -209,6 +215,11 @@ func derefTime(t *time.Time) time.Time {
 // GetJob fetches a single job by ID. Pairs with GetJobTrace in the
 // streaming-log loop: the trace endpoint returns bytes, GetJob returns
 // the current status, and the streamer stops once status becomes terminal.
+//
+// A zero jobID is rejected up front with a plain "missing job id" error to
+// catch the common "nothing selected" caller bug before the round trip. SDK
+// failures are returned %w-wrapped (as "get job %d") so AsAPIError and
+// friends can classify the HTTP status.
 func (c *Client) GetJob(ctx context.Context, projectID, jobID int) (PipelineJob, error) {
 	if jobID == 0 {
 		return PipelineJob{}, fmt.Errorf("get job: missing job id")
@@ -314,7 +325,10 @@ func (c *Client) RetryJob(ctx context.Context, projectID, jobID int) (PipelineJo
 	return mapJob(job), nil
 }
 
-// CancelJob cancels a running job.
+// CancelJob requests cancellation of a single job and returns any SDK
+// failure %w-wrapped as "cancel job" (so AsAPIError can classify it). Unlike
+// its sibling RetryJob, it does not guard against a zero jobID; a zero id is
+// passed straight through and surfaces as a server-side 404.
 func (c *Client) CancelJob(ctx context.Context, projectID, jobID int) error {
 	_, _, err := c.api.Jobs.CancelJob(projectID, int64(jobID), gl.WithContext(ctx))
 	if err != nil {

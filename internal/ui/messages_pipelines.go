@@ -192,7 +192,8 @@ func (m Model) handlePipelineJobsLoaded(msg pipelineJobsLoadedMsg) (tea.Model, t
 
 // handlePipelineLogLoaded stores a fetched job log trace and updates the log
 // preview viewport. Logs are truncated to maxLogSizeBytes to prevent OOM, and
-// old entries are evicted via LRU. The viewport only updates when logAutoFollow
+// old entries are evicted oldest-job-ID-first (FIFO, not LRU; access never
+// affects eviction). The viewport only updates when logAutoFollow
 // is true — if the user has manually scrolled, the scroll position is
 // preserved and the content is silently cached for the next auto-follow toggle.
 func (m Model) handlePipelineLogLoaded(msg pipelineLogLoadedMsg) (tea.Model, tea.Cmd) {

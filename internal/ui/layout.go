@@ -55,9 +55,6 @@ type layoutResult struct {
 	OK           bool            // False if terminal too small
 }
 
-// computeLayout calculates sidebar/detail widths and per-panel heights for the
-// current terminal size and focus state. Returns OK=false if the terminal is
-// too small to render the layout meaningfully.
 // renderTooSmallView returns a centered, styled message telling the user that
 // the terminal is below the minimum usable dimensions.
 func renderTooSmallView(width, height int) string {
@@ -70,6 +67,9 @@ func renderTooSmallView(width, height int) string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, styled)
 }
 
+// computeLayout calculates sidebar/detail widths and per-panel heights for the
+// current terminal size and focus state. Returns OK=false if the terminal is
+// too small to render the layout meaningfully.
 func computeLayout(width, height int, focus FocusState) layoutResult {
 	if width < MinTerminalWidth || height < MinTerminalHeight {
 		return layoutResult{OK: false}

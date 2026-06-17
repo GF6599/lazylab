@@ -78,6 +78,12 @@ var ErrNoProjectContext = errors.New("no project: pass --project or run inside a
 // Empty arg combined with no git context is an error rather than
 // silently expanding to "latest" — guessing wrong here would have users
 // watching the wrong pipeline.
+//
+// For every non-URL form the project must resolve first, so callers should
+// test the result with errors.Is against [ErrNoProjectContext]: it is
+// returned unwrapped (via resolveProject) when neither --project nor a git
+// remote supplies a project. All other failures are %w-wrapped with form-
+// specific context (e.g. "latest pipeline on @%s").
 func ResolvePipelineRef(ctx context.Context, c Service, arg string, hints ResolveHints) (PipelineSpec, error) {
 	arg = strings.TrimSpace(arg)
 
@@ -256,6 +262,12 @@ func parseGitLabResourceURL(raw, delimiter, label string) (projectPath string, r
 // pipeline-scoped lookups like `--stage test --name unit-tests`. Unlike
 // pipeline refs there is no HEAD form — jobs are far more granular than
 // the commit-level abstraction.
+//
+// The numeric-ID form resolves the project first, so callers should test
+// the result with errors.Is against [ErrNoProjectContext]: it is returned
+// unwrapped (via resolveProject) when no project can be determined. Other
+// failures (empty arg, unparseable ref, project/URL lookup) are returned as
+// plain or %w-wrapped errors.
 func ResolveJobRef(ctx context.Context, c Service, arg string, hints ResolveHints) (JobSpec, error) {
 	arg = strings.TrimSpace(arg)
 	if arg == "" {

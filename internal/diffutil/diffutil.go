@@ -16,7 +16,11 @@ import (
 type FileDiff struct {
 	OldPath string
 	NewPath string
-	Diff    string
+	// Diff must be a raw unified diff (the "@@", "+", "-", " " line stream),
+	// not pre-rendered text: the parsers in this package match on those line
+	// prefixes. CRLF is tolerated — every parser strips "\r" before inspecting
+	// a line — so callers need not normalize line endings first.
+	Diff string
 }
 
 // LineInfo maps a rendered diff line back to its source file and line number.
@@ -40,6 +44,14 @@ type SnippetStyles struct {
 
 // BuildLineMap creates a mapping from rendered line index to source file/line
 // info, mirroring the line-emission logic in the MR diff renderer.
+//
+// The returned slice is 1:1 and order-aligned with the rendered diff lines:
+// element i describes rendered line i, so callers can index into it directly
+// using a cursor position. To stay aligned it must emit one LineInfo per
+// rendered line in the exact same order the renderer produces them — for each
+// file: an inter-file blank separator ('D', skipped for the first file), the
+// file header ('H'), a divider ('D'), then every line of d.Diff. Changing this
+// emission order without matching the renderer breaks cursor-to-source lookups.
 func BuildLineMap(diffs []FileDiff) []LineInfo {
 	var m []LineInfo
 	for i, d := range diffs {
@@ -77,8 +89,11 @@ func BuildLineMap(diffs []FileDiff) []LineInfo {
 }
 
 // ParseHunkHeader extracts old and new starting line numbers from a unified
-// diff hunk header. Falls back to (1, 1) for malformed input so downstream
-// counters still advance instead of stalling on the first bad line.
+// diff hunk header. It returns (1, 1) only when the line has no "@@"-delimited
+// body at all. Otherwise it parses each side independently, so a header missing
+// (or carrying an unparseable number for) one side leaves just that side at 0
+// while the other keeps its parsed value — the fallback is per-side, not
+// all-or-nothing.
 func ParseHunkHeader(line string) (oldLine, newLine int) {
 	// Format: @@ -old,count +new,count @@
 	parts := strings.SplitN(line, "@@", 3)
@@ -199,6 +214,11 @@ func FindTargetLine(lines []string, oldLine, newLine int) int {
 // by 2 spaces so the snippet sits inside surrounding tree-line layout without
 // visual collision. Styles are passed in so this package stays decoupled from
 // any host theme.
+//
+// width is the available column budget: width <= 0 disables truncation
+// entirely (lines render at full length), while a positive width truncates to
+// width-4 columns. The -4 reserves room for the 2-space indent plus the
+// truncation ellipsis, so it must track the indent above if either changes.
 func RenderSnippet(rawLines []string, width int, styles SnippetStyles) string {
 	var b strings.Builder
 	for _, line := range rawLines {

@@ -24,6 +24,10 @@ type APIError struct {
 	Err        error  // Underlying SDK error retained for Unwrap.
 }
 
+// Error prefers the wrapped SDK error's message over the server-provided
+// Message field: the underlying error usually carries richer context (the
+// request that failed), and Message is only the fallback for the synthesized
+// 404 case where Err is the gl.ErrNotFound sentinel rather than a response.
 func (e *APIError) Error() string {
 	if e.Err != nil {
 		return e.Err.Error()
@@ -31,6 +35,8 @@ func (e *APIError) Error() string {
 	return e.Message
 }
 
+// Unwrap returns the wrapped SDK error so errors.Is/As reach the original
+// cause (e.g. gl.ErrNotFound) through this link.
 func (e *APIError) Unwrap() error { return e.Err }
 
 // AsAPIError walks the error chain and returns an APIError if any link

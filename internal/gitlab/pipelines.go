@@ -89,7 +89,10 @@ func (c *Client) LatestPipelineForSHA(ctx context.Context, projectID int, sha st
 
 // LatestPipeline returns the single most recent pipeline for a project/ref,
 // including its stage summaries. Pass an empty ref to get the latest pipeline
-// across all branches. Returns ErrNoPipelines if the project has no CI runs.
+// across all branches. Returns ErrNoPipelines (an errors.Is target) if the
+// project has no CI runs. Because it also fetches stages, it can return a
+// second, non-sentinel error %w-wrapped as "collect pipeline stages" when the
+// pipeline is found but its job listing fails.
 func (c *Client) LatestPipeline(ctx context.Context, projectID int, ref string) (PipelineSummary, error) {
 	opts := &gl.ListProjectPipelinesOptions{
 		ListOptions: gl.ListOptions{
@@ -190,7 +193,11 @@ func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, r
 	return pipelineSummary(pipeline), nil
 }
 
-// CancelPipeline cancels a running pipeline.
+// CancelPipeline requests cancellation of a pipeline. GitLab transitions all
+// in-flight jobs to "canceled"; already-finished jobs are unaffected, and
+// cancelling a pipeline with no running jobs is a no-op on the server. Any SDK
+// failure (including the API-typed errors AsAPIError can classify) is returned
+// %w-wrapped as "cancel pipeline".
 func (c *Client) CancelPipeline(ctx context.Context, projectID, pipelineID int) error {
 	_, _, err := c.api.Pipelines.CancelPipelineBuild(projectID, int64(pipelineID), gl.WithContext(ctx))
 	if err != nil {

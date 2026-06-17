@@ -110,9 +110,17 @@ func RegisterFlags(fs *pflag.FlagSet) {
 
 // Load merges configuration from defaults, an optional config file,
 // environment variables (prefix GITLAB_), and CLI flags — in that precedence
-// order — then validates the result. It returns an error if the token is
-// missing, the host URL is malformed, or projects-per-page exceeds the
-// GitLab API maximum of 100.
+// order — then validates the result.
+//
+// All errors are plain formatted strings except where noted as %w-wrapped;
+// none are sentinel values, so callers must not rely on errors.Is. Errors
+// originate from, in order: binding the flag set into Viper (wrapped with %w),
+// reading the resolved config file (wrapped with %w), a malformed host URL
+// (the URL-parse failure is %w-wrapped; missing/invalid scheme or hostname are
+// plain strings), projects-per-page exceeding the GitLab API maximum of 100,
+// an invalid log level (must be debug, info, warn, or error), and a missing
+// token. Demo mode short-circuits the host, projects-per-page, log-level, and
+// token checks, so it can only fail on the bind-flags or config-file steps.
 //
 // The config file path is resolved from --config, then $LAZYLAB_CONFIG, then
 // $GITLAB_TUI_CONFIG. The dual env var support exists for backward

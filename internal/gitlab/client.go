@@ -32,6 +32,11 @@ type Client struct {
 // NewClient wires the GitLab client with the provided token and host.
 // The token must have 'api' scope. If host is empty, defaults to https://gitlab.com.
 // Returns an error if the token is empty or the host URL is invalid.
+//
+// Only the url.Parse failure is %w-wrapped (so callers can inspect the
+// underlying parse error); the empty-token, bad-scheme, and missing-host
+// cases are plain fmt.Errorf messages because they are validation verdicts
+// with no inner error worth unwrapping.
 func NewClient(token, host string) (*Client, error) {
 	if token == "" {
 		return nil, fmt.Errorf("gitlab token must not be empty")

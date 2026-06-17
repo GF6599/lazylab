@@ -63,9 +63,11 @@ var versionString = "dev"
 // every subcommand inherits the same configuration surface.
 //
 // SilenceUsage / SilenceErrors are both true: Cobra would otherwise print
-// the usage banner and an "Error: ..." line on any returned error. We
-// instead let main.go route errors through fatal() so logging stays in the
-// single redacted slog stream and exit codes come from exitCodeFor.
+// the usage banner and an "Error: ..." line on any returned error. Instead
+// main.go inspects the error returned by ExecuteContext and reports it
+// itself — printing a single redacting.Redact'd line to stderr and exiting
+// via os.Exit(exitCodeFor(err)) — so credentials never leak and exit codes
+// stay centralized in exitCodeFor.
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "lazylab",

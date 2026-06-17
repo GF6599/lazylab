@@ -222,8 +222,9 @@ func (m *Model) closePipelineView() {
 	m.pipelineView = newPipelineViewState()
 }
 
-// resetPipelineViewCaches reinitializes all per-pipeline caches (stages, jobs,
-// logs) so that stale data from a previous page or reload is not displayed.
+// resetCaches clears all per-pipeline caches (stages, jobs, logs) in place so
+// that stale data from a previous page or reload is not displayed. The caches
+// are reused, not reallocated; matrixExpanded is intentionally preserved.
 func (pv *pipelineViewState) resetCaches() {
 	pv.stages.Clear()
 	pv.stageSelected = 0

@@ -74,12 +74,22 @@ type Options struct {
 }
 
 // Detect inspects the working directory's git repository and returns a
-// populated Context. Returns ErrNotInRepo when no .git is found upward
-// from Dir, or ErrNoRemote when the repo exists but lacks the requested
-// remote.
+// populated Context.
 //
-// Other failures (git binary missing, malformed remote URL, etc.) return
-// a wrapped error from the underlying git invocation.
+// The error contract is deliberately coarse on the first probe: any failure
+// of the initial `rev-parse --is-inside-work-tree` — including a missing or
+// broken git binary, since there is no exec.LookPath guard — is reported as
+// the bare ErrNotInRepo sentinel. A host without git is therefore
+// indistinguishable from "outside a repo": errors.Is(err, ErrNotInRepo) is
+// true and errors.Unwrap returns nil. Callers wanting git inference treat
+// both the same way (fall back to the --project flag), so the collapse is
+// intentional.
+//
+// The remaining return paths differ in whether they wrap:
+//   - ErrNotInRepo (bare sentinel): not a work tree, or git unavailable.
+//   - ErrNoRemote (bare sentinel): repo exists but lacks the requested remote.
+//   - "read HEAD: %w" (wrapped): the HEAD lookup failed for another reason.
+//   - "parse remote %q: %w" (wrapped): RemoteURL could not be parsed.
 func Detect(opts Options) (*Context, error) {
 	remote := opts.Remote
 	if remote == "" {
@@ -133,6 +143,12 @@ func Detect(opts Options) (*Context, error) {
 // leading/trailing slashes are stripped. Port numbers in the URL form
 // are dropped from the returned host since the GitLab API does not vary
 // by SSH port.
+//
+// All error paths return plain errors except one: only the url.Parse
+// failure is %w-wrapped (so the underlying *url.Error remains reachable
+// via errors.As). The validation failures — empty input, malformed
+// scp-style remote, unsupported scheme, missing host, and missing project
+// path — are unwrapped errors not intended for errors.Is/As matching.
 //
 // Exposed (capital P) so other tools can normalize remotes without
 // invoking git themselves.

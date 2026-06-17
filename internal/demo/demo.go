@@ -10,14 +10,27 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
-// DemoService implements gitlab.Service with deterministic fake data.
-// All methods are stateless — write operations (retry, cancel, play, resolve)
-// return plausible static values without mutating any state.
+// DemoService implements gitlab.Service with deterministic fake data so the
+// CLI and TUI can be exercised offline. It is stateless, so all methods are
+// safe for concurrent use. Two cross-method contracts hold regardless of which
+// method is called:
+//
+//   - Reads (List*, Get*, Latest*) return canned data from the demo* helpers.
+//     The lookup methods that can miss — LatestPipeline, LatestPipelineForSHA,
+//     and GetPipeline — return the gitlab.ErrNoPipelines sentinel (matchable
+//     with errors.Is) rather than empty values, so error-handling paths still
+//     get exercised. GetProject is the lone exception: it never reports a miss
+//     and resolves any identifier to the first sample project.
+//   - Writes (Retry*, Cancel*, Play*, Create*, Resolve*, Add*) never mutate
+//     state. They either no-op (returning nil) or fabricate a plausible record
+//     with a synthetic ID; subsequent reads will not reflect the write.
 type DemoService struct{}
 
 // Compile-time interface check.
 var _ gitlab.Service = (*DemoService)(nil)
 
+// ListProjects paginates the static sample project set, honoring opts.Page and
+// opts.PerPage (defaulting PerPage to 30) so the TUI's paging logic is testable.
 func (d *DemoService) ListProjects(_ context.Context, opts gitlab.ProjectListOptions) (gitlab.ProjectPage, error) {
 	all := demoProjects()
 	perPage := opts.PerPage
@@ -54,14 +67,20 @@ func (d *DemoService) ListProjects(_ context.Context, opts gitlab.ProjectListOpt
 	return pp, nil
 }
 
+// ListTree returns the canned directory listing for projectID at opts.Path.
 func (d *DemoService) ListTree(_ context.Context, projectID int, opts gitlab.TreeListOptions) ([]gitlab.TreeNode, error) {
 	return demoTree(projectID, opts.Path), nil
 }
 
+// GetFileContent returns the canned contents of path within projectID; the ref
+// argument is ignored since demo files have no history.
 func (d *DemoService) GetFileContent(_ context.Context, projectID int, path, _ string) (string, error) {
 	return demoFileContent(projectID, path), nil
 }
 
+// LatestPipeline returns the newest demo pipeline for projectID (with its
+// stages attached), ignoring the ref argument. It returns gitlab.ErrNoPipelines
+// (matchable with errors.Is) when projectID has no demo pipelines.
 func (d *DemoService) LatestPipeline(_ context.Context, projectID int, _ string) (gitlab.PipelineSummary, error) {
 	pipelines := demoPipelines(projectID)
 	if len(pipelines) == 0 {
@@ -72,6 +91,8 @@ func (d *DemoService) LatestPipeline(_ context.Context, projectID int, _ string)
 	return latest, nil
 }
 
+// ListPipelines filters the demo pipelines for projectID by opts.Ref and
+// opts.Status (when set), then paginates the result (PerPage defaults to 20).
 func (d *DemoService) ListPipelines(_ context.Context, projectID int, opts gitlab.PipelineListOptions) (gitlab.PipelinePage, error) {
 	all := demoPipelines(projectID)
 	// Apply CLI-driven filters in demo too so `pipeline list --ref X
@@ -134,18 +155,23 @@ func (d *DemoService) ListPipelines(_ context.Context, projectID int, opts gitla
 	return pp, nil
 }
 
+// PipelineStages returns the canned stages for pipelineID.
 func (d *DemoService) PipelineStages(_ context.Context, _, pipelineID int) ([]gitlab.PipelineStage, error) {
 	return demoStages(pipelineID), nil
 }
 
+// ListPipelineJobs returns the canned jobs for the given project and pipeline.
 func (d *DemoService) ListPipelineJobs(_ context.Context, projectID, pipelineID int) ([]gitlab.PipelineJob, error) {
 	return demoJobs(projectID, pipelineID), nil
 }
 
+// GetJobTrace returns the canned log trace for jobID.
 func (d *DemoService) GetJobTrace(_ context.Context, _, jobID int) (string, error) {
 	return demoJobTrace(jobID), nil
 }
 
+// RetryPipeline is a no-op write that fabricates a pending pipeline with a
+// synthetic ID (pipelineID+1); nothing is persisted.
 func (d *DemoService) RetryPipeline(_ context.Context, projectID, pipelineID int, ref string) (gitlab.PipelineSummary, error) {
 	return gitlab.PipelineSummary{
 		ID:        pipelineID + 1,
@@ -155,6 +181,8 @@ func (d *DemoService) RetryPipeline(_ context.Context, projectID, pipelineID int
 	}, nil
 }
 
+// RetryJob is a no-op write that fabricates a pending job with a synthetic ID
+// (jobID+1); nothing is persisted.
 func (d *DemoService) RetryJob(_ context.Context, _, jobID int) (gitlab.PipelineJob, error) {
 	return gitlab.PipelineJob{
 		ID:     jobID + 1,
@@ -162,14 +190,18 @@ func (d *DemoService) RetryJob(_ context.Context, _, jobID int) (gitlab.Pipeline
 	}, nil
 }
 
+// CancelPipeline is a no-op write that always succeeds.
 func (d *DemoService) CancelPipeline(_ context.Context, _, _ int) error {
 	return nil
 }
 
+// CancelJob is a no-op write that always succeeds.
 func (d *DemoService) CancelJob(_ context.Context, _, _ int) error {
 	return nil
 }
 
+// PlayJob is a no-op write that echoes jobID back as a pending job; nothing is
+// persisted.
 func (d *DemoService) PlayJob(_ context.Context, _, jobID int) (gitlab.PipelineJob, error) {
 	return gitlab.PipelineJob{
 		ID:     jobID,
@@ -177,6 +209,8 @@ func (d *DemoService) PlayJob(_ context.Context, _, jobID int) (gitlab.PipelineJ
 	}, nil
 }
 
+// ListMergeRequests filters the demo MRs for projectID by opts.State (unless
+// empty or "all"), then paginates the result (PerPage defaults to 25).
 func (d *DemoService) ListMergeRequests(_ context.Context, projectID int, opts gitlab.MRListOptions) (gitlab.MRPage, error) {
 	all := demoMergeRequests(projectID)
 
@@ -228,38 +262,51 @@ func (d *DemoService) ListMergeRequests(_ context.Context, projectID int, opts g
 	return mp, nil
 }
 
+// ListMergeRequestDiscussions returns the canned discussion threads for the MR.
 func (d *DemoService) ListMergeRequestDiscussions(_ context.Context, projectID, mrIID int) ([]gitlab.MRDiscussion, error) {
 	return demoDiscussions(projectID, mrIID), nil
 }
 
+// ListMergeRequestDiffs returns the canned changed-file diffs for the MR.
 func (d *DemoService) ListMergeRequestDiffs(_ context.Context, projectID, mrIID int) ([]gitlab.MRDiffFile, error) {
 	return demoDiffs(projectID, mrIID), nil
 }
 
+// ListPipelineBridges always returns nil; the demo dataset has no child
+// (downstream) pipelines.
 func (d *DemoService) ListPipelineBridges(_ context.Context, _, _ int) ([]gitlab.PipelineBridge, error) {
 	return nil, nil
 }
 
+// GetPipelineTestReport always returns a nil report; the demo dataset has no
+// test reports.
 func (d *DemoService) GetPipelineTestReport(_ context.Context, _, _ int) (*gitlab.TestReport, error) {
 	return nil, nil
 }
 
+// ListProjectCommits returns the canned commit history for projectID, ignoring
+// the ref and limit arguments.
 func (d *DemoService) ListProjectCommits(_ context.Context, projectID int, _ string, _ int) ([]gitlab.CommitSummary, error) {
 	return demoCommits(projectID), nil
 }
 
+// ResolveMergeRequestDiscussion is a no-op write that always succeeds.
 func (d *DemoService) ResolveMergeRequestDiscussion(_ context.Context, _, _ int, _ string, _ bool) error {
 	return nil
 }
 
+// AddMergeRequestDiscussionNote is a no-op write that always succeeds.
 func (d *DemoService) AddMergeRequestDiscussionNote(_ context.Context, _, _ int, _ string, _ string) error {
 	return nil
 }
 
+// CreateMergeRequestDiscussion is a no-op write that always succeeds.
 func (d *DemoService) CreateMergeRequestDiscussion(_ context.Context, _, _ int, _ string, _ *gitlab.MRCommentPosition) error {
 	return nil
 }
 
+// GetMergeRequestDiffRefs returns fixed placeholder base/head/start SHAs so the
+// inline-comment positioning path can be exercised offline.
 func (d *DemoService) GetMergeRequestDiffRefs(_ context.Context, _, _ int) (gitlab.MRDiffRefs, error) {
 	return gitlab.MRDiffRefs{
 		BaseSHA:  "abc123def456",
@@ -268,10 +315,13 @@ func (d *DemoService) GetMergeRequestDiffRefs(_ context.Context, _, _ int) (gitl
 	}, nil
 }
 
+// ListBranches returns a fixed set of sample branch names for any project.
 func (d *DemoService) ListBranches(_ context.Context, _ int, _ string) ([]string, error) {
 	return []string{"main", "develop", "feature/auth", "feature/dashboard", "fix/login-bug", "release/v2.0"}, nil
 }
 
+// CreateMergeRequest is a no-op write that fabricates an opened MR (synthetic
+// IID 999) echoing opts; nothing is persisted.
 func (d *DemoService) CreateMergeRequest(_ context.Context, _ int, opts gitlab.CreateMROptions) (gitlab.MergeRequestSummary, error) {
 	return gitlab.MergeRequestSummary{
 		IID:          999,
@@ -285,6 +335,7 @@ func (d *DemoService) CreateMergeRequest(_ context.Context, _ int, opts gitlab.C
 	}, nil
 }
 
+// CurrentUser returns a fixed "Demo User" identity.
 func (d *DemoService) CurrentUser(_ context.Context) (gitlab.UserInfo, error) {
 	return gitlab.UserInfo{
 		ID:       1,
@@ -296,6 +347,10 @@ func (d *DemoService) CurrentUser(_ context.Context) (gitlab.UserInfo, error) {
 	}, nil
 }
 
+// GetProject silently resolves any idOrPath to the first sample project,
+// regardless of what was requested. It only errors when the demo dataset is
+// empty, and then with a plain fmt.Errorf (no %w wrapping), since there is no
+// sentinel to match — demo lookups never legitimately "miss".
 func (d *DemoService) GetProject(_ context.Context, idOrPath string) (gitlab.ProjectNode, error) {
 	// Demo mode resolves any identifier to the first sample project so the
 	// CLI path can be exercised offline without needing to teach the demo
@@ -307,6 +362,10 @@ func (d *DemoService) GetProject(_ context.Context, idOrPath string) (gitlab.Pro
 	return all[0], nil
 }
 
+// GetPipeline looks up a demo pipeline by ID within projectID. On a miss it
+// returns the bare gitlab.ErrNoPipelines sentinel (matchable with errors.Is) —
+// intentionally unlike the real client, which wraps the upstream error with %w
+// ("get pipeline %d: %w"); the demo has no upstream error to wrap.
 func (d *DemoService) GetPipeline(_ context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error) {
 	for _, p := range demoPipelines(projectID) {
 		if p.ID == pipelineID {
@@ -316,6 +375,9 @@ func (d *DemoService) GetPipeline(_ context.Context, projectID, pipelineID int) 
 	return gitlab.PipelineSummary{}, gitlab.ErrNoPipelines
 }
 
+// GetJob looks up a demo job by ID across projectID's pipelines. On a miss it
+// fabricates a successful job with the requested ID rather than erroring, so
+// the streaming-log poll loop terminates immediately in demo mode.
 func (d *DemoService) GetJob(_ context.Context, projectID, jobID int) (gitlab.PipelineJob, error) {
 	// Demo data is keyed loosely by project; surface the first matching
 	// job so the CLI streaming path can be exercised offline. A real
@@ -331,6 +393,11 @@ func (d *DemoService) GetJob(_ context.Context, projectID, jobID int) (gitlab.Pi
 	return gitlab.PipelineJob{ID: jobID, Status: "success"}, nil
 }
 
+// LatestPipelineForSHA returns the demo pipeline whose commit matches sha. It
+// returns gitlab.ErrNoPipelines (matchable with errors.Is) on any miss —
+// whether projectID has no pipelines at all or none for that SHA — matching the
+// real client's contract so callers' not-found fallback paths still fire in
+// demo mode rather than being silently fed a wrong pipeline.
 func (d *DemoService) LatestPipelineForSHA(_ context.Context, projectID int, sha string) (gitlab.PipelineSummary, error) {
 	// Match the real gitlab client's contract: ErrNoPipelines on any
 	// miss, whether the project has no pipelines at all or none for

@@ -66,7 +66,7 @@ const (
 	// UI layout constants
 	stageTableDefaultHeight  = 10 // Default row count for the pipeline stage table
 	projectTabCount          = 2  // Number of project tabs (Favorites, All)
-	pipelineDetailTabCount   = 3  // Number of pipeline detail tabs (Log, Info, Tests)
+	pipelineDetailTabCount   = 3  // Number of pipeline detail tabs (Log, Tests, Artifacts)
 	pipelineLogHeaderReserve = 6  // Rows the log pane reserves above the viewport (title + KVs + divider)
 )
 

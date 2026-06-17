@@ -355,8 +355,6 @@ func bigStepIdx(key string, idx, length, height int) (newIdx int, handled bool) 
 	return idx, false
 }
 
-// Pipeline log scrolling now handled by viewport directly in key handlers
-
 // logError logs an error if the logger is configured. This eliminates the
 // repeated `if m.opts.Logger != nil { m.opts.Logger.Error(...) }` pattern.
 func (m *Model) logError(msg string, args ...any) {

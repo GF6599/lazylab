@@ -100,6 +100,10 @@ const (
 // ParseFormat resolves a --format flag value. Empty string yields the
 // default (FormatTable) so an unset flag does not have to be special-cased
 // at the call site.
+//
+// On an unrecognized value it returns a non-nil error AND FormatTable: the
+// Format return is only meaningful when err == nil, so callers must check
+// the error first and never act on the Format on the error path.
 func ParseFormat(s string) (Format, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "table", "text":
@@ -129,6 +133,11 @@ type KV struct {
 // a single bad value would otherwise corrupt the entire stream and
 // downstream `jq` would refuse the whole batch instead of skipping
 // the failing record.
+//
+// A marshal failure is returned wrapped with %w under "encode json:"; a
+// failure writing the buffered document to w is wrapped with %w under
+// "write json:". Callers can errors.Unwrap / errors.Is the underlying
+// cause to distinguish a bad value from a failing writer.
 func PrintJSON(w io.Writer, v any) error {
 	w = redact(w)
 	var buf bytes.Buffer
@@ -177,6 +186,10 @@ func (t *Table) AddRow(cells ...string) {
 // Render writes the table to w. Returns nil for an empty header set so
 // callers don't have to special-case "no data" — useful for `--format
 // table` paths where an empty list is a legitimate (silent) result.
+//
+// For a non-empty table, any error from w is returned unwrapped (the raw
+// fmt.Fprintf error, with no %w context added), so callers must compare
+// against the writer's own error values rather than a cliout sentinel.
 //
 // Column widths are measured in terminal display cells via go-runewidth
 // rather than bytes or runes. That keeps Unicode names ("François"),
@@ -254,6 +267,10 @@ func writeTableRow(w io.Writer, cells []string, widths []int) error {
 // emitted as label-only to support section headings. The output is
 // deliberately plain (no color, no box drawing) so it remains readable when
 // redirected to a file or piped into another tool.
+//
+// Returns the first fmt.Fprintf error from w unwrapped (no %w context), so
+// callers must match against the writer's own error rather than a cliout
+// sentinel.
 func PrintKV(w io.Writer, rows []KV) error {
 	w = redact(w)
 	width := 0

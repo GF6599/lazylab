@@ -19,6 +19,9 @@ import "github.com/charmbracelet/lipgloss"
 // preferences JSON; values must remain stable across versions.
 type ThemeName int
 
+// The available theme presets, ordered as the user cycles through them with the
+// ~ hotkey. Their iota values are the persisted preference, so existing entries
+// must keep their order; append new presets before themeCount.
 const (
 	ThemeRosePineMoon ThemeName = iota
 	ThemeTokyoNight

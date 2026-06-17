@@ -15,7 +15,8 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
-// startSearch activates the search input and returns the blink command.
+// startSearch focuses the (cleared) search input, returning textinput.Blink to
+// drive the cursor.
 func (m Model) startSearch() (tea.Model, tea.Cmd) {
 	m.search.active = true
 	m.search.query = ""

@@ -23,6 +23,12 @@ import (
 // Handler wraps an slog.Handler to scrub sensitive credentials. It
 // implements the full slog.Handler interface so it can be used as a
 // drop-in decorator around any underlying handler (text, JSON, etc.).
+//
+// Handler holds no shared mutable state of its own, so it is as safe for
+// concurrent use as the wrapped handler it decorates. Redaction applies
+// only to the record message and to string- and group-kinded attribute
+// values (groups recursively); all other value kinds (ints, bools,
+// durations, times, etc.) pass through untouched.
 type Handler struct {
 	handler slog.Handler
 }
@@ -82,10 +88,16 @@ func redactValue(v slog.Value) slog.Value {
 	}
 }
 
+// Enabled reports whether the wrapped handler is enabled for level; it
+// delegates directly without altering the decision.
 func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.handler.Enabled(ctx, level)
 }
 
+// Handle redacts the record's message and attribute values, then forwards
+// a rewritten copy to the wrapped handler. The returned error is the
+// wrapped handler's error verbatim (not wrapped); redaction itself never
+// fails, so any non-nil error originates downstream.
 func (h *Handler) Handle(ctx context.Context, record slog.Record) error {
 	// Redact the message.
 	record.Message = Redact(record.Message)
@@ -107,6 +119,10 @@ func (h *Handler) Handle(ctx context.Context, record slog.Record) error {
 	return h.handler.Handle(ctx, newRecord)
 }
 
+// WithAttrs redacts attr values up front, at bind time, before handing
+// them to the wrapped handler — not when records are later emitted. This
+// means a secret captured in a pre-bound attribute is scrubbed once here
+// and the wrapped handler only ever stores the redacted form.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	// Redact attributes before passing to wrapped handler.
 	redacted := make([]slog.Attr, len(attrs))
@@ -119,6 +135,10 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &Handler{handler: h.handler.WithAttrs(redacted)}
 }
 
+// WithGroup opens a named attribute group on the wrapped handler. Unlike
+// WithAttrs, the group name is passed through unredacted: group names are
+// caller-supplied structural labels, not log payload, so they are not
+// expected to carry secrets and are left intact.
 func (h *Handler) WithGroup(name string) slog.Handler {
 	return &Handler{handler: h.handler.WithGroup(name)}
 }

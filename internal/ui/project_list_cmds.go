@@ -216,11 +216,12 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 // projects concurrently. All goroutines share a single context with the given
 // timeout, so a slow API server won't block indefinitely.
 //
-// Concurrency is unbounded — each project gets its own goroutine. This is
-// acceptable because the caller (queueBatchPrefetchPipelineStatus) limits the
-// batch to the currently visible page (~30 projects). Results are collected
-// through a buffered channel sized to len(projects), guaranteeing no goroutine
-// blocks on send.
+// Concurrency is bounded by a batchConcurrencyLimit-slot semaphore to avoid
+// tripping GitLab's rate limiter (429), which would otherwise provoke retry
+// backoff storms. The launch loop acquires a slot before each goroutine and
+// bails out early if the context is cancelled before it can acquire one,
+// returning whatever results were already collected. The result channel is
+// buffered to len(projects) so no worker blocks on send.
 //
 // ErrNoPipelines is mapped to empty=true rather than treated as an error, so
 // the UI can distinguish "no pipeline exists" from "API call failed".
