@@ -41,7 +41,7 @@ Type "<"
 Sleep 1s
 
 # Phase 3 — Pipeline Drill-Down
-Tab
+Type "2"
 Sleep 1500ms
 
 # Navigate to a pipeline
@@ -51,7 +51,7 @@ Type "j"
 Sleep 1500ms
 
 # Stages panel — see jobs and log preview
-Tab
+Type "3"
 Sleep 1500ms
 Type "j"
 Sleep 400ms
