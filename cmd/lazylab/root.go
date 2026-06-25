@@ -11,6 +11,7 @@ import (
 	"github.com/GF6599/lazylab/internal/config"
 	"github.com/GF6599/lazylab/internal/demo"
 	"github.com/GF6599/lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/glabauth"
 	"github.com/GF6599/lazylab/internal/redacting"
 )
 
@@ -50,6 +51,11 @@ func configFromCtx(ctx context.Context) config.Config {
 // main.go's build vars at root construction time so the test harness can
 // supply its own without rebuilding the binary.
 var versionString = "dev"
+
+// resolveGlabCredentials reads the token and host that glab has stored. It is a
+// package variable so tests can substitute a deterministic resolver rather than
+// shelling out to a real glab binary.
+var resolveGlabCredentials = glabauth.Resolve
 
 // newRootCmd assembles the Cobra command. The root command's RunE launches
 // the TUI; persistent flags (token, host, log-level, config, demo) live here.
@@ -94,7 +100,7 @@ clipboard, or Y to browse every glab command available for it.`,
 // via exitCodeFor — so a missing token surfaces as exit 1 with a redacted log
 // line before the TUI ever starts.
 func setupContext(cmd *cobra.Command) error {
-	cfg, err := config.Load(cmd.Flags())
+	cfg, err := config.Load(cmd.Flags(), config.WithGlabResolver(resolveGlabCredentials))
 	if err != nil {
 		return fmt.Errorf("config error: %w", err)
 	}

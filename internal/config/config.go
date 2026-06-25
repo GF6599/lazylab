@@ -83,6 +83,24 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int(FlagDiffContextLines, 0, "Number of diff context lines around MR comments (default 10, 0 = disabled)")
 }
 
+// Option configures Load. With no options, Load is pure: it reads only flags,
+// environment variables, the config file, and compiled defaults.
+type Option func(*loadConfig)
+
+// loadConfig holds Load's optional injected dependencies.
+type loadConfig struct {
+	// glabResolver, when set, supplies a token and host to fall back on when no
+	// token is otherwise provided. It returns ok=false when glab has nothing.
+	glabResolver func() (token, host string, ok bool)
+}
+
+// WithGlabResolver makes Load fall back to glab's stored credentials when no
+// token comes from a flag, environment variable, or config file. The resolver is
+// injected so the config package never depends on glab and stays testable.
+func WithGlabResolver(r func() (token, host string, ok bool)) Option {
+	return func(lc *loadConfig) { lc.glabResolver = r }
+}
+
 // Load merges configuration from defaults, an optional config file,
 // environment variables (prefix GITLAB_), and CLI flags — in that precedence
 // order — then validates the result.
@@ -100,13 +118,17 @@ func RegisterFlags(fs *pflag.FlagSet) {
 // The config file path is resolved from --config, then $LAZYLAB_CONFIG, then
 // $GITLAB_TUI_CONFIG. The dual env var support exists for backward
 // compatibility with an earlier project name.
-func Load(fs *pflag.FlagSet) (Config, error) {
+func Load(fs *pflag.FlagSet, opts ...Option) (Config, error) {
+	var lc loadConfig
+	for _, opt := range opts {
+		opt(&lc)
+	}
+
 	var cfg Config
 
 	v := viper.New()
 	v.SetEnvPrefix("gitlab")
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	v.SetDefault(FlagHost, defaultHost)
 	v.SetDefault(FlagProjectsPerPage, defaultProjectsPerPage)
 	v.SetDefault(FlagLogLevel, defaultLogLevel)
 	v.SetDefault(FlagDiffContextLines, defaultDiffContextLines)
@@ -142,6 +164,19 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	cfg.Demo = v.GetBool(FlagDemo)
 	cfg.DiffContextLines = v.GetInt(FlagDiffContextLines)
 
+	// glab credential fallback: when no token came from a flag, env var, or config
+	// file, borrow the token (and the host it is scoped to) that the glab CLI has
+	// stored, so a glab-authed user needs no separate GITLAB_TOKEN. Demo mode and
+	// an explicitly-set host are left untouched.
+	if cfg.Token == "" && !cfg.Demo && lc.glabResolver != nil {
+		if token, host, ok := lc.glabResolver(); ok {
+			cfg.Token = token
+			if cfg.Host == "" {
+				cfg.Host = host
+			}
+		}
+	}
+
 	// Apply defaults uniformly. Demo mode skips network/token validation but
 	// still uses the same default values as a normal run.
 	if cfg.Host == "" {
@@ -168,7 +203,7 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 		return cfg, fmt.Errorf("invalid log level %q, must be one of: debug, info, warn, error", cfg.LogLevel)
 	}
 	if cfg.Token == "" {
-		return cfg, fmt.Errorf("gitlab token is required via --%s or $GITLAB_TOKEN", FlagToken)
+		return cfg, fmt.Errorf("gitlab token is required: set --%s, $GITLAB_TOKEN, or run `glab auth login`", FlagToken)
 	}
 
 	return cfg, nil

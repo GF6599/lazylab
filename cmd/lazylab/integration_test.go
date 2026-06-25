@@ -91,6 +91,11 @@ func TestCLI_VersionFlag(t *testing.T) {
 // specific code because the config-validation failure is a generic error.
 func TestCLI_NoTokenNoDemo_ExitsNonZero(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "")
+	// Simulate glab having no stored credentials so the token-required guard is
+	// what fails, independent of whether this machine has glab authenticated.
+	restore := resolveGlabCredentials
+	resolveGlabCredentials = func() (string, string, bool) { return "", "", false }
+	defer func() { resolveGlabCredentials = restore }()
 
 	_, stderr, code := runCLI(t)
 	if code == exitOK {
@@ -116,5 +121,33 @@ func TestCLI_BogusFlag_NoPanic(t *testing.T) {
 	_, stderr, code := runCLI(t, "--bogus")
 	if code == exitOK {
 		t.Fatalf("expected non-zero exit, got %d (stderr: %s)", code, stderr)
+	}
+}
+
+// TestSetupContext_UsesGlabCredentialsWhenNoToken confirms the glab fallback is
+// wired into startup: with no lazylab token but a resolver that yields glab's
+// stored credentials, setupContext builds a client against glab's host.
+func TestSetupContext_UsesGlabCredentialsWhenNoToken(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GITLAB_HOST", "")
+	restore := resolveGlabCredentials
+	resolveGlabCredentials = func() (string, string, bool) {
+		return "glpat-fake-from-glab", "https://gl.example.com", true
+	}
+	defer func() { resolveGlabCredentials = restore }()
+
+	cmd := newRootCmd()
+	cmd.SetContext(context.Background()) // ExecuteContext would do this in production
+	if err := cmd.ParseFlags(nil); err != nil {
+		t.Fatalf("parse flags: %v", err)
+	}
+	if err := setupContext(cmd); err != nil {
+		t.Fatalf("setupContext should succeed using glab credentials: %v", err)
+	}
+	if got := configFromCtx(cmd.Context()).Host; got != "https://gl.example.com" {
+		t.Errorf("host = %q, want the glab-provided host", got)
+	}
+	if clientFromCtx(cmd.Context()) == nil {
+		t.Error("expected a client built from the glab credentials")
 	}
 }
