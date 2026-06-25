@@ -25,7 +25,7 @@ git clone https://github.com/GF6599/lazylab.git
 cd lazylab && go build ./cmd/lazylab
 ```
 
-Requires Go 1.26+ and a GitLab personal access token with `api` scope.
+Requires Go 1.26+ and a GitLab personal access token with `api` scope, or an authenticated [`glab`](https://gitlab.com/gitlab-org/cli) (see [Configuration](#configuration)).
 
 ## Usage
 
@@ -51,11 +51,15 @@ Every emitted command carries `-R <group/project>`, so it targets the project yo
 
 ## Configuration
 
-The token is the only required value. Everything else has a default. Precedence (highest first): CLI flags > env vars (`GITLAB_*` prefix) > config file > compiled defaults.
+A GitLab token is the only required value, and you can skip even that when `glab` is logged in (see below). Everything else has a default. Precedence (highest first): CLI flags > env vars (`GITLAB_*` prefix) > config file > glab credentials > compiled defaults.
 
 Run `lazylab --help` for the flag surface. Defaults and validation rules live in `internal/config/config.go`.
 
 Config files are optional. Viper parses YAML, TOML, and JSON. Point at one with `--config <path>` or `$LAZYLAB_CONFIG`.
+
+### glab credentials
+
+If no token is supplied by flag, env, or config file, lazylab falls back to the credentials [`glab`](https://gitlab.com/gitlab-org/cli) has stored (from `glab auth login`). It borrows both the token and the host glab is configured for, so a glab-authenticated user, including on self-hosted GitLab, can run `lazylab` with no further setup. An explicit `--host` / `GITLAB_HOST` is still honored; glab only fills what you leave unset.
 
 ## Architecture
 
@@ -66,6 +70,7 @@ Config files are optional. Viper parses YAML, TOML, and JSON. Point at one with 
 | `internal/gitlab`     | Thin wrapper around `client-go` for projects, pipelines, jobs, MRs.   |
 | `internal/ui`         | Bubble Tea model: multi-panel layout, state machines, caching.        |
 | `internal/glabcmd`    | Maps a focused entity to its `glab` commands (pure, no I/O).          |
+| `internal/glabauth`   | Reads glab's stored token/host so `GITLAB_TOKEN` is optional.         |
 | `internal/redacting`  | slog handler that scrubs tokens before they reach stderr.             |
 | `internal/demo`       | In-memory `gitlab.Service` for `--demo` runs.                         |
 
