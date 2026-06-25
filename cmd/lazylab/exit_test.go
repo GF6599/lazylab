@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	gl "gitlab.com/gitlab-org/api/client-go"
-
-	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 // TestExitCodeFor exercises every branch of the error→exit-code map.
@@ -53,16 +51,6 @@ func TestExitCodeFor(t *testing.T) {
 			name: "wrapped context.Canceled still clean",
 			err:  fmt.Errorf("aborted by user: %w", context.Canceled),
 			want: exitOK,
-		},
-		{
-			name: "watchedFailureError maps to exitWatchedFailure",
-			err:  &watchedFailureError{Resource: "pipeline", Status: "failed"},
-			want: exitWatchedFailure,
-		},
-		{
-			name: "wrapped watchedFailureError still exitWatchedFailure",
-			err:  fmt.Errorf("watcher loop terminated: %w", &watchedFailureError{Resource: "job", Status: "canceled"}),
-			want: exitWatchedFailure,
 		},
 		{
 			name: "401 unauthorized → exitUnauthorized",
@@ -110,11 +98,6 @@ func TestExitCodeFor(t *testing.T) {
 			want: exitTransient,
 		},
 		{
-			name: "ErrNoProjectContext is generic (user input error, not a network failure)",
-			err:  gitlab.ErrNoProjectContext,
-			want: exitGeneric,
-		},
-		{
 			name: "net.Error (dial refused) → exitNetworkFailure",
 			err:  &fakeNetErr{msg: "dial tcp: connection refused"},
 			want: exitNetworkFailure,
@@ -143,17 +126,6 @@ func TestExitCodeFor(t *testing.T) {
 				t.Fatalf("exitCodeFor(%v) = %d, want %d", tt.err, got, tt.want)
 			}
 		})
-	}
-}
-
-// TestWatchedFailureError_Message pins the human-readable shape of the
-// watched-failure error message. Scripts may grep stderr for this
-// substring (e.g. `lazylab pipeline watch 2>&1 | grep "ended with"`).
-func TestWatchedFailureError_Message(t *testing.T) {
-	e := &watchedFailureError{Resource: "pipeline", Status: "failed"}
-	want := "pipeline ended with status: failed"
-	if got := e.Error(); got != want {
-		t.Fatalf("Error() = %q, want %q", got, want)
 	}
 }
 

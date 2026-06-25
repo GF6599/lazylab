@@ -43,20 +43,11 @@ const (
 	// FlagDiffContextLines controls how many unified-diff lines surround
 	// positioned MR comments in the Comments tab. Env: GITLAB_DIFF_CONTEXT_LINES.
 	FlagDiffContextLines = "diff-context-lines"
-	// FlagProject selects the GitLab project for CLI subcommands. Accepts
-	// a numeric ID or a namespace path (e.g. "group/sub/path"). Empty
-	// falls back to git-remote inference. Env: GITLAB_PROJECT, with
-	// backward-compat for LAZYLAB_PROJECT.
-	FlagProject = "project"
-	// FlagRemote selects the git remote whose URL is inspected when
-	// inferring the project from the surrounding clone. Env: GITLAB_REMOTE.
-	FlagRemote = "remote"
 
 	defaultHost             = "https://gitlab.com"
 	defaultProjectsPerPage  = 30
 	defaultLogLevel         = "error"
 	defaultDiffContextLines = 10
-	defaultRemote           = "origin"
 )
 
 // Config holds the fully-resolved runtime settings after all sources have
@@ -73,17 +64,6 @@ type Config struct {
 	// DiffContextLines is the number of diff context lines to show around
 	// positioned MR comments. 0 disables inline diff context.
 	DiffContextLines int
-	// Project is the GitLab project the CLI subcommands operate on. Accepts
-	// a numeric ID or a namespace path (e.g. "group/sub/path"). When empty,
-	// callers should fall back to detecting the project from the surrounding
-	// git remote. The TUI ignores this field — it derives project selection
-	// from interactive input.
-	Project string
-	// Remote is the git remote name probed when inferring project context
-	// from the working directory's clone. Defaults to "origin" — set this
-	// when the working tree's GitLab clone is configured under a different
-	// remote name (common when forking through "upstream").
-	Remote string
 	// ConfigFile records which file was loaded, if any. Empty when
 	// configuration came entirely from flags, env vars, and defaults.
 	ConfigFile string
@@ -101,11 +81,6 @@ func RegisterFlags(fs *pflag.FlagSet) {
 	fs.String(FlagLogLevel, "", "Log level: debug, info, warn, error")
 	fs.Bool(FlagDemo, false, "Run in demo mode with fake data (no token required)")
 	fs.Int(FlagDiffContextLines, 0, "Number of diff context lines around MR comments (default 10, 0 = disabled)")
-	// --project takes the short -p alias for parity with `git -C <path>`
-	// style ergonomics; subcommands page through it often enough that
-	// the keystroke savings matter.
-	fs.StringP(FlagProject, "p", "", "Project ID or namespace path (defaults to git remote; env: GITLAB_PROJECT, LAZYLAB_PROJECT)")
-	fs.String(FlagRemote, "", "Git remote name to derive --project from when not in env/flag (default origin; env: GITLAB_REMOTE)")
 }
 
 // Load merges configuration from defaults, an optional config file,
@@ -135,12 +110,6 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	v.SetDefault(FlagProjectsPerPage, defaultProjectsPerPage)
 	v.SetDefault(FlagLogLevel, defaultLogLevel)
 	v.SetDefault(FlagDiffContextLines, defaultDiffContextLines)
-	v.SetDefault(FlagRemote, defaultRemote)
-	// BindEnv with multiple keys lets GITLAB_PROJECT win over the legacy
-	// LAZYLAB_PROJECT (viper checks keys in registration order, stopping
-	// on the first hit). Explicit BindEnv is required for the dual-name
-	// case — AutomaticEnv only consults the prefixed form.
-	_ = v.BindEnv(FlagProject, "GITLAB_PROJECT", "LAZYLAB_PROJECT")
 	v.AutomaticEnv()
 	// BindPFlags wires each pflag into viper's precedence chain. Viper
 	// consults pflag.Flag.Changed() before flag.Value, so unset CLI flags
@@ -172,8 +141,6 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	cfg.LogLevel = strings.ToLower(v.GetString(FlagLogLevel))
 	cfg.Demo = v.GetBool(FlagDemo)
 	cfg.DiffContextLines = v.GetInt(FlagDiffContextLines)
-	cfg.Project = strings.TrimSpace(v.GetString(FlagProject))
-	cfg.Remote = strings.TrimSpace(v.GetString(FlagRemote))
 
 	// Apply defaults uniformly. Demo mode skips network/token validation but
 	// still uses the same default values as a normal run.
@@ -185,9 +152,6 @@ func Load(fs *pflag.FlagSet) (Config, error) {
 	}
 	if cfg.ProjectsPerPage <= 0 {
 		cfg.ProjectsPerPage = defaultProjectsPerPage
-	}
-	if cfg.Remote == "" {
-		cfg.Remote = defaultRemote
 	}
 
 	if cfg.Demo {

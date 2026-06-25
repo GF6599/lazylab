@@ -334,25 +334,6 @@ func TestGetJobTrace_TooLargeSentinel(t *testing.T) {
 	}
 }
 
-// TestGetJobTraceCapped_ReturnsFirstChunk verifies the "best effort
-// partial" path the streamer falls back to once degraded: no error, and
-// content trimmed to exactly MaxTraceSize.
-func TestGetJobTraceCapped_ReturnsFirstChunk(t *testing.T) {
-	big := strings.Repeat("y", MaxTraceSize+10)
-	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, big)
-	}))
-
-	got, err := client.GetJobTraceCapped(context.Background(), 42, 1)
-	if err != nil {
-		t.Fatalf("GetJobTraceCapped: %v", err)
-	}
-	if len(got) != MaxTraceSize {
-		t.Errorf("capped length: got %d want %d", len(got), MaxTraceSize)
-	}
-}
-
 // TestPipelineSummaryFromInfo_NilAndFallback locks down the two
 // branches the F1 fix added: nil input returns the zero value (so
 // callers don't panic on a missing pipeline) and a record with only
@@ -360,16 +341,6 @@ func TestGetJobTraceCapped_ReturnsFirstChunk(t *testing.T) {
 func TestPipelineSummaryFromInfo_NilAndFallback(t *testing.T) {
 	if got := pipelineSummaryFromInfo(nil); got.ID != 0 || got.Status != "" {
 		t.Errorf("pipelineSummaryFromInfo(nil) = %+v, want zero", got)
-	}
-}
-
-// TestParseGitLabResourceURL_MissingHost covers the host-empty branch
-// (e.g. a relative path slipped through the URL recognizer).
-func TestParseGitLabResourceURL_MissingHost(t *testing.T) {
-	// url.Parse("http:///foo/bar/-/pipelines/1") leaves Host empty.
-	_, _, err := ParsePipelineURL("http:///foo/bar/-/pipelines/1")
-	if err == nil {
-		t.Fatal("expected error for empty host")
 	}
 }
 

@@ -58,6 +58,13 @@ Sleep 400ms
 Type "j"
 Sleep 2s
 
+# Phase 3.5 — Emit a glab command
+# Press Y to open the glab command menu for the focused job, then dismiss
+Type "Y"
+Sleep 2500ms
+Escape
+Sleep 500ms
+
 # Phase 4 — Merge Requests
 Type "4"
 Sleep 1500ms

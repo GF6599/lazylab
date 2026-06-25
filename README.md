@@ -4,13 +4,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/GF6599/lazylab)](https://goreportcard.com/report/github.com/GF6599/lazylab)
 
-Keyboard-driven terminal UI and scripting CLI for GitLab projects, pipelines, jobs, and merge requests.
+Keyboard-driven terminal UI for GitLab projects, pipelines, jobs, and merge requests.
 
 ![Lazylab Demo](doc/demo.gif)
 
 ## Background
 
-Lazylab navigates GitLab the way `lazygit` navigates git. A multi-panel TUI with vim-style keys, pipeline auto-refresh, and a yazi-inspired file explorer. The same binary exposes a non-interactive CLI (`whoami`, `where`, `pipeline`, `job`) that shares config, cache, and credentials with the TUI. Useful when you want to watch a pipeline from a script or pipe a job log into `grep`.
+Lazylab navigates GitLab the way `lazygit` navigates git. A multi-panel TUI with vim-style keys, pipeline auto-refresh, and a yazi-inspired file explorer. For scripting, lazylab does not reinvent a CLI: press `y` on any focused item to copy the equivalent [`glab`](https://gitlab.com/gitlab-org/cli) command to your clipboard, or `Y` to browse every `glab` command available for it. The TUI is for interactive discovery; `glab` is for execution.
 
 ## Install
 
@@ -40,25 +40,20 @@ The UI opens on the alternate screen. Press `?` for the contextual help overlay,
 
 To explore the UI without a token, pass `--demo` for fake data.
 
-### CLI
+### Emitting glab commands
 
-The same binary runs non-interactively:
+lazylab is TUI-only. Rather than ship its own scripting CLI, it generates [`glab`](https://gitlab.com/gitlab-org/cli) commands for whatever you have focused:
 
-```bash
-lazylab whoami                     # who does my token belong to?
-lazylab where                      # what context will the CLI use?
-lazylab pipeline status @main      # latest pipeline on main
-lazylab pipeline watch HEAD        # tail the pipeline for the current commit
-lazylab job log 4567890 --follow   # tail -f a job's trace
-```
+- `y` copies the most useful `glab` command for the focused project, pipeline, job, or merge request to the clipboard.
+- `Y` opens a preview overlay listing every `glab` command for that item (`j`/`k` to move, `enter` or `y` to copy, `esc` to close).
 
-Pipeline references accept `@<ref>`, `HEAD`, `latest`, a numeric ID, or a full GitLab URL. Run `lazylab <cmd> --help` for the per-command surface.
+Every emitted command carries `-R <group/project>`, so it targets the project you were browsing regardless of your shell's working directory. Paste it, run it, or drop it into a script. Executing the commands needs [`glab`](https://gitlab.com/gitlab-org/cli) on your `PATH`.
 
 ## Configuration
 
 The token is the only required value. Everything else has a default. Precedence (highest first): CLI flags > env vars (`GITLAB_*` prefix) > config file > compiled defaults.
 
-The same precedence applies to the TUI and the CLI subcommands. Run `lazylab --help` for the persistent flag surface. Defaults and validation rules live in `internal/config/config.go`.
+Run `lazylab --help` for the flag surface. Defaults and validation rules live in `internal/config/config.go`.
 
 Config files are optional. Viper parses YAML, TOML, and JSON. Point at one with `--config <path>` or `$LAZYLAB_CONFIG`.
 
@@ -66,12 +61,11 @@ Config files are optional. Viper parses YAML, TOML, and JSON. Point at one with 
 
 | Package               | Role                                                                  |
 | --------------------- | --------------------------------------------------------------------- |
-| `cmd/lazylab`         | Cobra command tree. Root runs the TUI; subcommands handle CLI verbs.  |
+| `cmd/lazylab`         | Cobra root command that loads config and launches the TUI.            |
 | `internal/config`     | Viper-driven loader with flag/env/file/default precedence.            |
 | `internal/gitlab`     | Thin wrapper around `client-go` for projects, pipelines, jobs, MRs.   |
 | `internal/ui`         | Bubble Tea model: multi-panel layout, state machines, caching.        |
-| `internal/cliout`     | Output formatters (table, JSON) shared by every subcommand.           |
-| `internal/gitcontext` | Reads project, branch, and commit from the surrounding git remote.    |
+| `internal/glabcmd`    | Maps a focused entity to its `glab` commands (pure, no I/O).          |
 | `internal/redacting`  | slog handler that scrubs tokens before they reach stderr.             |
 | `internal/demo`       | In-memory `gitlab.Service` for `--demo` runs.                         |
 
