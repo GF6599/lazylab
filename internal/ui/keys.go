@@ -47,6 +47,10 @@ type keyMap struct {
 	MoveFavDn  key.Binding
 	Theme      key.Binding
 
+	// glab command emit
+	YankGlab    key.Binding
+	GlabPreview key.Binding
+
 	// Pagination
 	NextPage key.Binding
 	PrevPage key.Binding
@@ -197,6 +201,16 @@ func newKeyMap() keyMap {
 			key.WithHelp("~", "cycle theme"),
 		),
 
+		// glab command emit
+		YankGlab: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("y", "yank glab cmd"),
+		),
+		GlabPreview: key.NewBinding(
+			key.WithKeys("Y"),
+			key.WithHelp("Y", "glab cmd menu"),
+		),
+
 		// Pagination
 		NextPage: key.NewBinding(
 			key.WithKeys("]"),
@@ -338,6 +352,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Up, k.Down, k.HalfUp, k.HalfDown,
 			k.Top, k.Bottom, k.Enter, k.Search,
 			k.Favorite, k.Explorer, k.CycleTab,
+			k.YankGlab, k.GlabPreview,
 			k.NextPage, k.PrevPage, k.Refresh,
 			k.MoveFavUp, k.MoveFavDn,
 			k.Copy, k.Theme, k.Help, k.Quit,
@@ -348,6 +363,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Top, k.Bottom, k.Left, k.Right,
 			k.ScrollUp, k.ScrollDown, k.Retry, k.Cancel,
 			k.CycleTab, k.NextPage, k.PrevPage,
+			k.YankGlab, k.GlabPreview,
 			k.Refresh, k.Copy, k.Theme, k.Help, k.Quit,
 		}
 	case PanelStages:
@@ -356,6 +372,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Top, k.Bottom, k.Left, k.Right,
 			k.ScrollUp, k.ScrollDown, k.Retry, k.Cancel,
 			k.Play, k.CycleTab, k.Refresh, k.Copy,
+			k.YankGlab, k.GlabPreview,
 			k.Theme, k.Help, k.Quit,
 		}
 	case PanelMRs:
@@ -364,6 +381,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Top, k.Bottom, k.Left, k.Right,
 			k.ScrollUp, k.ScrollDown, k.Comment,
 			k.CreateMR, k.CycleTab, k.NextPage, k.PrevPage,
+			k.YankGlab, k.GlabPreview,
 			k.Copy, k.Theme, k.Help, k.Quit,
 		}
 	case PanelDetail:
