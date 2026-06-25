@@ -225,3 +225,100 @@ func TestLoad_InvalidLogLevel(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// TestLoad_FallsBackToGlabCredentials pins that, with no token from flag, env, or
+// config file, Load adopts the token and host the glab resolver supplies.
+// Why it matters: this is what lets a glab-authed user run lazylab with no
+// GITLAB_TOKEN, and the host must come along since the token is host-scoped.
+func TestLoad_FallsBackToGlabCredentials(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GITLAB_HOST", "")
+
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	_ = fs.Parse(nil)
+
+	resolver := func() (string, string, bool) {
+		return "glpat-from-glab", "https://gitlab.example.com", true
+	}
+	cfg, err := Load(fs, WithGlabResolver(resolver))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Token != "glpat-from-glab" {
+		t.Error("token was not taken from the glab fallback")
+	}
+	if cfg.Host != "https://gitlab.example.com" {
+		t.Errorf("host = %q, want the glab host", cfg.Host)
+	}
+}
+
+// TestLoad_GlabFallbackYieldsToEnvToken pins that an explicit token outranks the
+// glab fallback, and that glab's host is not adopted when the token came from env.
+func TestLoad_GlabFallbackYieldsToEnvToken(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "env-token")
+	t.Setenv("GITLAB_HOST", "")
+
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	_ = fs.Parse(nil)
+
+	resolver := func() (string, string, bool) {
+		return "glab-token", "https://glab.example.com", true
+	}
+	cfg, err := Load(fs, WithGlabResolver(resolver))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Token != "env-token" {
+		t.Error("env token must win over the glab fallback")
+	}
+	if cfg.Host != defaultHost {
+		t.Errorf("host = %q, want default %q; glab host must not be adopted when env supplies the token", cfg.Host, defaultHost)
+	}
+}
+
+// TestLoad_GlabFallbackKeepsExplicitHost pins that an explicit --host is kept even
+// when the token comes from the glab fallback.
+func TestLoad_GlabFallbackKeepsExplicitHost(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	_ = fs.Parse([]string{"--host", "https://my.gitlab.test"})
+
+	resolver := func() (string, string, bool) {
+		return "glab-token", "https://glab.example.com", true
+	}
+	cfg, err := Load(fs, WithGlabResolver(resolver))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Host != "https://my.gitlab.test" {
+		t.Errorf("host = %q, want the explicit --host; glab host must not override it", cfg.Host)
+	}
+	if cfg.Token == "" {
+		t.Error("expected the token to come from the glab fallback")
+	}
+}
+
+// TestLoad_GlabFallbackSkippedInDemo pins that demo mode never consults glab.
+func TestLoad_GlabFallbackSkippedInDemo(t *testing.T) {
+	t.Setenv("GITLAB_TOKEN", "")
+
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	_ = fs.Parse([]string{"--demo"})
+
+	called := false
+	resolver := func() (string, string, bool) {
+		called = true
+		return "glab-token", "https://glab.example.com", true
+	}
+	if _, err := Load(fs, WithGlabResolver(resolver)); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if called {
+		t.Error("glab resolver must not be consulted in demo mode")
+	}
+}
