@@ -66,6 +66,18 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, exitCode int) 
 	return outBuf.String(), errBuf.String(), exitCodeFor(runErr)
 }
 
+// clearAmbientCredentials blanks every environment source that can feed a
+// token into config.Load — the token/host env vars and both config-file
+// pointers — so tokenless tests exercise the guard under test instead of
+// whatever the developer's shell happens to export.
+func clearAmbientCredentials(t *testing.T) {
+	t.Helper()
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GITLAB_HOST", "")
+	t.Setenv("LAZYLAB_CONFIG", "")
+	t.Setenv("GITLAB_TUI_CONFIG", "")
+}
+
 // TestCLI_VersionFlag pins that --version exits 0 and emits the custom
 // "lazylab <ver>" template (not Cobra's default "lazylab version <ver>"). The
 // template was set on the root command precisely so the output matches the
@@ -90,7 +102,7 @@ func TestCLI_VersionFlag(t *testing.T) {
 // validation before the TUI ever launches. We assert non-zero rather than a
 // specific code because the config-validation failure is a generic error.
 func TestCLI_NoTokenNoDemo_ExitsNonZero(t *testing.T) {
-	t.Setenv("GITLAB_TOKEN", "")
+	clearAmbientCredentials(t)
 	// Simulate glab having no stored credentials so the token-required guard is
 	// what fails, independent of whether this machine has glab authenticated.
 	restore := resolveGlabCredentials
@@ -128,8 +140,7 @@ func TestCLI_BogusFlag_NoPanic(t *testing.T) {
 // wired into startup: with no lazylab token but a resolver that yields glab's
 // stored credentials, setupContext builds a client against glab's host.
 func TestSetupContext_UsesGlabCredentialsWhenNoToken(t *testing.T) {
-	t.Setenv("GITLAB_TOKEN", "")
-	t.Setenv("GITLAB_HOST", "")
+	clearAmbientCredentials(t)
 	restore := resolveGlabCredentials
 	resolveGlabCredentials = func(string) (string, string, bool) {
 		return "glpat-fake-from-glab", "https://gl.example.com", true
@@ -149,5 +160,60 @@ func TestSetupContext_UsesGlabCredentialsWhenNoToken(t *testing.T) {
 	}
 	if clientFromCtx(cmd.Context()) == nil {
 		t.Error("expected a client built from the glab credentials")
+	}
+}
+
+// TestCLI_UnknownVerb_Errors pins that stray positional arguments are rejected
+// with a message naming the offender. Without an Args validator the root would
+// treat "lazylab whoami" as a plain TUI launch, which in a non-TTY pipe dies
+// trying to open /dev/tty instead of telling the user the verb doesn't exist.
+func TestCLI_UnknownVerb_Errors(t *testing.T) {
+	clearAmbientCredentials(t)
+	restore := resolveGlabCredentials
+	resolveGlabCredentials = func(string) (string, string, bool) { return "", "", false }
+	defer func() { resolveGlabCredentials = restore }()
+
+	_, stderr, code := runCLI(t, "whoami")
+	if code == exitOK {
+		t.Fatalf("expected non-zero exit, got %d (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stderr, "whoami") {
+		t.Errorf("expected stderr to name the offending argument; got:\n%s", stderr)
+	}
+}
+
+// TestCLI_Help_NoToken_ExitsZero guards the first-run experience: a user with
+// no token yet must be able to run "lazylab help" to learn how to supply one,
+// so the token-required guard cannot apply to the help verb.
+func TestCLI_Help_NoToken_ExitsZero(t *testing.T) {
+	clearAmbientCredentials(t)
+	restore := resolveGlabCredentials
+	resolveGlabCredentials = func(string) (string, string, bool) { return "", "", false }
+	defer func() { resolveGlabCredentials = restore }()
+
+	stdout, stderr, code := runCLI(t, "help")
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, exitOK, stderr)
+	}
+	if !strings.Contains(stdout, "Usage:") {
+		t.Errorf("expected usage text on stdout; got:\n%s", stdout)
+	}
+}
+
+// TestCLI_CompletionZsh_NoToken_ExitsZero pins that shell completion works
+// without credentials: completion scripts run from shell init, so a token
+// requirement here would error on every new shell until auth is configured.
+func TestCLI_CompletionZsh_NoToken_ExitsZero(t *testing.T) {
+	clearAmbientCredentials(t)
+	restore := resolveGlabCredentials
+	resolveGlabCredentials = func(string) (string, string, bool) { return "", "", false }
+	defer func() { resolveGlabCredentials = restore }()
+
+	stdout, stderr, code := runCLI(t, "completion", "zsh")
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, exitOK, stderr)
+	}
+	if !strings.Contains(stdout, "compdef") {
+		t.Errorf("expected a zsh completion script on stdout; got:\n%s", stdout)
 	}
 }
