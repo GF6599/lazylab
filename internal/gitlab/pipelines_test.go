@@ -8,14 +8,27 @@ import (
 	"testing"
 )
 
+// TestPipelineSummary_NilPipeline: a nil *gl.Pipeline maps to the zero PipelineSummary.
+// Given a nil pipeline pointer, when pipelineSummary converts it, then ID,
+// Status, Ref, and User all stay at their zero values instead of panicking.
+// Why it matters: the retry and get paths can produce a nil pipeline on odd
+// API responses; a nil dereference in this mapper would crash the TUI.
 func TestPipelineSummary_NilPipeline(t *testing.T) {
+	// When/Then: a nil pipeline converts to the zero value without panicking.
 	got := pipelineSummary(nil)
 	if got.ID != 0 || got.Status != "" || got.Ref != "" || got.User != "" {
 		t.Errorf("pipelineSummary(nil) should return zero value, got %+v", got)
 	}
 }
 
+// TestListPipelines_Success: a pipeline page maps rows with status, ref, and source intact.
+// Given a canned two-pipeline page served from /projects/1/pipelines, when
+// ListPipelines runs, then both rows return and the first keeps ID 100,
+// status success, ref main, and source push.
+// Why it matters: the pipelines panel sorts and colours rows by exactly these
+// fields; a mapping slip would render wrong statuses for every run.
 func TestListPipelines_Success(t *testing.T) {
+	// Given: a server answering the pipelines path with the two-row fixture.
 	data, err := os.ReadFile("testdata/pipelines.json")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
@@ -31,10 +44,13 @@ func TestListPipelines_Success(t *testing.T) {
 		w.Write(data)
 	}))
 
+	// When: listing the first page of pipelines.
 	page, err := client.ListPipelines(context.Background(), 1, PipelineListOptions{Page: 1, PerPage: 25})
 	if err != nil {
 		t.Fatalf("ListPipelines: %v", err)
 	}
+
+	// Then: both rows map with their display fields intact.
 	if len(page.Pipelines) != 2 {
 		t.Fatalf("expected 2 pipelines, got %d", len(page.Pipelines))
 	}
@@ -47,19 +63,34 @@ func TestListPipelines_Success(t *testing.T) {
 	}
 }
 
+// TestListPipelines_EmptyPage1: an empty first page means the project has no pipelines at all.
+// Given a server returning an empty array for page one, when ListPipelines
+// runs, then the error matches ErrNoPipelines.
+// Why it matters: the UI turns this sentinel into a "no CI runs" empty state;
+// returning an empty page instead would render a blank panel with no
+// explanation.
 func TestListPipelines_EmptyPage1(t *testing.T) {
+	// Given: a server answering page one with an empty list.
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte("[]"))
 	}))
 
+	// When/Then: listing page one yields the ErrNoPipelines sentinel.
 	_, err := client.ListPipelines(context.Background(), 1, PipelineListOptions{Page: 1})
 	if !errors.Is(err, ErrNoPipelines) {
 		t.Fatalf("expected ErrNoPipelines, got %v", err)
 	}
 }
 
+// TestListPipelines_EmptyPage2: an empty later page is a normal end of results, not an error.
+// Given a server returning an empty array for page two, when ListPipelines
+// runs, then it returns an empty page with a nil error.
+// Why it matters: paging past the last pipeline is routine navigation;
+// raising ErrNoPipelines there would flash an error on a project that plainly
+// has pipelines.
 func TestListPipelines_EmptyPage2(t *testing.T) {
+	// Given: a server whose page two is empty but well-formed.
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Page", "2")
@@ -67,7 +98,9 @@ func TestListPipelines_EmptyPage2(t *testing.T) {
 		w.Write([]byte("[]"))
 	}))
 
+	// When: listing page two.
 	page, err := client.ListPipelines(context.Background(), 1, PipelineListOptions{Page: 2})
+	// Then: the empty page comes back without an error.
 	if err != nil {
 		t.Fatalf("expected no error for empty page 2, got %v", err)
 	}
@@ -76,7 +109,15 @@ func TestListPipelines_EmptyPage2(t *testing.T) {
 	}
 }
 
+// TestLatestPipeline_Success: the newest pipeline is returned with its stages pre-aggregated.
+// Given canned pipeline and job listings, when LatestPipeline runs with no
+// ref filter, then the summary carries pipeline ID 100 plus the three stages
+// folded from its jobs.
+// Why it matters: the project list's status badge comes from this call; a
+// regression in the two-request stitch (pipeline list, then its jobs) would
+// show stale or stageless statuses.
 func TestLatestPipeline_Success(t *testing.T) {
+	// Given: a server routing the pipelines list and the jobs list by path.
 	pipelinesData, _ := os.ReadFile("testdata/pipelines.json")
 	jobsData, _ := os.ReadFile("testdata/pipeline_jobs.json")
 
@@ -92,10 +133,13 @@ func TestLatestPipeline_Success(t *testing.T) {
 		}
 	}))
 
+	// When: fetching the latest pipeline across all refs.
 	summary, err := client.LatestPipeline(context.Background(), 1, "")
 	if err != nil {
 		t.Fatalf("LatestPipeline: %v", err)
 	}
+
+	// Then: the newest pipeline arrives with its stages aggregated.
 	if summary.ID != 100 {
 		t.Errorf("expected pipeline ID=100, got %d", summary.ID)
 	}
@@ -104,19 +148,34 @@ func TestLatestPipeline_Success(t *testing.T) {
 	}
 }
 
+// TestLatestPipeline_NoPipelines: a project with no CI history surfaces ErrNoPipelines.
+// Given a server returning an empty pipeline list, when LatestPipeline runs,
+// then the error matches ErrNoPipelines via errors.Is.
+// Why it matters: projects without CI hit this path on every refresh; mapping
+// it to a generic error would spam failure banners across the project list.
 func TestLatestPipeline_NoPipelines(t *testing.T) {
+	// Given: a server answering with an empty pipeline list.
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte("[]"))
 	}))
 
+	// When/Then: the lookup yields the ErrNoPipelines sentinel.
 	_, err := client.LatestPipeline(context.Background(), 1, "main")
 	if !errors.Is(err, ErrNoPipelines) {
 		t.Fatalf("expected ErrNoPipelines, got %v", err)
 	}
 }
 
+// TestCollectPipelineStages_Aggregation: jobs fold into per-stage statuses in declaration order.
+// Given the three-job fixture spanning build, test, and deploy, when
+// PipelineStages runs, then three stages return with build reporting success
+// and deploy reporting failed.
+// Why it matters: stage badges are computed from this fold; a grouping or
+// priority bug would hide the failed deploy stage behind its passing
+// siblings.
 func TestCollectPipelineStages_Aggregation(t *testing.T) {
+	// Given: a server answering with the three-job fixture.
 	jobsData, _ := os.ReadFile("testdata/pipeline_jobs.json")
 
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -124,24 +183,31 @@ func TestCollectPipelineStages_Aggregation(t *testing.T) {
 		w.Write(jobsData)
 	}))
 
+	// When: aggregating the pipeline's stages.
 	stages, err := client.PipelineStages(context.Background(), 1, 100)
 	if err != nil {
 		t.Fatalf("PipelineStages: %v", err)
 	}
+
+	// Then: three stages return in order with their folded statuses.
 	if len(stages) != 3 {
 		t.Fatalf("expected 3 stages, got %d", len(stages))
 	}
-	// Build stage should be success
 	if stages[0].Name != "build" || stages[0].Status != "success" {
 		t.Errorf("stage[0] = %+v, want build/success", stages[0])
 	}
-	// Deploy stage should be failed
 	if stages[2].Name != "deploy" || stages[2].Status != "failed" {
 		t.Errorf("stage[2] = %+v, want deploy/failed", stages[2])
 	}
 }
 
+// TestCancelPipeline_Success: cancelling a pipeline POSTs to the cancel endpoint and reports success.
+// Given a server expecting POST /projects/1/pipelines/100/cancel, when
+// CancelPipeline runs, then it returns nil.
+// Why it matters: cancel is a mutating call bound to a hotkey; a wrong path
+// or method would no-op while the user believes the pipeline is stopping.
 func TestCancelPipeline_Success(t *testing.T) {
+	// Given: a cancel endpoint that checks the method and path.
 	pipelinesData, _ := os.ReadFile("testdata/pipelines.json")
 
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -149,17 +215,26 @@ func TestCancelPipeline_Success(t *testing.T) {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		// Return the first pipeline object
-		w.Write(pipelinesData[1 : len(pipelinesData)-1]) // extract first object
+		// Stripping the fixture's array brackets leaves the first pipeline
+		// object readable: the JSON decoder stops after the first value.
+		w.Write(pipelinesData[1 : len(pipelinesData)-1])
 	}))
 
+	// When/Then: cancelling succeeds without error.
 	err := client.CancelPipeline(context.Background(), 1, 100)
 	if err != nil {
 		t.Fatalf("CancelPipeline: %v", err)
 	}
 }
 
+// TestGetPipelineTestReport_Success: a JUnit test report maps with counts, suites, and cases.
+// Given a canned report fixture, when GetPipelineTestReport runs, then the
+// report carries TotalCount 3, FailedCount 1, two suites, and the unit
+// suite's two cases.
+// Why it matters: the test-report view aggregates these counters; a mapping
+// slip would misreport how many tests failed in a pipeline.
 func TestGetPipelineTestReport_Success(t *testing.T) {
+	// Given: a server answering with the canned test report.
 	data, _ := os.ReadFile("testdata/test_report.json")
 
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -167,10 +242,13 @@ func TestGetPipelineTestReport_Success(t *testing.T) {
 		w.Write(data)
 	}))
 
+	// When: fetching the pipeline's test report.
 	report, err := client.GetPipelineTestReport(context.Background(), 1, 100)
 	if err != nil {
 		t.Fatalf("GetPipelineTestReport: %v", err)
 	}
+
+	// Then: totals, suites, and cases all map through.
 	if report == nil {
 		t.Fatal("expected non-nil report")
 	}
@@ -191,7 +269,16 @@ func TestGetPipelineTestReport_Success(t *testing.T) {
 	}
 }
 
+// TestListPipelineBridges_WithDownstream: bridge jobs map with their downstream pipeline link when present.
+// Given a canned response with one triggered bridge and one whose downstream
+// is absent, when ListPipelineBridges runs, then the first bridge carries its
+// name, status, and downstream pipeline ID 200, and the second keeps a nil
+// DownstreamPipeline.
+// Why it matters: child-pipeline navigation follows DownstreamPipeline; a
+// nil-handling bug would either crash on untriggered bridges or invent
+// downstreams that do not exist.
 func TestListPipelineBridges_WithDownstream(t *testing.T) {
+	// Given: a server answering with the two-bridge fixture.
 	data, _ := os.ReadFile("testdata/bridges.json")
 
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +286,7 @@ func TestListPipelineBridges_WithDownstream(t *testing.T) {
 		w.Write(data)
 	}))
 
+	// When: listing the pipeline's bridges.
 	bridges, err := client.ListPipelineBridges(context.Background(), 1, 100)
 	if err != nil {
 		t.Fatalf("ListPipelineBridges: %v", err)
@@ -206,6 +294,8 @@ func TestListPipelineBridges_WithDownstream(t *testing.T) {
 	if len(bridges) != 2 {
 		t.Fatalf("expected 2 bridges, got %d", len(bridges))
 	}
+
+	// Then: the triggered bridge maps its fields and downstream link.
 	b0 := bridges[0]
 	if b0.Name != "trigger-child" || b0.Status != "success" {
 		t.Errorf("bridge[0] = %+v", b0)
@@ -216,7 +306,8 @@ func TestListPipelineBridges_WithDownstream(t *testing.T) {
 	if b0.DownstreamPipeline.ID != 200 {
 		t.Errorf("expected downstream ID=200, got %d", b0.DownstreamPipeline.ID)
 	}
-	// Second bridge has no downstream
+
+	// And: the bridge without a downstream stays nil.
 	if bridges[1].DownstreamPipeline != nil {
 		t.Error("expected nil DownstreamPipeline for bridge[1]")
 	}
