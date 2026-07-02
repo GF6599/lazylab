@@ -13,7 +13,7 @@ import (
 // worthy failures (rate limiting, network blips) from permanent ones (auth,
 // bad config).
 //
-// Stable contract — do not renumber. Documented in README.
+// Stable contract for scripts that wrap lazylab: do not renumber.
 const (
 	exitOK             = 0
 	exitGeneric        = 1 // catch-all: 404, validation, bad flags, unknown
@@ -22,8 +22,8 @@ const (
 	exitNetworkFailure = 4 // DNS/TCP/TLS errors before a response arrived
 )
 
-// exitCodeFor maps an error from anywhere in the command pipeline (config
-// load, client construction, subcommand RunE) to a process exit code. It
+// exitCodeFor maps an error from anywhere in the startup pipeline (config
+// load, client construction, the TUI run) to a process exit code. It
 // walks the error chain so wrapped errors from internal/gitlab still
 // surface their underlying HTTP status.
 //

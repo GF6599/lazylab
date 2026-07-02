@@ -1,13 +1,12 @@
 // Package main is the entrypoint for lazylab.
 //
-// Lazylab is both a Bubble Tea-powered terminal UI and a non-interactive
-// CLI for GitLab. Running with no arguments launches the TUI on the
-// alternate screen; subcommands (whoami, job, pipeline, mr, project)
-// produce stdout-friendly output for scripting. Both share the same
-// configuration precedence, the redacting logger, and the underlying
-// gitlab.Service implementation.
+// Lazylab is a Bubble Tea-powered terminal UI for browsing GitLab
+// projects, pipelines, merge requests, and repository files. It runs on
+// the alternate screen; for scripting, pressing y on a focused item
+// copies the equivalent glab command and Y browses every glab command
+// available for it.
 //
-// The command tree is assembled in root.go; this file is the thin shell
+// The Cobra root is assembled in root.go; this file is the thin shell
 // that handles signal propagation, version-string wiring, and exit-code
 // mapping.
 package main
@@ -38,7 +37,7 @@ func main() {
 	// Hand the build identity to Cobra's native --version handler.
 	// Doing it here (rather than in newRootCmd) keeps the linker-baked
 	// variables, ldflags string assembly, and version-string formatting
-	// in one place — newRootCmd remains pure command-tree wiring.
+	// in one place, so newRootCmd remains pure command wiring.
 	versionString = fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date)
 
 	rootCmd := newRootCmd()

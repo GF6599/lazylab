@@ -12,9 +12,8 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// TestExitCodeFor exercises every branch of the error→exit-code map.
-// The mapping is the stable scripting contract documented in the
-// `lazylab pipeline status --help` output, so any change here is a
+// TestExitCodeFor exercises every branch of the error -> exit-code map.
+// The mapping is a stable scripting contract, so any change here is a
 // breaking change for shell wrappers that already depend on the codes.
 //
 // HTTP-status branches build their errors by routing a real call through
