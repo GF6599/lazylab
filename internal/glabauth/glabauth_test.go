@@ -7,8 +7,11 @@ import (
 	"time"
 )
 
-// resolveWith assembles the host URL from glab's stored host + protocol and
-// passes the token through untouched.
+// TestResolve_BuildsHostURLFromGlabConfig: the host URL is assembled from
+// glab's stored host and protocol, and the token passes through untouched.
+// Given glab reporting a token, a bare host, and a protocol, when resolveWith
+// runs without a host hint, then it returns the token with the host spelled
+// as <protocol>://<host>.
 // Why it matters: this is what lets a glab-authed user run lazylab without a
 // separate GITLAB_TOKEN, so the token and the host it is scoped to must come
 // from glab together.
@@ -41,6 +44,13 @@ func TestResolve_BuildsHostURLFromGlabConfig(t *testing.T) {
 	}
 }
 
+// TestResolve_NoTokenYieldsNotOK: a glab with a host but no stored token
+// resolves to not-ok.
+// Given glab reporting a host but no token from any lookup, when resolveWith
+// runs, then it reports no usable credentials.
+// Why it matters: a half-configured glab (host set, never logged in) is
+// common, and answering ok here would hand config.Load an empty token and a
+// host as if they were real credentials.
 func TestResolve_NoTokenYieldsNotOK(t *testing.T) {
 	// Given: glab is configured but has no token anywhere
 	run := func(_ string, args ...string) (string, string, error) {
@@ -56,6 +66,13 @@ func TestResolve_NoTokenYieldsNotOK(t *testing.T) {
 	}
 }
 
+// TestResolve_GlabUnavailableYieldsNotOK: a missing glab binary resolves to
+// not-ok.
+// Given a runner that errors the way exec does when glab is not on PATH, when
+// resolveWith runs, then it reports no usable credentials.
+// Why it matters: glab is optional, so a machine without it must get a quiet
+// "no credentials" answer and proceed to the normal token-required guidance
+// instead of crashing at startup.
 func TestResolve_GlabUnavailableYieldsNotOK(t *testing.T) {
 	// Given: glab is not on PATH, so the runner errors
 	run := func(_ string, _ ...string) (string, string, error) {
@@ -68,6 +85,12 @@ func TestResolve_GlabUnavailableYieldsNotOK(t *testing.T) {
 	}
 }
 
+// TestResolve_DefaultsHostAndProtocolWhenAbsent: a token with no stored host
+// or protocol resolves against https://gitlab.com.
+// Given glab returning a token but empty host and protocol, when resolveWith
+// runs, then the host falls back to https://gitlab.com.
+// Why it matters: glab itself defaults to gitlab.com over https, so any other
+// fallback would send the stored token to a host glab never meant it for.
 func TestResolve_DefaultsHostAndProtocolWhenAbsent(t *testing.T) {
 	// Given: glab returns a token but empty host and protocol
 	run := func(_ string, args ...string) (string, string, error) {
@@ -89,10 +112,14 @@ func TestResolve_DefaultsHostAndProtocolWhenAbsent(t *testing.T) {
 	}
 }
 
-// resolveWith keeps a stored host verbatim when it already carries a scheme.
+// TestResolve_HostWithSchemeUsedVerbatim: a stored host that already carries
+// a scheme is used as-is.
+// Given glab's stored host already including https:// (a GL_HOST
+// passthrough), when resolveWith runs, then the returned host is that value
+// verbatim with no second scheme prepended.
 // Why it matters: glab passes GITLAB_HOST/GL_HOST values straight through, so
-// "glab config get host" can print https://gitlab.example.com; prepending a
-// protocol again would send lazylab to https://https://gitlab.example.com.
+// "glab config get host" can print https://gitlab.example.com, and prepending
+// a protocol again would send lazylab to https://https://gitlab.example.com.
 func TestResolve_HostWithSchemeUsedVerbatim(t *testing.T) {
 	// Given: glab's stored host already includes a scheme (GL_HOST passthrough)
 	run := func(_ string, args ...string) (string, string, error) {
@@ -117,10 +144,14 @@ func TestResolve_HostWithSchemeUsedVerbatim(t *testing.T) {
 	}
 }
 
-// resolveWith finds a token stored under glab's per-host config section.
-// Why it matters: "glab auth login" stores the token under hosts.<host>, where
-// a plain "glab config get token" does not see it, so the standard glab setup
-// only resolves through the --host lookup.
+// TestResolve_ReadsPerHostTokenFromConfig: a token stored under glab's
+// per-host config section is found and paired with its host.
+// Given no top-level token but one stored for glab's default host, when
+// resolveWith runs without a host hint, then the per-host token comes back
+// together with that host.
+// Why it matters: "glab auth login" stores the token under hosts.<host>,
+// where a plain "glab config get token" does not see it, so without the
+// --host lookup the standard glab setup would resolve to nothing.
 func TestResolve_ReadsPerHostTokenFromConfig(t *testing.T) {
 	// Given: no top-level token, but one stored for glab's default host
 	run := func(_ string, args ...string) (string, string, error) {
@@ -145,8 +176,11 @@ func TestResolve_ReadsPerHostTokenFromConfig(t *testing.T) {
 	}
 }
 
-// resolveWith falls back to "glab auth status --show-token" when the config
-// file holds no token.
+// TestResolve_KeyringTokenViaAuthStatus: a keyring-stored token is recovered
+// via "glab auth status --show-token" when the config file holds none.
+// Given no token in glab's config but an auth status report naming one on
+// stderr, when resolveWith runs without a host hint, then the full token,
+// dotted suffix included, is parsed out of the report.
 // Why it matters: keyring logins never write the token to glab's config file,
 // so a user who ran "glab auth login" with keyring storage would otherwise be
 // told no token exists.
@@ -180,7 +214,11 @@ func TestResolve_KeyringTokenViaAuthStatus(t *testing.T) {
 	}
 }
 
-// resolveWith scopes the token lookup to the host hint when one is given.
+// TestResolve_HostHintScopesTokenLookup: a host hint restricts the token
+// lookup to that host.
+// Given glab holding both a default-host token and a different one for the
+// hinted host, when resolveWith runs with the hint, then only the hinted
+// host's token is returned and the hint comes back verbatim as the host.
 // Why it matters: a token glab stored for gitlab.com must never be sent to a
 // different, explicitly configured host, so the hinted lookup goes through
 // "glab config get token --host <hostname>" only.
@@ -211,7 +249,11 @@ func TestResolve_HostHintScopesTokenLookup(t *testing.T) {
 	}
 }
 
-// resolveWith refuses to adopt a token stored for another host.
+// TestResolve_HostHintWithoutStoredTokenYieldsNotOK: a hint for a host glab
+// holds no token for yields nothing, not the default-host token.
+// Given glab holding only a default-host token and an auth status that
+// rejects the hinted host, when resolveWith runs with the hint, then it
+// returns empty credentials and not-ok.
 // Why it matters: pairing glab's default-host token with an explicitly
 // configured host would send the credential to an instance it was never
 // issued for.
@@ -236,10 +278,14 @@ func TestResolve_HostHintWithoutStoredTokenYieldsNotOK(t *testing.T) {
 	}
 }
 
-// resolveWith consults auth status for the hinted host when its config entry
-// is empty.
-// Why it matters: keyring users on a self-hosted instance have no token in the
-// config file either, so the hinted flow needs the same keyring fallback.
+// TestResolve_HostHintKeyringTokenViaAuthStatus: the hinted lookup falls back
+// to auth status when the host's config entry is empty.
+// Given no config-file token for the hinted host but an auth status report
+// naming one, when resolveWith runs with the hint, then that keyring token is
+// returned paired with the hinted host.
+// Why it matters: keyring users on a self-hosted instance have no token in
+// the config file either, so without the same fallback the hinted flow would
+// report an authenticated glab as having no credentials.
 func TestResolve_HostHintKeyringTokenViaAuthStatus(t *testing.T) {
 	// Given: no config token for the hinted host, but auth status reports one
 	run := func(_ string, args ...string) (string, string, error) {
@@ -261,7 +307,11 @@ func TestResolve_HostHintKeyringTokenViaAuthStatus(t *testing.T) {
 	}
 }
 
-// execRunner gives up when glab does not respond within the deadline.
+// TestExecRunner_TimesOutOnHangingCommand: a command that outlives the
+// deadline is cut off with an error.
+// Given glabTimeout shortened to 50ms and a command that sleeps for 5s, when
+// execRunner runs it, then an error comes back well before the sleep could
+// finish.
 // Why it matters: a token behind a locked OS keyring makes glab block on an
 // unlock prompt, and lazylab must not freeze at startup waiting for it.
 func TestExecRunner_TimesOutOnHangingCommand(t *testing.T) {

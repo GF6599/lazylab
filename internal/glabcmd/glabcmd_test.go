@@ -2,10 +2,16 @@ package glabcmd
 
 import "testing"
 
-// For maps the focused TUI entity to the ordered glab commands the hotkeys surface.
-// Why it matters: command [0] is what the yank key copies and the whole list populates
-// the preview overlay, so both the exact invocation and its order are a user-visible
-// contract. lazylab browses arbitrary projects, so every command must carry its project.
+// TestFor: each focusable entity maps to the ordered glab commands the hotkeys
+// surface, and unsupported selections map to none.
+// Given a representative selection per entity kind, covering hostile and
+// detached refs, gitlab.com and self-hosted instances, and the no-focus and
+// no-project cases, when For builds the command list, then every case yields
+// exactly the expected invocations in order, each carrying a menu label.
+// Why it matters: command [0] is what the yank key copies and the whole list
+// populates the preview overlay, so a reworded command, a reshuffled order, or
+// a dropped -R (lazylab browses arbitrary projects, not the current
+// directory's repo) changes what users paste and run.
 func TestFor(t *testing.T) {
 	// Given: a representative selection for each focusable entity, plus the unsupported cases
 	tests := []struct {
@@ -137,10 +143,14 @@ func TestFor(t *testing.T) {
 	}
 }
 
-// shellQuote keeps ordinary values readable and neutralizes shell metacharacters.
-// Why it matters: yanked commands get pasted into a shell verbatim, and git ref
-// names may legally contain ; $ & ( ) # and friends, so an unquoted ref could run
-// or silently truncate a second command on the user's machine.
+// TestShellQuote: ordinary values pass through bare and anything carrying
+// shell metacharacters is single-quoted.
+// Given safe refs, paths, and URLs alongside values containing semicolons,
+// subshells, ampersands, hashes, backticks, and quotes, when shellQuote
+// renders each, then the output is exactly the expected shell-safe form.
+// Why it matters: yanked commands get pasted into a shell verbatim, and git
+// ref names may legally contain ; $ & ( ) # and friends, so an unquoted ref
+// could run or silently truncate a second command on the user's machine.
 func TestShellQuote(t *testing.T) {
 	// Given: safe values that must pass through and hostile ones that must be quoted
 	tests := []struct {
