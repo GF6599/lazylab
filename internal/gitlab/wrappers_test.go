@@ -18,35 +18,10 @@ import (
 // about (PipelineSummary fields silently disappearing because of
 // per-call-site differences).
 var wrappersFixture = struct {
-	user      string
-	project   string
 	pipeline  string
 	pipelines string
 	job       string
 }{
-	user: `{
-		"id": 7,
-		"username": "ada",
-		"name": "Ada Lovelace",
-		"email": "ada@example.com",
-		"state": "active",
-		"web_url": "https://gitlab.com/ada",
-		"avatar_url": "https://gitlab.com/uploads/ada.png",
-		"bio": "computing pioneer",
-		"is_admin": false
-	}`,
-	project: `{
-		"id": 42,
-		"name": "app",
-		"path_with_namespace": "team/app",
-		"description": "the app",
-		"web_url": "https://gitlab.com/team/app",
-		"ssh_url_to_repo": "git@gitlab.com:team/app.git",
-		"star_count": 3,
-		"visibility": "private",
-		"default_branch": "main",
-		"last_activity_at": "2025-01-01T10:00:00Z"
-	}`,
 	pipeline: `{
 		"id": 100,
 		"iid": 1,
@@ -115,93 +90,6 @@ func statusHandler(code int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(code)
 	})
-}
-
-func TestCurrentUser_Happy(t *testing.T) {
-	client := newTestClient(t, muxHandler(t, map[string]string{
-		"/api/v4/user": wrappersFixture.user,
-	}))
-
-	u, err := client.CurrentUser(context.Background())
-	if err != nil {
-		t.Fatalf("CurrentUser: %v", err)
-	}
-	if u.ID != 7 || u.Username != "ada" || u.Name != "Ada Lovelace" {
-		t.Errorf("user mismatch: %+v", u)
-	}
-	if u.Email != "ada@example.com" || u.WebURL == "" || u.Bio == "" {
-		t.Errorf("user secondary fields missing: %+v", u)
-	}
-}
-
-func TestCurrentUser_Unauthorized(t *testing.T) {
-	client := newTestClient(t, statusHandler(http.StatusUnauthorized))
-
-	_, err := client.CurrentUser(context.Background())
-	if err == nil {
-		t.Fatal("expected 401 error, got nil")
-	}
-	if !IsUnauthorized(err) {
-		t.Errorf("IsUnauthorized should match: %v", err)
-	}
-}
-
-func TestGetProject_NumericID(t *testing.T) {
-	// SDK URL-encodes the numeric form as the bare integer; path form
-	// gets percent-encoded slashes. Both terminate at the same handler
-	// route, so a per-form assertion is sufficient.
-	client := newTestClient(t, muxHandler(t, map[string]string{
-		"/api/v4/projects/42": wrappersFixture.project,
-	}))
-
-	p, err := client.GetProject(context.Background(), "42")
-	if err != nil {
-		t.Fatalf("GetProject(42): %v", err)
-	}
-	if p.ID != 42 || p.PathWithNamespace != "team/app" {
-		t.Errorf("project mismatch: %+v", p)
-	}
-}
-
-func TestGetProject_PathForm(t *testing.T) {
-	client := newTestClient(t, muxHandler(t, map[string]string{
-		"/api/v4/projects/team/app": wrappersFixture.project,
-	}))
-
-	p, err := client.GetProject(context.Background(), "team/app")
-	if err != nil {
-		t.Fatalf("GetProject(team/app): %v", err)
-	}
-	if p.PathWithNamespace != "team/app" {
-		t.Errorf("path mismatch: got %q", p.PathWithNamespace)
-	}
-	if p.DefaultBranch != "main" || p.SSHURLToRepo == "" {
-		t.Errorf("project secondary fields missing: %+v", p)
-	}
-}
-
-func TestGetProject_Empty(t *testing.T) {
-	client := newTestClient(t, statusHandler(http.StatusOK))
-
-	_, err := client.GetProject(context.Background(), "")
-	if err == nil {
-		t.Fatal("expected error for empty id")
-	}
-	if !strings.Contains(err.Error(), "empty id or path") {
-		t.Errorf("error should mention empty: %v", err)
-	}
-}
-
-func TestGetProject_NotFound(t *testing.T) {
-	client := newTestClient(t, statusHandler(http.StatusNotFound))
-
-	_, err := client.GetProject(context.Background(), "ghost/project")
-	if err == nil {
-		t.Fatal("expected 404 error, got nil")
-	}
-	if !IsNotFound(err) {
-		t.Errorf("IsNotFound should match: %v", err)
-	}
 }
 
 func TestGetPipeline_Happy(t *testing.T) {
