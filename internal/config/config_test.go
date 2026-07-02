@@ -238,7 +238,7 @@ func TestLoad_FallsBackToGlabCredentials(t *testing.T) {
 	RegisterFlags(fs)
 	_ = fs.Parse(nil)
 
-	resolver := func() (string, string, bool) {
+	resolver := func(string) (string, string, bool) {
 		return "glpat-from-glab", "https://gitlab.example.com", true
 	}
 	cfg, err := Load(fs, WithGlabResolver(resolver))
@@ -263,7 +263,7 @@ func TestLoad_GlabFallbackYieldsToEnvToken(t *testing.T) {
 	RegisterFlags(fs)
 	_ = fs.Parse(nil)
 
-	resolver := func() (string, string, bool) {
+	resolver := func(string) (string, string, bool) {
 		return "glab-token", "https://glab.example.com", true
 	}
 	cfg, err := Load(fs, WithGlabResolver(resolver))
@@ -287,8 +287,8 @@ func TestLoad_GlabFallbackKeepsExplicitHost(t *testing.T) {
 	RegisterFlags(fs)
 	_ = fs.Parse([]string{"--host", "https://my.gitlab.test"})
 
-	resolver := func() (string, string, bool) {
-		return "glab-token", "https://glab.example.com", true
+	resolver := func(hostHint string) (string, string, bool) {
+		return "glab-token", hostHint, true
 	}
 	cfg, err := Load(fs, WithGlabResolver(resolver))
 	if err != nil {
@@ -302,6 +302,39 @@ func TestLoad_GlabFallbackKeepsExplicitHost(t *testing.T) {
 	}
 }
 
+// TestLoad_GlabFallbackScopesToExplicitHost pins that the resolver is asked for
+// credentials scoped to the configured host, and that a not-ok answer leaves the
+// token empty so Load fails.
+// Why it matters: adopting glab's default-host token for a different, explicitly
+// configured host would send the credential to an instance it was never issued
+// for.
+func TestLoad_GlabFallbackScopesToExplicitHost(t *testing.T) {
+	// Given: an explicit host, no token from any source, and a resolver with
+	// nothing stored for that host
+	t.Setenv("GITLAB_TOKEN", "")
+
+	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	RegisterFlags(fs)
+	_ = fs.Parse([]string{"--host", "https://gitlab.internal.example"})
+
+	var gotHint string
+	resolver := func(hostHint string) (string, string, bool) {
+		gotHint = hostHint
+		return "", "", false
+	}
+
+	// When: we load the config
+	_, err := Load(fs, WithGlabResolver(resolver))
+
+	// Then: the resolver saw the configured host and no token was adopted
+	if gotHint != "https://gitlab.internal.example" {
+		t.Errorf("resolver hint = %q, want the configured host", gotHint)
+	}
+	if err == nil || !strings.Contains(err.Error(), "token is required") {
+		t.Fatalf("err = %v, want the token-required error", err)
+	}
+}
+
 // TestLoad_GlabFallbackSkippedInDemo pins that demo mode never consults glab.
 func TestLoad_GlabFallbackSkippedInDemo(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "")
@@ -311,7 +344,7 @@ func TestLoad_GlabFallbackSkippedInDemo(t *testing.T) {
 	_ = fs.Parse([]string{"--demo"})
 
 	called := false
-	resolver := func() (string, string, bool) {
+	resolver := func(string) (string, string, bool) {
 		called = true
 		return "glab-token", "https://glab.example.com", true
 	}
