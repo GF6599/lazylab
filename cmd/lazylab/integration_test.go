@@ -94,7 +94,7 @@ func TestCLI_NoTokenNoDemo_ExitsNonZero(t *testing.T) {
 	// Simulate glab having no stored credentials so the token-required guard is
 	// what fails, independent of whether this machine has glab authenticated.
 	restore := resolveGlabCredentials
-	resolveGlabCredentials = func() (string, string, bool) { return "", "", false }
+	resolveGlabCredentials = func(string) (string, string, bool) { return "", "", false }
 	defer func() { resolveGlabCredentials = restore }()
 
 	_, stderr, code := runCLI(t)
@@ -131,7 +131,7 @@ func TestSetupContext_UsesGlabCredentialsWhenNoToken(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "")
 	t.Setenv("GITLAB_HOST", "")
 	restore := resolveGlabCredentials
-	resolveGlabCredentials = func() (string, string, bool) {
+	resolveGlabCredentials = func(string) (string, string, bool) {
 		return "glpat-fake-from-glab", "https://gl.example.com", true
 	}
 	defer func() { resolveGlabCredentials = restore }()

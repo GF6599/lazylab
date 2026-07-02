@@ -1,11 +1,13 @@
 // Package config resolves lazylab's runtime configuration from multiple
 // sources with a strict precedence order: CLI flags beat environment
-// variables, which beat config file values, which beat compiled defaults.
+// variables, which beat config file values, which beat credentials stored by
+// the glab CLI (when injected via [WithGlabResolver]), which beat compiled
+// defaults.
 //
-// The only required value is a GitLab personal access token (api scope).
-// Everything else has sensible defaults targeting gitlab.com. Config files
-// are optional and can be YAML, TOML, or JSON — Viper auto-detects the
-// format from the file extension.
+// A GitLab personal access token (api scope) is required, but an
+// authenticated glab satisfies it. Everything else has sensible defaults
+// targeting gitlab.com. Config files are optional and can be YAML, TOML, or
+// JSON; Viper auto-detects the format from the file extension.
 package config
 
 import (
@@ -90,20 +92,25 @@ type Option func(*loadConfig)
 // loadConfig holds Load's optional injected dependencies.
 type loadConfig struct {
 	// glabResolver, when set, supplies a token and host to fall back on when no
-	// token is otherwise provided. It returns ok=false when glab has nothing.
-	glabResolver func() (token, host string, ok bool)
+	// token is otherwise provided. It receives the host resolved so far (empty
+	// when none was configured) so it can scope the token to that host, and
+	// returns ok=false when glab has nothing usable.
+	glabResolver func(hostHint string) (token, host string, ok bool)
 }
 
 // WithGlabResolver makes Load fall back to glab's stored credentials when no
-// token comes from a flag, environment variable, or config file. The resolver is
-// injected so the config package never depends on glab and stays testable.
-func WithGlabResolver(r func() (token, host string, ok bool)) Option {
+// token comes from a flag, environment variable, or config file. Load passes
+// the host resolved so far (empty when none was configured) so the resolver
+// only returns a token scoped to that host. The resolver is injected so the
+// config package never depends on glab and stays testable.
+func WithGlabResolver(r func(hostHint string) (token, host string, ok bool)) Option {
 	return func(lc *loadConfig) { lc.glabResolver = r }
 }
 
-// Load merges configuration from defaults, an optional config file,
-// environment variables (prefix GITLAB_), and CLI flags — in that precedence
-// order — then validates the result.
+// Load merges configuration from defaults, glab's stored credentials (when
+// injected via [WithGlabResolver] and nothing else supplies a token), an
+// optional config file, environment variables (prefix GITLAB_), and CLI
+// flags, in that precedence order, then validates the result.
 //
 // All errors are plain formatted strings except where noted as %w-wrapped;
 // none are sentinel values, so callers must not rely on errors.Is. Errors
@@ -135,8 +142,9 @@ func Load(fs *pflag.FlagSet, opts ...Option) (Config, error) {
 	v.AutomaticEnv()
 	// BindPFlags wires each pflag into viper's precedence chain. Viper
 	// consults pflag.Flag.Changed() before flag.Value, so unset CLI flags
-	// fall through to env vars, then the config file, then SetDefault —
-	// preserving the documented order: defaults < file < env < flags.
+	// fall through to env vars, then the config file, then SetDefault,
+	// preserving defaults < file < env < flags. The glab credential
+	// fallback sits outside viper and runs after this chain resolves.
 	if err := v.BindPFlags(fs); err != nil {
 		return cfg, fmt.Errorf("bind flags: %w", err)
 	}
@@ -165,11 +173,13 @@ func Load(fs *pflag.FlagSet, opts ...Option) (Config, error) {
 	cfg.DiffContextLines = v.GetInt(FlagDiffContextLines)
 
 	// glab credential fallback: when no token came from a flag, env var, or config
-	// file, borrow the token (and the host it is scoped to) that the glab CLI has
-	// stored, so a glab-authed user needs no separate GITLAB_TOKEN. Demo mode and
-	// an explicitly-set host are left untouched.
+	// file, borrow the token that the glab CLI has stored, so a glab-authed user
+	// needs no separate GITLAB_TOKEN. The host resolved so far is passed as a
+	// hint so the resolver only supplies a token scoped to that host; with no
+	// configured host, glab's own default host comes along with the token. Demo
+	// mode never consults glab.
 	if cfg.Token == "" && !cfg.Demo && lc.glabResolver != nil {
-		if token, host, ok := lc.glabResolver(); ok {
+		if token, host, ok := lc.glabResolver(cfg.Host); ok {
 			cfg.Token = token
 			if cfg.Host == "" {
 				cfg.Host = host
