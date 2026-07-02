@@ -8,7 +8,19 @@ import (
 	"testing"
 )
 
+// TestRedact: strings carrying GitLab tokens, bearer credentials, or
+// Authorization headers come back with the secret replaced by a redaction
+// placeholder, and clean strings pass through untouched.
+// Given inputs covering glpat/gloas/gldt/glcbt tokens, bearer values,
+// Authorization headers, a token inside a URL, multiple tokens in one string,
+// short-prefix and uppercase token variants, and one benign message, when each
+// is passed through Redact, then every secret becomes [REDACTED] or
+// [REDACTED-TOKEN] and the benign message is returned unchanged.
+// Why it matters: TUI status lines and CLI errors run raw GitLab SDK text
+// through Redact, so a pattern gap would print a live token to the user's
+// terminal and leave it in scrollback.
 func TestRedact(t *testing.T) {
+	// Given: inputs with secrets in varied shapes, and one with none.
 	tests := []struct {
 		name  string
 		input string
@@ -68,8 +80,8 @@ func TestRedact(t *testing.T) {
 			want:  "key=[REDACTED-TOKEN]",
 		},
 		{
-			// Hypothetical uppercase variant (e.g. GLPAT-) that previous
-			// [a-z] character class would have missed.
+			// Hypothetical uppercase variant (e.g. GLPAT-) that the
+			// previous [a-z] character class would have missed.
 			name:  "uppercase prefix variant",
 			input: "leak: glPAT-abc123def456",
 			want:  "leak: [REDACTED-TOKEN]",
@@ -78,7 +90,9 @@ func TestRedact(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// When: the input is redacted.
 			got := Redact(tt.input)
+			// Then: the output matches the expected masked form.
 			if got != tt.want {
 				t.Errorf("Redact() = %q, want %q", got, tt.want)
 			}
@@ -86,7 +100,20 @@ func TestRedact(t *testing.T) {
 	}
 }
 
+// TestHandler: log records emitted through the redacting handler come out with
+// secrets masked and benign fields untouched.
+// Given a slog logger whose redacting Handler wraps a buffer-backed text
+// handler, when records carrying a token in the message, a token in an error
+// attribute, an Authorization header in an attribute, or only benign fields
+// are logged, then the secret-bearing records surface only redaction
+// placeholders with the raw secrets gone, and the benign record passes through
+// with no redaction marker at all.
+// Why it matters: every lazylab log line flows through this handler, so a
+// regression would write real GitLab tokens to stderr, where terminal
+// scrollback and shell logs preserve them.
 func TestHandler(t *testing.T) {
+	// Given: records with secrets in the message, in attributes, and one
+	// with only benign fields.
 	tests := []struct {
 		name            string
 		message         string
@@ -132,6 +159,8 @@ func TestHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Given: a logger whose redacting handler wraps a text handler
+			// writing to a buffer.
 			var buf bytes.Buffer
 			baseHandler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
 				ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
@@ -145,16 +174,20 @@ func TestHandler(t *testing.T) {
 			handler := NewHandler(baseHandler)
 			logger := slog.New(handler)
 
+			// When: the record is logged with its attributes.
 			logger.LogAttrs(context.Background(), slog.LevelInfo, tt.message, tt.attrs...)
 
 			output := buf.String()
 
+			// Then: the expected strings survive into the output.
 			for _, want := range tt.wantContains {
 				if !strings.Contains(output, want) {
 					t.Errorf("output should contain %q, got: %s", want, output)
 				}
 			}
 
+			// And: nothing forbidden appears, raw secrets in the secret
+			// cases, redaction markers in the benign case.
 			for _, notWant := range tt.wantNotContains {
 				if strings.Contains(output, notWant) {
 					t.Errorf("output should NOT contain %q, got: %s", notWant, output)
