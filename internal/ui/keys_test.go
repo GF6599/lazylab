@@ -6,10 +6,12 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 )
 
-// multiPanelKeyMap advertises the glab yank/preview keys for the detail pane, where
-// handleMultiPanelKey intercepts y/Y before delegating to the panel handler.
-// Why it matters: the ? overlay is how users discover "press y on any focused item",
-// so a help list that omits the bindings hides a working feature.
+// TestMultiPanelKeyMap_DetailIncludesGlabKeys: the detail pane's help overlay advertises the glab yank and preview keys.
+// Given every detail-pane help branch (each MR tab plus the pipeline detail), when the help overlay asks
+// for the detail pane's bindings, then bindings with help keys y and Y are listed.
+// Why it matters: handleMultiPanelKey intercepts y/Y before delegating to the panel handler, so the ?
+// overlay is how users discover "press y on any focused item", and a help list that omits the bindings
+// hides a working feature.
 func TestMultiPanelKeyMap_DetailIncludesGlabKeys(t *testing.T) {
 	// Given: every detail-pane help branch (each MR tab plus the pipeline detail)
 	mrModelWithTab := func(tab mrDetailTab) *Model {

@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/GF6599/lazylab/internal/demo"
 	"github.com/GF6599/lazylab/internal/gitlab"
 	"github.com/GF6599/lazylab/internal/glabcmd"
 )
@@ -20,11 +23,14 @@ func focusedPipelineModel() Model {
 	}
 }
 
-// glabSelection projects the focused panel and its selected item into a
-// glabcmd.Selection (or reports that nothing emittable is focused).
-// Why it matters: this is the one impure bridge between UI state and the pure
-// command builder, so the project path it pulls from the owning panel is what
-// makes every emitted command target the right repository.
+// TestGlabSelection: each focused panel projects its selected item into a glab selection, and ambiguous
+// rows are refused.
+// Given a model focused on each panel kind (project, pipeline, job, matrix child, MR, detail mirror) plus
+// the refusal cases (bridge child, bridge header, matrix group header, empty list), when glabSelection
+// runs, then the selection carries the owning project path, host, and identifiers exactly, and the refusal
+// cases report ok=false.
+// Why it matters: this is the one impure bridge between UI state and the pure command builder, so a wrong
+// project path or ID here makes every emitted glab command target the wrong repository or run.
 func TestGlabSelection(t *testing.T) {
 	// Given: a focused panel with a selected item, for each panel and the refusal cases
 	tests := []struct {
@@ -207,8 +213,11 @@ func TestGlabSelection(t *testing.T) {
 	}
 }
 
-// glabCommands is the shared seam both hotkeys read: it resolves the focused
-// selection into its ordered glab commands plus the owning project.
+// TestGlabCommands: the focused selection resolves to its ordered glab commands and owning project.
+// Given a focused pipeline, when glabCommands runs, then it returns ok with the owning project, all four
+// commands, and the ID-precise get first, while an empty model resolves to not-ok.
+// Why it matters: both the y yank and the Y overlay read this shared seam, so a reordered list silently
+// changes which command y copies.
 func TestGlabCommands(t *testing.T) {
 	// Given: a focused pipeline
 	m := focusedPipelineModel()
@@ -237,11 +246,17 @@ func TestGlabCommands(t *testing.T) {
 	}
 }
 
-// yankGlabCommand copies the default (first) command and toasts; with nothing
-// emittable it sets a status instead of returning a clipboard command.
+// TestYankGlabCommand: yanking copies the selection's default command and only toasts when nothing is
+// emittable.
+// Given a focused pipeline and an empty model, when each is yanked, then the pipeline yields a clipboard
+// command while the empty model yields none and sets a status toast.
+// Why it matters: returning a clipboard command with nothing selected would overwrite the user's clipboard
+// with an empty or stale command.
 func TestYankGlabCommand(t *testing.T) {
-	// Given/When: a focused pipeline is yanked
+	// Given: a focused pipeline
 	m := focusedPipelineModel()
+
+	// When/Then: yanking it returns a clipboard command
 	if cmd := m.yankGlabCommand(); cmd == nil {
 		t.Error("yankGlabCommand() = nil, want a clipboard command for a focused pipeline")
 	}
@@ -256,10 +271,18 @@ func TestYankGlabCommand(t *testing.T) {
 	}
 }
 
-// openGlabPreview populates the overlay with the focused item's commands.
+// TestOpenGlabPreview: opening the overlay seeds it with the focused item's commands, or toasts when
+// nothing is focused.
+// Given a focused pipeline and an empty model, when the overlay opens on each, then the pipeline model
+// activates it with all four commands, the cursor at the top, and the project recorded, while the empty
+// model stays closed with a status toast.
+// Why it matters: an overlay seeded from a stale selection would offer the user commands for a different
+// item than the one on screen.
 func TestOpenGlabPreview(t *testing.T) {
-	// Given/When: the overlay is opened on a focused pipeline
+	// Given: a focused pipeline
 	m := focusedPipelineModel()
+
+	// When: the overlay opens (which must not return a command)
 	if cmd := m.openGlabPreview(); cmd != nil {
 		t.Error("openGlabPreview() should not return a command")
 	}
@@ -289,28 +312,43 @@ func TestOpenGlabPreview(t *testing.T) {
 	}
 }
 
-// glabPreviewMove keeps the cursor within bounds.
+// TestGlabPreviewMoveClamps: overlay cursor movement clamps at both ends of the command list.
+// Given an open overlay with three commands, when the cursor moves above the top and past the bottom,
+// then it pins to 0 and to the last index.
+// Why it matters: an unclamped cursor would index outside the command slice and panic the overlay render
+// on the next frame.
 func TestGlabPreviewMoveClamps(t *testing.T) {
+	// Given: an open overlay with three commands
 	m := Model{}
 	m.glabPreview = glabPreviewState{active: true, commands: make([]glabcmd.Command, 3)}
 
+	// When/Then: moving above the top clamps to 0
 	m.glabPreviewMove(-1)
 	if m.glabPreview.cursor != 0 {
 		t.Errorf("cursor = %d, want 0 (clamped at top)", m.glabPreview.cursor)
 	}
+
+	// And: moving down twice lands on the last command
 	m.glabPreviewMove(1)
 	m.glabPreviewMove(1)
 	if m.glabPreview.cursor != 2 {
 		t.Errorf("cursor = %d, want 2", m.glabPreview.cursor)
 	}
+
+	// And: moving past the bottom stays clamped there
 	m.glabPreviewMove(1)
 	if m.glabPreview.cursor != 2 {
 		t.Errorf("cursor = %d, want 2 (clamped at bottom)", m.glabPreview.cursor)
 	}
 }
 
-// handleGlabPreviewKey routes navigation, copy, and dismissal within the overlay.
+// TestHandleGlabPreviewKey: overlay keys navigate, copy, and dismiss.
+// Given an open overlay with two commands, when esc, j, and enter are each pressed, then esc closes the
+// overlay, j moves the cursor down, and enter closes it while returning a clipboard command.
+// Why it matters: a dead esc traps the user in the overlay, and an enter that copies without closing makes
+// every copy require a second dismissal.
 func TestHandleGlabPreviewKey(t *testing.T) {
+	// Given: a builder for an open overlay with two commands
 	build := func() Model {
 		m := Model{}
 		m.glabPreview = glabPreviewState{
@@ -324,22 +362,160 @@ func TestHandleGlabPreviewKey(t *testing.T) {
 		return m
 	}
 
-	// esc closes the overlay
+	// When/Then: esc closes the overlay
 	if got, _ := build().handleGlabPreviewKey(tea.KeyMsg{Type: tea.KeyEsc}); got.(Model).glabPreview.active {
 		t.Error("esc should close the overlay")
 	}
 
-	// j moves the cursor down
+	// When/Then: j moves the cursor down
 	if got, _ := build().handleGlabPreviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}); got.(Model).glabPreview.cursor != 1 {
 		t.Errorf("j -> cursor %d, want 1", got.(Model).glabPreview.cursor)
 	}
 
-	// enter copies the highlighted command and closes
+	// When: enter is pressed on the highlighted command
 	got, cmd := build().handleGlabPreviewKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Then: the overlay closes and a clipboard command comes back
 	if got.(Model).glabPreview.active {
 		t.Error("enter should close the overlay")
 	}
 	if cmd == nil {
 		t.Error("enter should return a clipboard command")
+	}
+}
+
+// Expected glab invocations for the demo selection: project acme-corp/api-gateway
+// (ID 1001) has its newest pipeline as the running one, ID 1001003 on
+// feature/add-metrics, so that is the pipeline the hotkeys read. No Host is
+// configured, so -R stays the bare project path.
+const (
+	demoGlabGetCmd  = "glab ci get -p 1001003 -R acme-corp/api-gateway"
+	demoGlabViewCmd = "glab ci view feature/add-metrics -R acme-corp/api-gateway"
+)
+
+// demoPipelinesPanelModel builds a NewModel over the demo service, sizes it,
+// and drives the real key/message loop until the pipelines panel is focused
+// and populated for the first demo project: seed the project list, enter the
+// project, execute the fetch command, and apply the resulting load message.
+func demoPipelinesPanelModel(t *testing.T) Model {
+	t.Helper()
+	svc := &demo.DemoService{}
+	m := NewModel(context.Background(), svc, Options{})
+
+	page, err := svc.ListProjects(context.Background(), gitlab.ProjectListOptions{Page: 1, PerPage: m.opts.ProjectsPerPage})
+	if err != nil {
+		t.Fatalf("demo ListProjects: %v", err)
+	}
+	m.loading = false
+	m.projectTab = projectTabAll
+	m.allProjects = page.Projects
+	m.pagesReady = map[int]bool{1: true}
+	m.invalidateVisibleCache()
+	m.updateProjectList()
+
+	res, _ := m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	m = res.(Model)
+
+	res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+	if m.focus.Active != PanelPipelines {
+		t.Fatalf("focus after enter = %d, want PanelPipelines", m.focus.Active)
+	}
+	if cmd == nil {
+		t.Fatal("expected a pipelines fetch command after enter")
+	}
+	msg := cmd()
+	loaded, ok := msg.(pipelinesLoadedMsg)
+	if !ok {
+		t.Fatalf("expected pipelinesLoadedMsg from the fetch command, got %T", msg)
+	}
+	res, _ = m.Update(loaded)
+	m = res.(Model)
+	if len(m.pipelineView.pipelines) == 0 {
+		t.Fatal("no pipelines loaded from the demo service")
+	}
+	return m
+}
+
+// TestGlabPreviewOverlay_CopiesSelectedCommand: Y renders the command overlay for
+// the selected pipeline and j+enter copies the highlighted command.
+// Given a demo-backed model with the pipelines panel populated, when Y opens the
+// overlay and j+enter picks the second command, then the rendered view lists the
+// ID-precise get and ref view commands, the clipboard receives the ref view command
+// verbatim, the status toasts it, and the overlay closes.
+// Why it matters: a stale selection or cursor drift makes the user paste a glab
+// command that acts on a different pipeline than the one on screen.
+func TestGlabPreviewOverlay_CopiesSelectedCommand(t *testing.T) {
+	// Given: the pipelines panel focused and populated from the demo service
+	m := demoPipelinesPanelModel(t)
+
+	// When: Y opens the command overlay
+	res, _ := m.Update(keyMsg("Y"))
+	m = res.(Model)
+
+	// Then: the rendered view shows the overlay with the selection's commands
+	view := m.View()
+	for _, want := range []string{"glab commands · acme-corp/api-gateway", demoGlabGetCmd, demoGlabViewCmd} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("overlay view missing %q in:\n%s", want, view)
+		}
+	}
+
+	// When: j moves to the second command and enter copies it
+	res, _ = m.Update(keyMsg("j"))
+	m = res.(Model)
+	capture := captureClipboard(t)
+	res, copyCmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = res.(Model)
+	if copyCmd == nil {
+		t.Fatal("expected a clipboard command from enter")
+	}
+	res, _ = m.Update(copyCmd())
+	m = res.(Model)
+
+	// Then: the clipboard holds the second command verbatim and the status toasts it
+	if capture.text != demoGlabViewCmd {
+		t.Fatalf("copied text = %q, want %q", capture.text, demoGlabViewCmd)
+	}
+	if want := "Copied: " + demoGlabViewCmd; m.status != want {
+		t.Fatalf("status = %q, want %q", m.status, want)
+	}
+
+	// And: the overlay is closed and gone from the rendered view
+	if m.glabPreview.active {
+		t.Fatal("expected the overlay to close after enter")
+	}
+	if after := m.View(); strings.Contains(after, "enter or y copy") {
+		t.Fatal("expected the overlay hint to disappear from the view after enter")
+	}
+}
+
+// TestYankGlabKey_CopiesDefaultCommand: y copies the selection's default glab
+// command without opening the overlay.
+// Given a demo-backed model with the pipelines panel populated, when y is pressed,
+// then the clipboard receives the ID-precise get command verbatim and the status
+// toasts it.
+// Why it matters: the yank default is the only form guaranteed to target the
+// selected run, so copying anything else silently points users at the wrong pipeline.
+func TestYankGlabKey_CopiesDefaultCommand(t *testing.T) {
+	// Given: the pipelines panel focused and populated from the demo service
+	m := demoPipelinesPanelModel(t)
+	capture := captureClipboard(t)
+
+	// When: y yanks the default command and its result message is applied
+	res, cmd := m.Update(keyMsg("y"))
+	m = res.(Model)
+	if cmd == nil {
+		t.Fatal("expected a clipboard command from y")
+	}
+	res, _ = m.Update(cmd())
+	m = res.(Model)
+
+	// Then: the clipboard holds the ID-precise default verbatim and the status toasts it
+	if capture.text != demoGlabGetCmd {
+		t.Fatalf("copied text = %q, want %q", capture.text, demoGlabGetCmd)
+	}
+	if want := "Copied: " + demoGlabGetCmd; m.status != want {
+		t.Fatalf("status = %q, want %q", m.status, want)
 	}
 }

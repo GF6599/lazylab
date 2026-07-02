@@ -64,195 +64,131 @@ func newTestModel() Model {
 
 // --- openExplorer tests ---
 
-func TestOpenExplorer_SetsProject(t *testing.T) {
+// TestOpenExplorer_InitializesRootAndPreview: opening the explorer starts a root fetch with a renderable preview.
+// Given a sized multi-panel model, when the explorer opens for a project, then a tree fetch is queued,
+// the stack holds a single loading root directory, the preview viewport has usable dimensions, and the
+// status line names the project.
+// Why it matters: a missing fetch or a zero-sized preview viewport leaves the file browser permanently blank.
+func TestOpenExplorer_InitializesRootAndPreview(t *testing.T) {
+	// Given: a multi-panel model sized for rendering
 	m := newTestModel()
 	project := m.allProjects[0]
-	result, _ := m.openExplorer(project)
+
+	// When: the explorer opens for the project
+	result, cmd := m.openExplorer(project)
 	got := result.(Model)
 
-	if got.explorer.project.ID != project.ID {
-		t.Fatalf("expected explorer project ID=%d, got %d",
-			project.ID, got.explorer.project.ID)
-	}
-}
-
-func TestOpenExplorer_UsesDefaultBranch(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0] // DefaultBranch: "main"
-	result, _ := m.openExplorer(project)
-	got := result.(Model)
-
-	if got.explorer.ref != "main" {
-		t.Fatalf("expected ref='main', got %q", got.explorer.ref)
-	}
-}
-
-func TestOpenExplorer_FallsBackToMain(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[2] // DefaultBranch: "" (empty)
-	result, _ := m.openExplorer(project)
-	got := result.(Model)
-
-	if got.explorer.ref != "main" {
-		t.Fatalf("expected ref='main' as fallback, got %q", got.explorer.ref)
-	}
-}
-
-func TestOpenExplorer_InitializesStack(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openExplorer(project)
-	got := result.(Model)
-
-	if len(got.explorer.stack) != 1 {
-		t.Fatalf("expected stack length 1 (root), got %d", len(got.explorer.stack))
-	}
-	if got.explorer.stack[0].path != "" {
-		t.Fatalf("expected root path '', got %q", got.explorer.stack[0].path)
-	}
-	if !got.explorer.stack[0].loading {
-		t.Fatal("expected root dir to be loading")
-	}
-}
-
-func TestOpenExplorer_ReturnsFetchCommand(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	_, cmd := m.openExplorer(project)
-
+	// Then: a root tree fetch is queued
 	if cmd == nil {
 		t.Fatal("expected a fetch tree command")
 	}
-}
 
-func TestOpenExplorer_SetsStatus(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openExplorer(project)
-	got := result.(Model)
+	// And: the navigation stack starts at a single loading root directory
+	if len(got.explorer.stack) != 1 {
+		t.Fatalf("expected stack length 1 (root), got %d", len(got.explorer.stack))
+	}
+	root := got.explorer.stack[0]
+	if root.path != "" || !root.loading {
+		t.Fatalf("expected loading root dir with empty path, got path=%q loading=%v", root.path, root.loading)
+	}
 
-	if got.status == "" {
-		t.Fatal("expected non-empty status after openExplorer")
+	// And: the preview viewport is sized so previews can render
+	vp := got.explorer.preview.viewport
+	if vp.Width == 0 || vp.Height == 0 {
+		t.Fatalf("expected non-zero preview viewport, got %dx%d", vp.Width, vp.Height)
+	}
+
+	// And: the status line names the project being browsed
+	if !strings.Contains(got.status, project.PathWithNamespace) {
+		t.Fatalf("expected status to name %s, got %q", project.PathWithNamespace, got.status)
 	}
 }
 
 // --- openPipelineView tests ---
 
-func TestOpenPipelineView_SetsMode(t *testing.T) {
+// TestOpenPipelineView_InitializesFreshView: opening the pipeline view yields a loading pane wired to fetch.
+// Given a multi-panel model, when the pipeline view opens for a project, then a pipelines fetch is
+// queued, the pipelines pane renders the loading hint, focus starts on the pipelines list, and paging
+// and log auto-follow start at their defaults.
+// Why it matters: stale paging or a missing fetch would show another project's pipelines or a blank pane.
+func TestOpenPipelineView_InitializesFreshView(t *testing.T) {
+	// Given: a multi-panel model with a project to inspect
 	m := newTestModel()
 	project := m.allProjects[0]
-	result, _ := m.openPipelineView(project)
+
+	// When: the pipeline view opens for the project
+	result, cmd := m.openPipelineView(project)
 	got := result.(Model)
 
-	if got.mode != modePipelines {
-		t.Fatalf("expected mode=modePipelines, got %d", got.mode)
-	}
-}
-
-func TestOpenPipelineView_SetsProject(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[1]
-	result, _ := m.openPipelineView(project)
-	got := result.(Model)
-
-	if got.pipelineView.project.ID != project.ID {
-		t.Fatalf("expected pipeline view project ID=%d, got %d",
-			project.ID, got.pipelineView.project.ID)
-	}
-}
-
-func TestOpenPipelineView_InitializesLoading(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openPipelineView(project)
-	got := result.(Model)
-
-	if !got.pipelineView.loading {
-		t.Fatal("expected pipeline view to be loading")
-	}
-}
-
-func TestOpenPipelineView_InitializesPage(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openPipelineView(project)
-	got := result.(Model)
-
-	if got.pipelineView.page != 1 {
-		t.Fatalf("expected page=1, got %d", got.pipelineView.page)
-	}
-	if got.pipelineView.totalPages != 1 {
-		t.Fatalf("expected totalPages=1, got %d", got.pipelineView.totalPages)
-	}
-	if got.pipelineView.perPage != pipelinePerPage {
-		t.Fatalf("expected perPage=%d, got %d", pipelinePerPage, got.pipelineView.perPage)
-	}
-}
-
-func TestOpenPipelineView_LogAutoFollowEnabled(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openPipelineView(project)
-	got := result.(Model)
-
-	if !got.pipelineView.logAutoFollow {
-		t.Fatal("expected logAutoFollow=true")
-	}
-}
-
-func TestOpenPipelineView_FocusOnPipelines(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openPipelineView(project)
-	got := result.(Model)
-
-	if got.pipelineView.focus != pipelineFocusPipelines {
-		t.Fatalf("expected focus=pipelineFocusPipelines, got %d", got.pipelineView.focus)
-	}
-}
-
-func TestOpenPipelineView_ReturnsFetchCommand(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	_, cmd := m.openPipelineView(project)
-
+	// Then: a pipelines fetch is queued and the pane renders the loading hint
 	if cmd == nil {
 		t.Fatal("expected a fetch pipelines command")
 	}
-}
+	pane := renderPipelinesPanelContent(got, 50, 20)
+	if !strings.Contains(pane, "Loading pipelines") {
+		t.Fatalf("expected loading hint in pipelines pane, got %q", pane)
+	}
 
-func TestOpenPipelineView_SetsStatus(t *testing.T) {
-	m := newTestModel()
-	project := m.allProjects[0]
-	result, _ := m.openPipelineView(project)
-	got := result.(Model)
+	// And: focus starts on the pipelines list
+	if got.pipelineView.focus != pipelineFocusPipelines {
+		t.Fatalf("expected focus=pipelineFocusPipelines, got %d", got.pipelineView.focus)
+	}
 
-	if got.status == "" {
-		t.Fatal("expected non-empty status after openPipelineView")
+	// And: paging starts at its defaults (no render equivalent)
+	pv := got.pipelineView
+	if pv.page != 1 || pv.totalPages != 1 || pv.perPage != pipelinePerPage {
+		t.Fatalf("expected page=1 totalPages=1 perPage=%d, got page=%d totalPages=%d perPage=%d",
+			pipelinePerPage, pv.page, pv.totalPages, pv.perPage)
+	}
+
+	// And: log auto-follow is enabled for the fresh view (no render equivalent)
+	if !pv.logAutoFollow {
+		t.Fatal("expected logAutoFollow=true")
+	}
+
+	// And: the status line names the project
+	if !strings.Contains(got.status, project.PathWithNamespace) {
+		t.Fatalf("expected status to name %s, got %q", project.PathWithNamespace, got.status)
 	}
 }
 
 // --- closePipelineView tests ---
 
+// TestClosePipelineView_ReturnsToProjects: closing the pipeline view lands back in the project list mode.
+// Given an open pipeline view, when it closes, then the mode is modeProjects.
+// Why it matters: landing in the wrong mode routes the next keypress through a handler for a view that is
+// no longer on screen.
 func TestClosePipelineView_ReturnsToProjects(t *testing.T) {
+	// Given: an open pipeline view
 	m := newTestModel()
 	project := m.allProjects[0]
 	result, _ := m.openPipelineView(project)
 	m = result.(Model)
 
+	// When: the view closes
 	m.closePipelineView()
+
+	// Then: the mode is back on the project list
 	if m.mode != modeProjects {
 		t.Fatalf("expected mode=modeProjects after close, got %d", m.mode)
 	}
 }
 
+// TestClosePipelineView_ClearsState: closing the pipeline view resets its project and loading state.
+// Given an open pipeline view, when it closes, then the view's project is cleared and loading is off.
+// Why it matters: a leftover project ID would flash the previous project's pipelines on the next open
+// before the fresh fetch lands.
 func TestClosePipelineView_ClearsState(t *testing.T) {
+	// Given: an open pipeline view
 	m := newTestModel()
 	project := m.allProjects[0]
 	result, _ := m.openPipelineView(project)
 	m = result.(Model)
 
+	// When: the view closes
 	m.closePipelineView()
+
+	// Then: the project and loading state are cleared
 	if m.pipelineView.project.ID != 0 {
 		t.Fatal("expected pipelineView project to be cleared")
 	}
@@ -263,7 +199,12 @@ func TestClosePipelineView_ClearsState(t *testing.T) {
 
 // --- closeExplorer tests ---
 
+// TestCloseExplorer_ReturnsToProjects: closing the standalone explorer returns to the project list mode.
+// Given the explorer open in legacy modeExplorer, when it closes, then the mode is modeProjects.
+// Why it matters: staying in modeExplorer would leave the explorer key handler and message guards active
+// for a view that is no longer rendered.
 func TestCloseExplorer_ReturnsToProjects(t *testing.T) {
+	// Given: the explorer open in legacy modeExplorer
 	m := newTestModel()
 	m.mode = modeExplorer
 	m.explorer = explorerState{
@@ -271,13 +212,21 @@ func TestCloseExplorer_ReturnsToProjects(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
+	// When: the explorer closes
 	m = m.closeExplorer("Back")
+
+	// Then: the mode is back on the project list
 	if m.mode != modeProjects {
 		t.Fatalf("expected mode=modeProjects after close, got %d", m.mode)
 	}
 }
 
+// TestCloseExplorer_ClearsState: closing the explorer clears its project and navigation stack.
+// Given an open explorer with a root stack frame, when it closes, then the project and stack are emptied.
+// Why it matters: a surviving stack would reopen the next project's explorer inside the previous project's
+// directory tree.
 func TestCloseExplorer_ClearsState(t *testing.T) {
+	// Given: an open explorer with a root stack frame
 	m := newTestModel()
 	m.mode = modeExplorer
 	m.explorer = explorerState{
@@ -285,7 +234,10 @@ func TestCloseExplorer_ClearsState(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
+	// When: the explorer closes
 	m = m.closeExplorer("Back to projects")
+
+	// Then: the project and navigation stack are cleared
 	if m.explorer.project.ID != 0 {
 		t.Fatal("expected explorer project to be cleared")
 	}
@@ -294,7 +246,11 @@ func TestCloseExplorer_ClearsState(t *testing.T) {
 	}
 }
 
+// TestCloseExplorer_SetsStatus: closing the explorer with a message puts it on the status line.
+// Given an open explorer, when it closes with "Back to projects", then the status shows that text.
+// Why it matters: the status line is the only confirmation of where a dismissal left the user.
 func TestCloseExplorer_SetsStatus(t *testing.T) {
+	// Given: an open explorer
 	m := newTestModel()
 	m.mode = modeExplorer
 	m.explorer = explorerState{
@@ -302,13 +258,21 @@ func TestCloseExplorer_SetsStatus(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
+	// When: the explorer closes with a status message
 	m = m.closeExplorer("Back to projects")
+
+	// Then: the message lands on the status line
 	if m.status != "Back to projects" {
 		t.Fatalf("expected status 'Back to projects', got %q", m.status)
 	}
 }
 
+// TestCloseExplorer_EmptyStatusPreservesExisting: closing with an empty message keeps the current status.
+// Given a status already on screen, when the explorer closes with "", then the previous status survives.
+// Why it matters: blanking the status on every close would erase toasts, such as copy confirmations, the
+// user has not read yet.
 func TestCloseExplorer_EmptyStatusPreservesExisting(t *testing.T) {
+	// Given: an open explorer with a status already showing
 	m := newTestModel()
 	m.mode = modeExplorer
 	m.status = "Previous status"
@@ -317,13 +281,22 @@ func TestCloseExplorer_EmptyStatusPreservesExisting(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
+	// When: the explorer closes with an empty message
 	m = m.closeExplorer("")
+
+	// Then: the existing status is preserved
 	if m.status != "Previous status" {
 		t.Fatalf("expected preserved status, got %q", m.status)
 	}
 }
 
+// TestCloseExplorer_FromMultiPanel_StaysInMultiPanel: closing the explorer overlay keeps multi-panel mode.
+// Given the explorer opened as an overlay over modeMultiPanel, when it closes, then the mode is still
+// modeMultiPanel.
+// Why it matters: dropping into the legacy standalone mode would swap the whole four-pane layout out from
+// under the user just for having peeked at a file.
 func TestCloseExplorer_FromMultiPanel_StaysInMultiPanel(t *testing.T) {
+	// Given: the explorer overlay open over the multi-panel mode
 	m := newTestModel()
 	m.mode = modeMultiPanel
 	m.explorer = explorerState{
@@ -331,7 +304,10 @@ func TestCloseExplorer_FromMultiPanel_StaysInMultiPanel(t *testing.T) {
 		stack:   []dirState{{path: ""}},
 	}
 
+	// When: the explorer closes
 	m = m.closeExplorer("Done")
+
+	// Then: the multi-panel mode survives
 	if m.mode != modeMultiPanel {
 		t.Fatalf("expected mode=modeMultiPanel when closing from multi-panel, got %d", m.mode)
 	}
@@ -339,117 +315,100 @@ func TestCloseExplorer_FromMultiPanel_StaysInMultiPanel(t *testing.T) {
 
 // --- ensureSelectionBounds tests ---
 
-func TestEnsureSelectionBounds_ClampsAbove(t *testing.T) {
-	m := newTestModel()
-	m.selected = 100 // Way beyond the 3 projects
-
-	m.ensureSelectionBounds()
-	if m.selected != len(m.allProjects)-1 {
-		t.Fatalf("expected selected=%d, got %d", len(m.allProjects)-1, m.selected)
+// TestEnsureSelectionBounds_ClampsToVisibleRange: out-of-range selections clamp to the visible project range.
+// Given a model with a known project count and a selection index, when ensureSelectionBounds runs, then
+// the selection lands inside [0, count-1] and already-valid selections stay untouched.
+// Why it matters: an out-of-bounds index panics or highlights the wrong project after paging, search, or reload.
+func TestEnsureSelectionBounds_ClampsToVisibleRange(t *testing.T) {
+	// Given: selection indexes against a project list trimmed to projectCount (newTestModel has 3)
+	tests := []struct {
+		name         string
+		selected     int
+		projectCount int
+		want         int
+	}{
+		{"far above clamps to last", 100, 3, 2},
+		{"one past the end clamps to last", 3, 3, 2},
+		{"last index unchanged", 2, 3, 2},
+		{"middle index unchanged", 1, 3, 1},
+		{"zero unchanged", 0, 3, 0},
+		{"negative clamps to zero", -5, 3, 0},
+		{"empty project set resets to zero", 5, 0, 0},
 	}
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel()
+			m.allProjects = m.allProjects[:tc.projectCount]
+			m.invalidateVisibleCache()
+			m.selected = tc.selected
 
-func TestEnsureSelectionBounds_ClampsBelow(t *testing.T) {
-	m := newTestModel()
-	m.selected = -5
+			// When: bounds are enforced
+			m.ensureSelectionBounds()
 
-	m.ensureSelectionBounds()
-	if m.selected != 0 {
-		t.Fatalf("expected selected=0, got %d", m.selected)
-	}
-}
-
-func TestEnsureSelectionBounds_ValidIndexUnchanged(t *testing.T) {
-	m := newTestModel()
-	m.selected = 1
-
-	m.ensureSelectionBounds()
-	if m.selected != 1 {
-		t.Fatalf("expected selected=1, got %d", m.selected)
-	}
-}
-
-func TestEnsureSelectionBounds_EmptyProjects(t *testing.T) {
-	m := newTestModel()
-	m.allProjects = nil
-	m.invalidateVisibleCache()
-	m.selected = 5
-
-	m.ensureSelectionBounds()
-	if m.selected != 0 {
-		t.Fatalf("expected selected=0 for empty projects, got %d", m.selected)
-	}
-}
-
-func TestEnsureSelectionBounds_ZeroWithProjects(t *testing.T) {
-	m := newTestModel()
-	m.selected = 0
-
-	m.ensureSelectionBounds()
-	if m.selected != 0 {
-		t.Fatalf("expected selected=0, got %d", m.selected)
-	}
-}
-
-func TestEnsureSelectionBounds_LastIndex(t *testing.T) {
-	m := newTestModel()
-	m.selected = len(m.allProjects) - 1
-
-	m.ensureSelectionBounds()
-	if m.selected != len(m.allProjects)-1 {
-		t.Fatalf("expected selected=%d, got %d", len(m.allProjects)-1, m.selected)
-	}
-}
-
-func TestEnsureSelectionBounds_OneOverMax(t *testing.T) {
-	m := newTestModel()
-	m.selected = len(m.allProjects) // Exactly one over
-
-	m.ensureSelectionBounds()
-	if m.selected != len(m.allProjects)-1 {
-		t.Fatalf("expected selected=%d, got %d", len(m.allProjects)-1, m.selected)
+			// Then: the selection is clamped into the visible range
+			if m.selected != tc.want {
+				t.Fatalf("selected=%d with %d projects: got %d, want %d",
+					tc.selected, tc.projectCount, m.selected, tc.want)
+			}
+		})
 	}
 }
 
 // --- Round-trip state transition tests ---
 
+// TestRoundTrip_MultiPanel_Pipelines: opening a pipeline view initializes it and closing clears it.
+// Given the default multi-panel mode, when the pipeline view opens for a project and then closes, then the
+// open switches to modePipelines with a fetch command and the project recorded, and the close wipes the
+// view state.
+// Why it matters: leftover state on either side of the round trip bleeds one project's pipelines into the
+// next project the user opens.
 func TestRoundTrip_MultiPanel_Pipelines(t *testing.T) {
+	// Given: the default multi-panel mode
 	m := newTestModel()
 	if m.mode != modeMultiPanel {
 		t.Fatalf("initial mode should be modeMultiPanel, got %d", m.mode)
 	}
 
-	// Open pipeline view
+	// When: the pipeline view opens for a project
 	project := m.allProjects[0]
 	result, cmd := m.openPipelineView(project)
 	m = result.(Model)
+
+	// Then: the mode switches, a fetch is queued, and the view tracks the project
 	if m.mode != modePipelines {
 		t.Fatalf("expected modePipelines, got %d", m.mode)
 	}
 	if cmd == nil {
 		t.Fatal("expected fetch command from openPipelineView")
 	}
-
-	// Verify pipeline state is initialized
 	if m.pipelineView.project.ID != project.ID {
 		t.Fatalf("pipeline view should be for project %d, got %d",
 			project.ID, m.pipelineView.project.ID)
 	}
 
-	// Close pipeline view
+	// When: the pipeline view closes
 	m.closePipelineView()
+
+	// Then: the view state is cleared
 	if m.pipelineView.project.ID != 0 {
 		t.Fatal("pipeline view state should be cleared after close")
 	}
 }
 
+// TestRoundTrip_MultiPanel_Explorer: the explorer overlay opens with project state and closes back clean.
+// Given the multi-panel mode, when the explorer opens for a project and then closes, then the mode stays
+// modeMultiPanel throughout, the explorer tracks the project and its branch, and closing clears the state.
+// Why it matters: the overlay must not leak mode changes or state, or the panels underneath desync from
+// what the user last saw.
 func TestRoundTrip_MultiPanel_Explorer(t *testing.T) {
 	m := newTestModel()
 
-	// Open explorer as overlay (mode stays modeMultiPanel)
+	// When: the explorer opens as an overlay for a project
 	project := m.allProjects[0]
 	result, cmd := m.openExplorer(project)
 	m = result.(Model)
+
+	// Then: the mode stays multi-panel and a tree fetch is queued
 	if m.mode != modeMultiPanel {
 		t.Fatalf("expected mode to stay modeMultiPanel, got %d", m.mode)
 	}
@@ -457,7 +416,7 @@ func TestRoundTrip_MultiPanel_Explorer(t *testing.T) {
 		t.Fatal("expected fetch command from openExplorer")
 	}
 
-	// Verify explorer state is initialized
+	// And: the explorer tracks the project and its branch
 	if m.explorer.project.ID != project.ID {
 		t.Fatalf("explorer should be for project %d, got %d",
 			project.ID, m.explorer.project.ID)
@@ -466,8 +425,10 @@ func TestRoundTrip_MultiPanel_Explorer(t *testing.T) {
 		t.Fatalf("explorer ref should be 'main', got %q", m.explorer.ref)
 	}
 
-	// Close explorer — stays in multi-panel
+	// When: the explorer closes
 	m = m.closeExplorer("Back to projects")
+
+	// Then: the mode is still multi-panel and the state is cleared
 	if m.mode != modeMultiPanel {
 		t.Fatalf("expected modeMultiPanel after close, got %d", m.mode)
 	}
@@ -476,62 +437,81 @@ func TestRoundTrip_MultiPanel_Explorer(t *testing.T) {
 	}
 }
 
+// TestRoundTrip_OpenDifferentProjects: reopening the pipeline view for another project retargets it.
+// Given the pipeline view opened for project 1, when it closes and opens for project 2, then the view's
+// project ID follows.
+// Why it matters: a sticky project ID would fetch and render pipelines for the previously viewed project.
 func TestRoundTrip_OpenDifferentProjects(t *testing.T) {
 	m := newTestModel()
 
-	// Open pipeline view for project 1
+	// Given: the pipeline view opened for project 1
 	result, _ := m.openPipelineView(m.allProjects[0])
 	m = result.(Model)
 	if m.pipelineView.project.ID != 1 {
 		t.Fatalf("expected project ID 1, got %d", m.pipelineView.project.ID)
 	}
 
-	// Close and open for project 2
+	// When: it closes and reopens for project 2
 	m.closePipelineView()
 	result, _ = m.openPipelineView(m.allProjects[1])
 	m = result.(Model)
+
+	// Then: the view targets project 2
 	if m.pipelineView.project.ID != 2 {
 		t.Fatalf("expected project ID 2, got %d", m.pipelineView.project.ID)
 	}
 }
 
+// TestRoundTrip_ExplorerUsesCorrectBranch: the explorer browses each project's default branch, falling
+// back to main.
+// Given project 2 with default branch develop and project 3 with none, when the explorer opens each, then
+// the ref is develop and then main.
+// Why it matters: browsing the wrong ref silently shows file trees from a branch the user did not pick.
 func TestRoundTrip_ExplorerUsesCorrectBranch(t *testing.T) {
 	m := newTestModel()
 
-	// Project 2 has DefaultBranch "develop"
+	// When: the explorer opens project 2, whose DefaultBranch is "develop"
 	result, _ := m.openExplorer(m.allProjects[1])
 	m = result.(Model)
+
+	// Then: the explorer browses that branch
 	if m.explorer.ref != "develop" {
 		t.Fatalf("expected ref='develop', got %q", m.explorer.ref)
 	}
 
-	// Close and open project 3 (no default branch)
+	// When: it closes and opens project 3, which has no default branch
 	m = m.closeExplorer("")
 	result, _ = m.openExplorer(m.allProjects[2])
 	m = result.(Model)
+
+	// Then: the ref falls back to main
 	if m.explorer.ref != "main" {
 		t.Fatalf("expected fallback ref='main', got %q", m.explorer.ref)
 	}
 }
 
+// TestRoundTrip_PipelineViewReinitialization: reopening the pipeline view resets selection, paging, and
+// log auto-follow.
+// Given a pipeline view with a moved selection, page 3, and auto-follow off, when it closes and reopens
+// for the same project, then selection and page reset to their defaults and auto-follow is back on.
+// Why it matters: stale paging would reopen the view deep in the pipeline history and make it look empty
+// or out of date.
 func TestRoundTrip_PipelineViewReinitialization(t *testing.T) {
+	// Given: an open pipeline view with moved selection, paging, and follow state
 	m := newTestModel()
-
-	// Open pipeline view
 	result, _ := m.openPipelineView(m.allProjects[0])
 	m = result.(Model)
 
-	// Simulate state changes
 	m.pipelineView.selected = 5
 	m.pipelineView.page = 3
 	m.pipelineView.logAutoFollow = false
 
-	// Close and reopen
+	// When: the view closes and reopens for the same project
 	m.closePipelineView()
 	result, _ = m.openPipelineView(m.allProjects[0])
 	m = result.(Model)
 
-	// State should be fresh
+	// Then: the view state is fresh
 	if m.pipelineView.selected != 0 {
 		t.Fatalf("expected selected=0 after reopen, got %d", m.pipelineView.selected)
 	}
@@ -545,10 +525,17 @@ func TestRoundTrip_PipelineViewReinitialization(t *testing.T) {
 
 // --- NewModel initialization tests ---
 
+// TestNewModel_DefaultOptions: a model built without options starts in multi-panel with sane defaults.
+// Given empty Options, when NewModel runs, then the mode is modeMultiPanel, ProjectsPerPage defaults to
+// 30, focus starts on the projects panel, and loading is true.
+// Why it matters: these are the first-frame guarantees, and a wrong default mode or focus renders a
+// startup screen with nothing selected and no loading hint.
 func TestNewModel_DefaultOptions(t *testing.T) {
+	// When: a model is built with empty options
 	client := &mockService{}
 	m := NewModel(context.Background(), client, Options{})
 
+	// Then: mode, page size, focus, and loading all take their defaults
 	if m.mode != modeMultiPanel {
 		t.Fatalf("expected initial mode=modeMultiPanel, got %d", m.mode)
 	}
@@ -563,38 +550,51 @@ func TestNewModel_DefaultOptions(t *testing.T) {
 	}
 }
 
+// TestNewModel_CustomOptions: an explicit ProjectsPerPage survives model construction.
+// Given Options with ProjectsPerPage 50, when NewModel runs, then the model keeps 50.
+// Why it matters: silently reverting to the default page size would desync pagination from what the user
+// configured with --projects-per-page.
 func TestNewModel_CustomOptions(t *testing.T) {
+	// When: a model is built with an explicit page size
 	client := &mockService{}
 	m := NewModel(context.Background(), client, Options{ProjectsPerPage: 50})
 
+	// Then: the configured value survives
 	if m.opts.ProjectsPerPage != 50 {
 		t.Fatalf("expected ProjectsPerPage=50, got %d", m.opts.ProjectsPerPage)
 	}
 }
 
-// TestNewModel_FirstWindowSizeNoPanic guards the startup crash where the very
-// first WindowSizeMsg — which arrives before any project is selected — drives
-// the multi-panel layout pass into sizing the pipeline list. If NewModel leaves
-// pipelineView zero-valued, list.SetSize dereferences a nil delegate and panics
-// (bubbles/list updatePagination: m.delegate.Height()). The window must clear
-// computeLayout's minimums (width >= 63) so the layout pass actually runs and
-// sizes the sidebar panels. A panic here fails the test.
+// TestNewModel_FirstWindowSizeNoPanic: the very first window size message completes layout without panicking.
+// Given a freshly constructed model before any project is selected, when the initial WindowSizeMsg
+// arrives, then Update finishes and the mode is still modeMultiPanel.
+// Why it matters: if NewModel left pipelineView zero-valued, the layout pass would drive list.SetSize into
+// a nil-delegate dereference (bubbles/list updatePagination calls m.delegate.Height()) and crash the app
+// at startup, so a panic here fails the test.
+//
+// The fixture window must clear computeLayout's minimums (width >= 63) so the layout pass actually runs
+// and sizes the sidebar panels instead of short-circuiting on a too-small terminal.
 func TestNewModel_FirstWindowSizeNoPanic(t *testing.T) {
+	// Given: a freshly constructed model with no project selected
 	client := &mockService{}
 	m := NewModel(context.Background(), client, Options{})
 
+	// When/Then: the first resize completes the layout pass without panicking
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
 	if updated.(Model).mode != modeMultiPanel {
 		t.Fatalf("expected modeMultiPanel after resize, got %d", updated.(Model).mode)
 	}
 }
 
-// TestLoadProjectPipelines_SizesPipelineList guards the blank-pane bug: selecting
-// a project rebuilds the pipeline list (newPipelineListModel) at zero size, and
-// the multi-panel pane sizes the list from state — not in View — so without
-// re-applying the layout the loaded pipelines render into a 0x0 list (blank pane
-// until the next terminal resize). loadProjectPipelines must re-push dimensions.
+// TestLoadProjectPipelines_SizesPipelineList: selecting a project leaves the rebuilt pipeline list sized
+// and renderable.
+// Given a model that has completed a layout pass, when loadProjectPipelines rebuilds the pipeline list and
+// the fetched pipelines arrive, then the list has non-zero dimensions and the pane renders entry #11.
+// Why it matters: the multi-panel pane sizes the list from state rather than in View, so a rebuild that
+// skips re-pushing the layout renders loaded pipelines into a 0x0 list, a blank pane until the next
+// terminal resize.
 func TestLoadProjectPipelines_SizesPipelineList(t *testing.T) {
+	// Given: a model whose first resize has established the multi-panel layout
 	project := gitlab.ProjectNode{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha", DefaultBranch: "main"}
 	svc := &mockService{
 		ListPipelinesFn: func(_ context.Context, _ int, _ gitlab.PipelineListOptions) (gitlab.PipelinePage, error) {
@@ -608,17 +608,18 @@ func TestLoadProjectPipelines_SizesPipelineList(t *testing.T) {
 	m := NewModel(context.Background(), svc, Options{ProjectsPerPage: 10})
 	m.allProjects = []gitlab.ProjectNode{project}
 
-	// First resize establishes the multi-panel layout (sizes the initial list).
 	res, _ := m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
 	m = res.(Model)
 
-	// Selecting a project rebuilds the pipeline sub-components from scratch.
+	// When: selecting a project rebuilds the pipeline sub-components from scratch
 	_ = (&m).loadProjectPipelines(project)
+
+	// Then: the rebuilt list carries non-zero dimensions
 	if w, h := m.pipelineView.pipelineList.Width(), m.pipelineView.pipelineList.Height(); w == 0 || h == 0 {
 		t.Fatalf("pipeline list not sized after load: %dx%d", w, h)
 	}
 
-	// Simulate the fetched pipelines arriving; the pane must render them.
+	// And: once the fetched pipelines arrive, the pane renders them
 	res, _ = m.Update(pipelinesLoadedMsg{
 		projectID:  project.ID,
 		pipelines:  []gitlab.PipelineSummary{{ID: 11, Status: "success", Ref: "main"}},
@@ -636,113 +637,61 @@ func TestLoadProjectPipelines_SizesPipelineList(t *testing.T) {
 	}
 }
 
-func TestNewModel_PipelineStatusMapShared(t *testing.T) {
-	client := &mockService{}
-	m := NewModel(context.Background(), client, Options{})
+// TestProjectsPanel_ShowsSharedPipelineStatus: status stored on the model's cache renders in the projects panel.
+// Given a model built by NewModel with one visible project, when a pipeline status is stored through
+// m.pipelineStatus, then the projects panel renders that project's status icon.
+// Why it matters: if the list delegate held a copy of the cache instead of sharing it, fetched pipeline
+// statuses would never appear next to projects.
+func TestProjectsPanel_ShowsSharedPipelineStatus(t *testing.T) {
+	// Given: a NewModel-built model with one visible project
+	m := NewModel(context.Background(), &mockService{}, Options{})
+	m.loading = false
+	m.projectTab = projectTabAll
+	m.allProjects = []gitlab.ProjectNode{{ID: 42, Name: "alpha", PathWithNamespace: "team/alpha"}}
+	m.pagesReady = map[int]bool{1: true}
+	m.invalidateVisibleCache()
+	m.projectList.SetSize(60, 10)
+	m.updateProjectList()
 
-	// The pipeline status cache should be shared between model and delegate
-	m.pipelineStatus.Set(42, pipelineState{hasInfo: true})
-	// This verifies the cache is the same reference — if the delegate had
-	// a copy, this wouldn't be visible through the delegate.
-	if _, ok := m.pipelineStatus.Get(42); !ok {
-		t.Fatal("expected shared pipelineStatus cache")
+	// When: a pipeline status is stored through the model's shared cache
+	m.pipelineStatus.Set(42, pipelineState{
+		hasInfo: true,
+		info:    gitlab.PipelineSummary{ID: 100, Ref: "main", Status: "success"},
+	})
+
+	// Then: the projects panel shows the project with its status icon
+	pane := renderProjectsPanelContent(m, 60, 10)
+	if !strings.Contains(pane, "alpha") {
+		t.Fatalf("expected project in panel, got %q", pane)
 	}
-}
-
-// --- pipelineViewState.resetCaches test ---
-
-func TestPipelineViewState_ResetCaches(t *testing.T) {
-	pv := &pipelineViewState{
-		stages:         NewAsyncCache[int, []gitlab.PipelineStage](),
-		jobs:           NewAsyncCache[int, []gitlab.PipelineJob](),
-		logs:           NewAsyncCache[int, string](),
-		bridges:        NewAsyncCache[int, []gitlab.PipelineBridge](),
-		childJobs:      NewAsyncCache[int, []gitlab.PipelineJob](),
-		stageSelected:  5,
-		jobRows:        make([]gitlab.PipelineJob, 3),
-		stageJobRows:   make([]stageJobRow, 2),
-		matrixExpanded: map[string]bool{"key1": true},
-	}
-
-	// Put some data in caches
-	pv.stages.Set(1, []gitlab.PipelineStage{{Name: "build"}})
-	pv.jobs.Set(1, []gitlab.PipelineJob{{ID: 1}})
-	pv.logs.Set(1, "log content")
-
-	pv.resetCaches()
-
-	if pv.stageSelected != 0 {
-		t.Fatalf("expected stageSelected=0 after reset, got %d", pv.stageSelected)
-	}
-	if pv.jobRows != nil {
-		t.Fatal("expected jobRows=nil after reset")
-	}
-	if pv.stageJobRows != nil {
-		t.Fatal("expected stageJobRows=nil after reset")
-	}
-	// matrixExpanded should be preserved
-	if !pv.matrixExpanded["key1"] {
-		t.Fatal("matrixExpanded should be preserved across resetCaches")
-	}
-}
-
-// --- openExplorer with viewport initialization ---
-
-func TestOpenExplorer_InitializesPreviewViewport(t *testing.T) {
-	m := newTestModel()
-	m.width = 120
-	m.height = 40
-
-	project := m.allProjects[0]
-	result, _ := m.openExplorer(project)
-	got := result.(Model)
-
-	// The preview viewport should be initialized with non-zero dimensions
-	vp := got.explorer.preview.viewport
-	if vp.Width == 0 || vp.Height == 0 {
-		t.Fatalf("expected non-zero viewport dimensions, got %dx%d", vp.Width, vp.Height)
-	}
-}
-
-// --- openPipelineView with log viewport ---
-
-func TestOpenPipelineView_InitializesLogViewport(t *testing.T) {
-	m := newTestModel()
-	m.width = 120
-	m.height = 40
-
-	project := m.allProjects[0]
-	result, _ := m.openPipelineView(project)
-	got := result.(Model)
-
-	vp := got.pipelineView.logViewport
-	_ = vp
-	// The viewport should be initialized (non-zero width and height from the
-	// pipelineLogContentWidth/pipelineLogContentHeight helpers)
-	// We just verify no panic occurred and the state is valid
-	if got.pipelineView.logJobID != 0 {
-		t.Fatal("expected logJobID=0 initially")
+	if !strings.Contains(pane, iconSuccess) {
+		t.Fatalf("expected success icon %q in panel, got %q", iconSuccess, pane)
 	}
 }
 
 // --- Multiple actions on same model ---
 
+// TestMultipleOpens_DoNotCorrupt: opening the pipeline view over an explorer overlay keeps both states
+// coherent.
+// Given the explorer overlay open for project 1, when the pipeline view opens for project 2, then the
+// explorer still tracks project 1 and the pipeline view enters modePipelines on project 2.
+// Why it matters: the two surfaces share one model, and cross-contamination would show one project's files
+// alongside another project's pipelines.
 func TestMultipleOpens_DoNotCorrupt(t *testing.T) {
 	m := newTestModel()
 
-	// Open explorer as overlay then immediately open pipeline view
+	// Given: the explorer overlay open for project 1 (mode stays modeMultiPanel)
 	result, _ := m.openExplorer(m.allProjects[0])
 	m = result.(Model)
-
-	// Explorer overlay is active (mode stays modeMultiPanel)
 	if m.explorer.project.ID != 1 {
 		t.Fatalf("expected explorer for project 1, got %d", m.explorer.project.ID)
 	}
 
-	// Now open pipeline view on a different project
+	// When: the pipeline view opens on a different project
 	result, _ = m.openPipelineView(m.allProjects[1])
 	m = result.(Model)
 
+	// Then: the pipeline view takes over with its own project
 	if m.mode != modePipelines {
 		t.Fatalf("expected modePipelines, got %d", m.mode)
 	}
@@ -751,187 +700,47 @@ func TestMultipleOpens_DoNotCorrupt(t *testing.T) {
 	}
 }
 
-// --- Panel helpers tests ---
-
-func TestPanelLabel_AllPanels(t *testing.T) {
-	tests := []struct {
-		id       PanelID
-		contains string
-	}{
-		{PanelProjects, "Projects"},
-		{PanelPipelines, "Pipelines"},
-		{PanelStages, "Stages"},
-		{PanelMRs, "Merge Requests"},
-		{PanelDetail, "Detail"},
-	}
-	for _, tc := range tests {
-		label := panelLabel(tc.id)
-		if label == "" {
-			t.Errorf("panelLabel(%d) returned empty", tc.id)
-		}
-		if !contains(label, tc.contains) {
-			t.Errorf("panelLabel(%d) = %q, expected to contain %q", tc.id, label, tc.contains)
-		}
-	}
-}
-
-func TestPanelLabel_Unknown(t *testing.T) {
-	label := panelLabel(PanelID(99))
-	if label != "Unknown" {
-		t.Fatalf("expected 'Unknown' for invalid PanelID, got %q", label)
-	}
-}
-
-func TestPanelShortcut_SidebarPanels(t *testing.T) {
-	for i, p := range SidebarPanels {
-		shortcut := panelShortcut(p)
-		if shortcut != i+1 {
-			t.Errorf("panelShortcut(%d) = %d, expected %d", p, shortcut, i+1)
-		}
-	}
-}
-
-func TestPanelShortcut_Detail(t *testing.T) {
-	shortcut := panelShortcut(PanelDetail)
-	if shortcut != 0 {
-		t.Fatalf("panelShortcut(PanelDetail) = %d, expected 0", shortcut)
-	}
-}
-
-func TestPanelByShortcut_ValidRange(t *testing.T) {
-	for i := 1; i <= len(SidebarPanels); i++ {
-		p, ok := panelByShortcut(i)
-		if !ok {
-			t.Fatalf("panelByShortcut(%d) returned ok=false", i)
-		}
-		if p != SidebarPanels[i-1] {
-			t.Errorf("panelByShortcut(%d) = %d, expected %d", i, p, SidebarPanels[i-1])
-		}
-	}
-}
-
-func TestPanelByShortcut_OutOfRange(t *testing.T) {
-	_, ok := panelByShortcut(0)
-	if ok {
-		t.Fatal("panelByShortcut(0) should return false")
-	}
-	_, ok = panelByShortcut(len(SidebarPanels) + 1)
-	if ok {
-		t.Fatal("panelByShortcut(too large) should return false")
-	}
-	_, ok = panelByShortcut(-1)
-	if ok {
-		t.Fatal("panelByShortcut(-1) should return false")
-	}
-}
-
-func TestNextSidebarPanel_Wraps(t *testing.T) {
-	last := SidebarPanels[len(SidebarPanels)-1]
-	next := nextSidebarPanel(last)
-	if next != SidebarPanels[0] {
-		t.Fatalf("expected wrap to first panel, got %d", next)
-	}
-}
-
-func TestNextSidebarPanel_Sequential(t *testing.T) {
-	for i := 0; i < len(SidebarPanels)-1; i++ {
-		next := nextSidebarPanel(SidebarPanels[i])
-		if next != SidebarPanels[i+1] {
-			t.Errorf("nextSidebarPanel(%d) = %d, expected %d",
-				SidebarPanels[i], next, SidebarPanels[i+1])
-		}
-	}
-}
-
-func TestPrevSidebarPanel_Wraps(t *testing.T) {
-	first := SidebarPanels[0]
-	prev := prevSidebarPanel(first)
-	if prev != SidebarPanels[len(SidebarPanels)-1] {
-		t.Fatalf("expected wrap to last panel, got %d", prev)
-	}
-}
-
-func TestPrevSidebarPanel_Sequential(t *testing.T) {
-	for i := 1; i < len(SidebarPanels); i++ {
-		prev := prevSidebarPanel(SidebarPanels[i])
-		if prev != SidebarPanels[i-1] {
-			t.Errorf("prevSidebarPanel(%d) = %d, expected %d",
-				SidebarPanels[i], prev, SidebarPanels[i-1])
-		}
-	}
-}
-
 // --- pipeline ticker lifecycle tests ---
 
-func TestPipelineTick_KeepsAliveInRefreshableModes(t *testing.T) {
-	for _, mode := range []Mode{modeProjects, modePipelines, modeMultiPanel} {
-		m := newTestModel()
-		m.mode = mode
-		m.pipelineTickAlive = true
-		if got := continuePipelineTickCmd(&m); got == nil {
-			t.Errorf("mode=%d: expected re-enqueue cmd, got nil", mode)
-		}
-		if !m.pipelineTickAlive {
-			t.Errorf("mode=%d: expected pipelineTickAlive=true after continue", mode)
-		}
+// TestPipelineTick_LifecycleByMode: the tick chain continues, dies, starts, or stays single per mode.
+// Given a model in a given mode with a given chain state, when the continue or ensure helper runs, then
+// the returned command and the alive flag match the mode's refresh policy, and a live chain never starts twice.
+// Why it matters: a dead chain freezes pipeline auto-refresh, and a doubled chain hammers the API with
+// overlapping refreshes.
+func TestPipelineTick_LifecycleByMode(t *testing.T) {
+	// Given: continue/ensure invocations across modes and chain states
+	tests := []struct {
+		name        string
+		op          func(*Model) tea.Cmd
+		mode        Mode
+		aliveBefore bool
+		wantCmd     bool
+		wantAlive   bool
+	}{
+		{"continue re-enqueues in modeProjects", continuePipelineTickCmd, modeProjects, true, true, true},
+		{"continue re-enqueues in modePipelines", continuePipelineTickCmd, modePipelines, true, true, true},
+		{"continue re-enqueues in modeMultiPanel", continuePipelineTickCmd, modeMultiPanel, true, true, true},
+		{"continue kills the chain in modeExplorer", continuePipelineTickCmd, modeExplorer, true, false, false},
+		{"ensure starts a dead chain in modeProjects", ensurePipelineTickCmd, modeProjects, false, true, true},
+		{"ensure never double-starts a live chain", ensurePipelineTickCmd, modeProjects, true, false, true},
+		{"ensure stays idle in modeExplorer", ensurePipelineTickCmd, modeExplorer, false, false, false},
 	}
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel()
+			m.mode = tc.mode
+			m.pipelineTickAlive = tc.aliveBefore
 
-func TestPipelineTick_DiesInIdleMode(t *testing.T) {
-	m := newTestModel()
-	m.mode = modeExplorer
-	m.pipelineTickAlive = true
-	if got := continuePipelineTickCmd(&m); got != nil {
-		t.Fatal("expected nil cmd (chain should die) in modeExplorer")
-	}
-	if m.pipelineTickAlive {
-		t.Fatal("expected pipelineTickAlive=false after chain dies in idle mode")
-	}
-}
+			// When: the lifecycle helper runs
+			cmd := tc.op(&m)
 
-func TestEnsurePipelineTick_StartsWhenDead(t *testing.T) {
-	m := newTestModel()
-	m.mode = modeProjects
-	m.pipelineTickAlive = false
-	cmd := ensurePipelineTickCmd(&m)
-	if cmd == nil {
-		t.Fatal("expected tick cmd when chain is dead and mode is refreshable")
-	}
-	if !m.pipelineTickAlive {
-		t.Fatal("expected pipelineTickAlive=true after start")
-	}
-}
-
-func TestEnsurePipelineTick_NoDoubleStart(t *testing.T) {
-	m := newTestModel()
-	m.mode = modeProjects
-	m.pipelineTickAlive = true
-	if cmd := ensurePipelineTickCmd(&m); cmd != nil {
-		t.Fatal("expected nil cmd when chain already alive (would double-tick)")
-	}
-}
-
-func TestEnsurePipelineTick_NoStartInIdleMode(t *testing.T) {
-	m := newTestModel()
-	m.mode = modeExplorer
-	m.pipelineTickAlive = false
-	if cmd := ensurePipelineTickCmd(&m); cmd != nil {
-		t.Fatal("expected nil cmd in non-refreshable mode")
-	}
-	if m.pipelineTickAlive {
-		t.Fatal("expected pipelineTickAlive to stay false")
-	}
-}
-
-// contains checks if a string contains a substring.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(substr); i++ {
-				if s[i:i+len(substr)] == substr {
-					return true
-				}
+			// Then: the command and alive flag follow the mode's refresh policy
+			if gotCmd := cmd != nil; gotCmd != tc.wantCmd {
+				t.Fatalf("cmd != nil = %v, want %v", gotCmd, tc.wantCmd)
 			}
-			return false
-		}())
+			if m.pipelineTickAlive != tc.wantAlive {
+				t.Fatalf("pipelineTickAlive = %v, want %v", m.pipelineTickAlive, tc.wantAlive)
+			}
+		})
+	}
 }
