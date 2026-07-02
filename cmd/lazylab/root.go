@@ -28,9 +28,10 @@ const (
 
 // clientFromCtx returns the GitLab client attached to ctx by setupContext.
 // PRECONDITION: setupContext (registered as PersistentPreRunE on the root)
-// must have run. The built-in --version/--help/completion handlers short-
-// circuit before PersistentPreRunE and never reach launchTUI, so they never
-// call this helper.
+// must have run. The built-in --version/--help handlers short-circuit before
+// PersistentPreRunE, and the help/completion verbs are excluded by
+// runsWithoutToken; none of them reach launchTUI, so they never call this
+// helper.
 func clientFromCtx(ctx context.Context) gitlab.Service {
 	return ctx.Value(keyClient).(gitlab.Service)
 }
@@ -76,11 +77,18 @@ Press y on any focused item to copy the equivalent glab command to the
 clipboard, or Y to browse every glab command available for it.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// A positional argument is almost always a typo'd verb; rejecting it
+		// here names the offender, where launching the TUI instead would (in
+		// a non-TTY pipe) die with an unrelated "could not open a new TTY".
+		Args: cobra.NoArgs,
 		// Version is rendered by Cobra's built-in --version handler. The
 		// template strips Cobra's default "<use> version" prefix in favor of
 		// the shorter "lazylab <ver>" shape.
 		Version: versionString,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if runsWithoutToken(cmd) {
+				return nil
+			}
 			return setupContext(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -89,7 +97,56 @@ clipboard, or Y to browse every glab command available for it.`,
 	}
 	rootCmd.SetVersionTemplate("lazylab {{.Version}}\n")
 	config.RegisterFlags(rootCmd.PersistentFlags())
+	helpCmd := newHelpCmd(rootCmd)
+	rootCmd.AddCommand(helpCmd)
+	// SetHelpCommand stops Cobra's InitDefaultHelpCmd from registering a
+	// second, duplicate "help" verb at Execute time.
+	rootCmd.SetHelpCommand(helpCmd)
 	return rootCmd
+}
+
+// newHelpCmd recreates Cobra's built-in "help" verb. Cobra only registers it
+// automatically when the root already has subcommands, and lazylab's root is
+// the entire command surface, so without an explicit registration
+// "lazylab help" would be rejected as an unknown argument.
+func newHelpCmd(root *cobra.Command) *cobra.Command {
+	return &cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		Run: func(cmd *cobra.Command, args []string) {
+			target, _, err := root.Find(args)
+			if target == nil || err != nil {
+				cmd.Printf("Unknown help topic %#q\n", args)
+				_ = root.Usage()
+				return
+			}
+			_ = target.Help()
+		},
+	}
+}
+
+// noTokenCommands names the verbs that must succeed without a GitLab token.
+// Users reach for help and shell completion precisely when their setup is
+// broken (completion even runs from shell init on every new shell), so gating
+// them on config validation would be a chicken-and-egg failure.
+var noTokenCommands = map[string]bool{
+	"help":                          true,
+	"completion":                    true,
+	cobra.ShellCompRequestCmd:       true,
+	cobra.ShellCompNoDescRequestCmd: true,
+}
+
+// runsWithoutToken reports whether cmd belongs to the help/completion family
+// that skips setupContext. It walks the parent chain because the shell-
+// specific completion verbs ("completion zsh", ...) are subcommands of
+// "completion".
+func runsWithoutToken(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if noTokenCommands[c.Name()] {
+			return true
+		}
+	}
+	return false
 }
 
 // setupContext loads config, builds the redacting logger, constructs the
