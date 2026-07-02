@@ -87,6 +87,17 @@ func (m Model) handleMultiPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// glab command emit works in any panel; suppress while typing a project search
+	// so the letters can be spelled freely (mirrors the Quit "q" carve-out above).
+	if !(m.focus.Active == PanelProjects && m.search.active) {
+		if key.Matches(msg, m.keys.YankGlab) {
+			return m, m.yankGlabCommand()
+		}
+		if key.Matches(msg, m.keys.GlabPreview) {
+			return m, m.openGlabPreview()
+		}
+	}
+
 	// Delegate to focused panel handler
 	switch m.focus.Active {
 	case PanelProjects:

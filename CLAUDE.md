@@ -225,9 +225,10 @@ The config system uses Viper with this exact precedence (highest to lowest):
 1. CLI flags (`--token`, `--host`, etc.)
 2. Environment variables (`GITLAB_TOKEN`, `GITLAB_HOST`)
 3. Config file (if `--config` or `LAZYLAB_CONFIG`/`GITLAB_TUI_CONFIG` env set)
-4. Defaults (`https://gitlab.com`, 30 projects per page, info log level)
+4. glab's stored credentials (token + host) when no token came from the above. `internal/glabauth` shells out to `glab config get`; it is injected into `config.Load` via `WithGlabResolver`, so the config package never imports glab and stays testable.
+5. Defaults (`https://gitlab.com`, 30 projects per page, info log level)
 
-Note: `GITLAB_TOKEN` is required; the app will exit with an error if not provided.
+Note: a token is required, but it can come from `--token`, `GITLAB_TOKEN`, a config file, or an authenticated `glab`. The app exits with an error only when none of these supply one.
 
 ### Coding Conventions from AGENTS.md
 

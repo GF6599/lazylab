@@ -318,6 +318,7 @@ type Model struct {
 	pipelineStatus    *LRUCache[int, pipelineState]
 	pipelineView      pipelineViewState
 	mrView            mrViewState
+	glabPreview       glabPreviewState // command-preview overlay (y yanks, Y opens)
 
 	// pipelineTickAlive tracks whether a pipelineTickCmd is currently in flight.
 	// The tick chain self-terminates when [handlePipelineTick] returns no work in
@@ -1039,5 +1040,6 @@ func (m Model) modalOverlays() []modalOverlay {
 		{active: m.mrView.createMR.active, handle: m.handleCreateMRKey},
 		{active: m.mrView.reply.active, handle: m.handleMRReplyKey},
 		{active: m.pipelineView.retryConfirm.active, handle: m.handlePipelineRetryConfirmKey},
+		{active: m.glabPreview.active, handle: m.handleGlabPreviewKey},
 	}
 }

@@ -14,9 +14,8 @@ import (
 	"github.com/GF6599/lazylab/internal/ui"
 )
 
-// launchTUI runs the Bubble Tea program for the no-subcommand case. It
-// pulls its dependencies from the context populated by setupContext, so
-// its signature stays untyped and stable as more subcommands are added.
+// launchTUI runs the Bubble Tea program for the root command. It pulls
+// its dependencies from the context populated by setupContext.
 //
 // tea.WithAltScreen ensures the TUI does not pollute the user's
 // scrollback buffer — on exit the terminal restores whatever was there
@@ -30,11 +29,8 @@ func launchTUI(ctx context.Context) error {
 	logger := loggerFromCtx(ctx)
 	cfg := configFromCtx(ctx)
 
-	// Color profile is a TUI-only concern: pure-CLI subcommands never
-	// instantiate a lipgloss style, so the NO_COLOR downgrade only
-	// needs to happen when we're about to render. Keeping this here
-	// instead of in PersistentPreRunE also means `lazylab whoami
-	// --format json` doesn't pay the cost.
+	// The NO_COLOR downgrade is a render-time concern, so it lives here
+	// with the first lipgloss use rather than in PersistentPreRunE.
 	applyColorProfile()
 
 	logger.Info("connecting to GitLab", "host", cfg.Host)
@@ -61,9 +57,6 @@ func launchTUI(ctx context.Context) error {
 // by downgrading lipgloss to plain ASCII. Without this, lipgloss still
 // auto-detects via termenv heuristics, but explicit handling guarantees
 // deterministic behavior across pipes, CI runners, and exotic terminals.
-//
-// Invoked only from launchTUI: CLI subcommands never construct lipgloss
-// styles so they need not pay for this check.
 func applyColorProfile() {
 	if os.Getenv("NO_COLOR") != "" {
 		lipgloss.SetColorProfile(termenv.Ascii)

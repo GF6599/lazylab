@@ -34,8 +34,6 @@ type mockService struct {
 	GetMergeRequestDiffRefsFn       func(ctx context.Context, projectID, mrIID int) (gitlab.MRDiffRefs, error)
 	ListBranchesFn                  func(ctx context.Context, projectID int, search string) ([]string, error)
 	CreateMergeRequestFn            func(ctx context.Context, projectID int, opts gitlab.CreateMROptions) (gitlab.MergeRequestSummary, error)
-	CurrentUserFn                   func(ctx context.Context) (gitlab.UserInfo, error)
-	GetProjectFn                    func(ctx context.Context, idOrPath string) (gitlab.ProjectNode, error)
 	GetPipelineFn                   func(ctx context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error)
 	LatestPipelineForSHAFn          func(ctx context.Context, projectID int, sha string) (gitlab.PipelineSummary, error)
 	GetJobFn                        func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
@@ -218,26 +216,12 @@ func (m *mockService) CreateMergeRequest(ctx context.Context, projectID int, opt
 	return gitlab.MergeRequestSummary{}, nil
 }
 
-// Methods below were added with the CLI subcommands and default to
-// returning an explicit "Fn not set" error rather than a zero value.
-// Defaulting to nil-error meant tests that forgot to wire a method
-// silently exercised phantom data; the error forces each test to opt
-// in to the surface area it actually needs. Older methods keep the
-// permissive zero-value default to avoid retrofitting unrelated tests.
-
-func (m *mockService) CurrentUser(ctx context.Context) (gitlab.UserInfo, error) {
-	if m.CurrentUserFn != nil {
-		return m.CurrentUserFn(ctx)
-	}
-	return gitlab.UserInfo{}, fmt.Errorf("mockService: CurrentUserFn not set")
-}
-
-func (m *mockService) GetProject(ctx context.Context, idOrPath string) (gitlab.ProjectNode, error) {
-	if m.GetProjectFn != nil {
-		return m.GetProjectFn(ctx, idOrPath)
-	}
-	return gitlab.ProjectNode{}, fmt.Errorf("mockService: GetProjectFn not set")
-}
+// Methods below default to returning an explicit "Fn not set" error
+// rather than a zero value. Defaulting to nil-error meant tests that
+// forgot to wire a method silently exercised phantom data; the error
+// forces each test to opt in to the surface area it actually needs.
+// Older methods keep the permissive zero-value default to avoid
+// retrofitting unrelated tests.
 
 func (m *mockService) GetPipeline(ctx context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error) {
 	if m.GetPipelineFn != nil {

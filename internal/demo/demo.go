@@ -5,7 +5,6 @@ package demo
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -19,8 +18,7 @@ import (
 //     The lookup methods that can miss — LatestPipeline, LatestPipelineForSHA,
 //     and GetPipeline — return the gitlab.ErrNoPipelines sentinel (matchable
 //     with errors.Is) rather than empty values, so error-handling paths still
-//     get exercised. GetProject is the lone exception: it never reports a miss
-//     and resolves any identifier to the first sample project.
+//     get exercised.
 //   - Writes (Retry*, Cancel*, Play*, Create*, Resolve*, Add*) never mutate
 //     state. They either no-op (returning nil) or fabricate a plausible record
 //     with a synthetic ID; subsequent reads will not reflect the write.
@@ -333,33 +331,6 @@ func (d *DemoService) CreateMergeRequest(_ context.Context, _ int, opts gitlab.C
 		WebURL:       "https://gitlab.example.com/demo/project/-/merge_requests/999",
 		UpdatedAt:    refTime,
 	}, nil
-}
-
-// CurrentUser returns a fixed "Demo User" identity.
-func (d *DemoService) CurrentUser(_ context.Context) (gitlab.UserInfo, error) {
-	return gitlab.UserInfo{
-		ID:       1,
-		Username: "demo",
-		Name:     "Demo User",
-		Email:    "demo@gitlab.example.com",
-		State:    "active",
-		WebURL:   "https://gitlab.example.com/demo",
-	}, nil
-}
-
-// GetProject silently resolves any idOrPath to the first sample project,
-// regardless of what was requested. It only errors when the demo dataset is
-// empty, and then with a plain fmt.Errorf (no %w wrapping), since there is no
-// sentinel to match — demo lookups never legitimately "miss".
-func (d *DemoService) GetProject(_ context.Context, idOrPath string) (gitlab.ProjectNode, error) {
-	// Demo mode resolves any identifier to the first sample project so the
-	// CLI path can be exercised offline without needing to teach the demo
-	// data set about every fake project slug.
-	all := demoProjects()
-	if len(all) == 0 {
-		return gitlab.ProjectNode{}, fmt.Errorf("demo: no projects available for %q", idOrPath)
-	}
-	return all[0], nil
 }
 
 // GetPipeline looks up a demo pipeline by ID within projectID. On a miss it

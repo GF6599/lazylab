@@ -12,7 +12,13 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
+// TestParseMatrixName_Variants: job names split into base and matrix variables only for real matrix syntax.
+// Given job names with and without the "name: [vars]" shape, when each is parsed, then matrix names yield
+// their base name and variable list while everything else passes through unchanged with isMatrix false.
+// Why it matters: a false positive groups unrelated jobs under a bogus header, and a false negative floods
+// the stages panel with one row per matrix variant.
 func TestParseMatrixName_Variants(t *testing.T) {
+	// Given: matrix-shaped and non-matrix job names
 	tests := []struct {
 		name     string
 		input    string
@@ -31,7 +37,10 @@ func TestParseMatrixName_Variants(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// When: the job name is parsed
 			baseName, vars, isMatrix := parseMatrixName(tt.input)
+
+			// Then: base name, variables, and the matrix flag all match
 			if baseName != tt.baseName {
 				t.Errorf("baseName = %q, want %q", baseName, tt.baseName)
 			}
@@ -45,7 +54,13 @@ func TestParseMatrixName_Variants(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_NoMatrix: plain jobs produce one plain row each, in stage order.
+// Given two stages with three non-matrix jobs, when rows are built, then there are exactly three
+// rowKindJob rows, each carrying its job and stage.
+// Why it matters: the common non-matrix pipeline must not grow headers or lose rows, or every ordinary
+// project's stages panel misrenders.
 func TestBuildStageJobRows_NoMatrix(t *testing.T) {
+	// Given: two stages with plain jobs only
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 		{Name: "test", Status: "success"},
@@ -56,8 +71,10 @@ func TestBuildStageJobRows_NoMatrix(t *testing.T) {
 		{ID: 3, Name: "lint", Stage: "test", Status: "success"},
 	}
 
+	// When: the rows are built
 	rows := buildStageJobRows(stages, jobs, nil, nil, nil)
 
+	// Then: each job yields one plain row with its job and stage attached
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
@@ -77,7 +94,14 @@ func TestBuildStageJobRows_NoMatrix(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_MatrixAlwaysExpanded: matrix jobs render as a header plus all children with no expand state needed.
+// Given three "test: [...]" variants and a nil expanded map, when rows are built, then a rowKindMatrixGroup
+// header with the aggregated failed status precedes three child rows whose vars are parsed and where only
+// the final child is IsLast.
+// Why it matters: children hidden behind a collapse state would bury the one failed variant, and a wrong
+// IsLast breaks the tree glyphs that show where the group ends.
 func TestBuildStageJobRows_MatrixAlwaysExpanded(t *testing.T) {
+	// Given: one stage whose jobs are three matrix variants
 	stages := []gitlab.PipelineStage{
 		{Name: "test", Status: "failed"},
 	}
@@ -87,10 +111,10 @@ func TestBuildStageJobRows_MatrixAlwaysExpanded(t *testing.T) {
 		{ID: 3, Name: "test: [gcp, monitoring]", Stage: "test", Status: "success"},
 	}
 
-	// Even without any expanded state, children are always emitted
+	// When: rows are built with no expanded state at all
 	rows := buildStageJobRows(stages, jobs, nil, nil, nil)
 
-	// 1 header + 3 children = 4
+	// Then: the children are emitted anyway, 1 header + 3 children = 4
 	if len(rows) != 4 {
 		t.Fatalf("expected 4 rows (header + 3 children), got %d", len(rows))
 	}
@@ -114,7 +138,8 @@ func TestBuildStageJobRows_MatrixAlwaysExpanded(t *testing.T) {
 			t.Errorf("row %d: expected Job to be set", i)
 		}
 	}
-	// Check IsLast
+
+	// And: only the final child is marked IsLast
 	if rows[1].IsLast {
 		t.Error("row 1 should not be IsLast")
 	}
@@ -124,13 +149,20 @@ func TestBuildStageJobRows_MatrixAlwaysExpanded(t *testing.T) {
 	if !rows[3].IsLast {
 		t.Error("row 3 should be IsLast")
 	}
-	// Check vars parsing
+
+	// And: the child rows carry their parsed matrix variables
 	if rows[1].Vars != "aws, monitoring" {
 		t.Errorf("row 1 vars = %q, want 'aws, monitoring'", rows[1].Vars)
 	}
 }
 
+// TestBuildStageJobRows_Mixed: matrix groups interleave with plain jobs in stage and job order.
+// Given plain jobs around a two-variant matrix, when rows are built, then the order is compile, the matrix
+// header, its two children, lint, deploy.
+// Why it matters: rows out of order break the row-index-to-job mapping that retry and the log preview rely
+// on, so actions would land on a neighboring job.
 func TestBuildStageJobRows_Mixed(t *testing.T) {
+	// Given: three stages mixing plain jobs and a matrix group
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 		{Name: "test", Status: "failed"},
@@ -144,9 +176,10 @@ func TestBuildStageJobRows_Mixed(t *testing.T) {
 		{ID: 5, Name: "deploy", Stage: "deploy", Status: "pending"},
 	}
 
+	// When: the rows are built
 	rows := buildStageJobRows(stages, jobs, nil, nil, nil)
 
-	// compile(1) + test group(1) + 2 children + lint(1) + deploy(1) = 6
+	// Then: compile(1) + test group(1) + 2 children + lint(1) + deploy(1) = 6, in order
 	if len(rows) != 6 {
 		t.Fatalf("expected 6 rows, got %d", len(rows))
 	}
@@ -170,7 +203,13 @@ func TestBuildStageJobRows_Mixed(t *testing.T) {
 	}
 }
 
+// TestAggregateMatrixStatus: a matrix group reports the most severe of its children's statuses.
+// Given child status combinations, when they are aggregated, then failed beats running, running, canceled,
+// and manual each beat success, and no children yields unknown.
+// Why it matters: a group that shows success while one variant failed hides exactly the failure the user
+// opened the pipeline to find.
 func TestAggregateMatrixStatus(t *testing.T) {
+	// Given: child status combinations with their expected aggregate
 	tests := []struct {
 		name     string
 		statuses []string
@@ -190,6 +229,8 @@ func TestAggregateMatrixStatus(t *testing.T) {
 			for i, s := range tt.statuses {
 				jobs = append(jobs, gitlab.PipelineJob{ID: i + 1, Status: s})
 			}
+
+			// When/Then: aggregation picks the most severe status
 			got := aggregateMatrixStatus(jobs)
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
@@ -198,14 +239,24 @@ func TestAggregateMatrixStatus(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_Empty: no stages and no jobs produce no rows.
+// Given all-nil inputs, when rows are built, then the result is nil.
+// Why it matters: a non-nil placeholder would render ghost rows in an otherwise empty stages panel.
 func TestBuildStageJobRows_Empty(t *testing.T) {
+	// When/Then: building from nothing yields nil
 	rows := buildStageJobRows(nil, nil, nil, nil, nil)
 	if rows != nil {
 		t.Errorf("expected nil, got %d rows", len(rows))
 	}
 }
 
+// TestBuildStageJobRows_StageOrder: rows follow the given stage order, not the job list order.
+// Given stages listed deploy-then-build with one job each, when rows are built, then the deploy job's row
+// comes first.
+// Why it matters: the panel must present stages in the order the stage list defines, or it misrepresents
+// the pipeline flow users step through.
 func TestBuildStageJobRows_StageOrder(t *testing.T) {
+	// Given: stages listed deploy-first while the job list starts with build
 	stages := []gitlab.PipelineStage{
 		{Name: "deploy", Status: "pending"},
 		{Name: "build", Status: "success"},
@@ -215,12 +266,13 @@ func TestBuildStageJobRows_StageOrder(t *testing.T) {
 		{ID: 2, Name: "push", Stage: "deploy", Status: "pending"},
 	}
 
+	// When: the rows are built
 	rows := buildStageJobRows(stages, jobs, nil, nil, nil)
 
+	// Then: the deploy row precedes the build row, following stage order
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
-	// deploy stage comes first in stage order
 	if rows[0].Stage != "deploy" {
 		t.Errorf("first row stage = %q, want deploy", rows[0].Stage)
 	}
@@ -277,11 +329,21 @@ func newMatrixPipelineModel() Model {
 	}
 }
 
+// TestUpdateStageTable_MatrixAlwaysExpanded: the stage table renders matrix groups expanded, with tree
+// glyphs and a faithful row-to-job mapping.
+// Given the matrix pipeline model, when the stage table updates, then seven rows exist, the header shows
+// the expanded icon, the [3] count, and the aggregated FAILED status, children carry tree prefixes with an
+// empty stage column, and jobRows maps each child index to its real job ID.
+// Why it matters: jobRows is the mapping retry and the log preview index into, so a drifted row would show
+// one job's log while retrying another.
 func TestUpdateStageTable_MatrixAlwaysExpanded(t *testing.T) {
+	// Given: the matrix pipeline model
 	m := newMatrixPipelineModel()
+
+	// When: the stage table updates
 	m.updateStageTable()
 
-	// Expected: compile(1) + test group(1) + 3 children + lint(1) + deploy(1) = 7
+	// Then: compile(1) + test group(1) + 3 children + lint(1) + deploy(1) = 7, in both row slices
 	if len(m.pipelineView.stageJobRows) != 7 {
 		t.Fatalf("expected 7 stageJobRows, got %d", len(m.pipelineView.stageJobRows))
 	}
@@ -289,11 +351,10 @@ func TestUpdateStageTable_MatrixAlwaysExpanded(t *testing.T) {
 		t.Fatalf("expected 7 jobRows, got %d", len(m.pipelineView.jobRows))
 	}
 
-	// Row 0: regular job
+	// And: the plain job and the matrix header keep their kinds and base name
 	if m.pipelineView.stageJobRows[0].Kind != rowKindJob {
 		t.Errorf("row 0: expected rowKindJob, got %d", m.pipelineView.stageJobRows[0].Kind)
 	}
-	// Row 1: matrix group header
 	if m.pipelineView.stageJobRows[1].Kind != rowKindMatrixGroup {
 		t.Errorf("row 1: expected rowKindMatrixGroup, got %d", m.pipelineView.stageJobRows[1].Kind)
 	}
@@ -301,21 +362,19 @@ func TestUpdateStageTable_MatrixAlwaysExpanded(t *testing.T) {
 		t.Errorf("row 1: baseName = %q, want test", m.pipelineView.stageJobRows[1].BaseName)
 	}
 
-	// Group header should always have expanded icon
+	// And: the header cell renders the expanded icon, child count, and aggregated status
 	tableRows := m.pipelineView.stageTable.Rows()
 	if !strings.Contains(tableRows[1][0], iconTreeExpanded) {
 		t.Errorf("group header should contain expanded icon %q, got %q", iconTreeExpanded, tableRows[1][0])
 	}
-	// Group header should show count
 	if !strings.Contains(tableRows[1][0], "[3]") {
 		t.Errorf("group header should show [3] count, got %q", tableRows[1][0])
 	}
-	// Group header should show aggregated failed status
 	if !strings.Contains(tableRows[1][2], "FAILED") {
 		t.Errorf("group header status should contain FAILED, got %q", tableRows[1][2])
 	}
 
-	// Children rows should have tree prefixes
+	// And: children render tree prefixes with the closing glyph on the last child
 	if !strings.Contains(tableRows[2][0], "├─") {
 		t.Errorf("first child should have ├─ prefix, got %q", tableRows[2][0])
 	}
@@ -326,14 +385,14 @@ func TestUpdateStageTable_MatrixAlwaysExpanded(t *testing.T) {
 		t.Errorf("last child should have └─ prefix, got %q", tableRows[4][0])
 	}
 
-	// Children should have empty stage column
+	// And: children leave the stage column empty
 	for i := 2; i <= 4; i++ {
 		if tableRows[i][1] != "" {
 			t.Errorf("child row %d stage column should be empty, got %q", i, tableRows[i][1])
 		}
 	}
 
-	// Children's jobRows should map to actual jobs
+	// And: each child's jobRows entry maps to its actual job
 	if m.pipelineView.jobRows[2].ID != 2 {
 		t.Errorf("jobRows[2] ID = %d, want 2", m.pipelineView.jobRows[2].ID)
 	}
@@ -345,70 +404,91 @@ func TestUpdateStageTable_MatrixAlwaysExpanded(t *testing.T) {
 	}
 }
 
+// TestUpdateStageTable_JobRowsMapCorrectlyForLogPreview: a matrix header maps to its first child job.
+// Given the matrix pipeline model, when the stage table updates, then the header row's jobRows entry is
+// the first variant's job.
+// Why it matters: the log pane previews jobRows for the cursor row, so an unmapped header would blank the
+// log pane whenever the cursor rests on a group.
 func TestUpdateStageTable_JobRowsMapCorrectlyForLogPreview(t *testing.T) {
+	// Given: the matrix pipeline model
 	m := newMatrixPipelineModel()
+
+	// When: the stage table updates
 	m.updateStageTable()
 
-	// The group header's jobRows entry should be the first sub-job
-	// (so log preview shows something useful)
+	// Then: the group header's jobRows entry is the first sub-job, so the log preview shows something useful
 	if m.pipelineView.jobRows[1].ID != 2 {
 		t.Errorf("group header jobRows should map to first sub-job (ID 2), got ID %d",
 			m.pipelineView.jobRows[1].ID)
 	}
 }
 
+// TestStagesPanel_EnterOnRegularJobIsNoOp: enter on a plain job row toggles nothing.
+// Given the cursor on a regular job, when enter is pressed, then no matrixExpanded entries appear.
+// Why it matters: phantom expand state on plain rows would leak into the shared toggle map and change how
+// later bridge rows render.
 func TestStagesPanel_EnterOnRegularJobIsNoOp(t *testing.T) {
+	// Given: the cursor on a regular job (row 0 = compile)
 	m := newMatrixPipelineModel()
 	m.updateStageTable()
-
-	// Cursor on regular job (row 0 = compile)
 	m.pipelineView.stageSelected = 0
 	m.pipelineView.stageTable.SetCursor(0)
 
+	// When: enter is pressed
 	enterMsg := tea.KeyMsg{Type: tea.KeyEnter}
 	updated, _ := m.handleStagesPanelKey(enterMsg)
 	got := updated.(Model)
 
-	// Should not have changed anything — no matrixExpanded entries
+	// Then: no expand entries are created
 	if len(got.pipelineView.matrixExpanded) != 0 {
 		t.Fatalf("Enter on regular job should not create expand entries, got %v", got.pipelineView.matrixExpanded)
 	}
 }
 
+// TestStagesPanel_EnterOnMatrixGroupIsNoOp: enter cannot collapse a matrix group header.
+// Given the cursor on the matrix group header, when enter is pressed, then no expand entries appear and
+// the row count is unchanged.
+// Why it matters: matrix groups are always expanded by design, and a toggle here would hide failing
+// variants behind a collapse state users cannot see.
 func TestStagesPanel_EnterOnMatrixGroupIsNoOp(t *testing.T) {
+	// Given: the cursor on the matrix group header (row 1)
 	m := newMatrixPipelineModel()
 	m.updateStageTable()
-
-	// Cursor on matrix group header (row 1)
 	m.pipelineView.stageSelected = 1
 	m.pipelineView.stageTable.SetCursor(1)
 
+	// When: enter is pressed
 	enterMsg := tea.KeyMsg{Type: tea.KeyEnter}
 	updated, _ := m.handleStagesPanelKey(enterMsg)
 	got := updated.(Model)
 
-	// Matrix groups are always expanded; Enter should not toggle them
+	// Then: nothing toggles and the rows are unchanged
 	if len(got.pipelineView.matrixExpanded) != 0 {
 		t.Fatalf("Enter on matrix group should not create expand entries, got %v", got.pipelineView.matrixExpanded)
 	}
-	// Row count should remain unchanged
 	if len(got.pipelineView.stageJobRows) != 7 {
 		t.Fatalf("expected 7 rows unchanged, got %d", len(got.pipelineView.stageJobRows))
 	}
 }
 
+// TestStagesPanel_RetryBlockedOnMatrixGroup: R on a matrix header is refused with a hint.
+// Given the cursor on the matrix group header, when R is pressed, then no retry modal opens and the status
+// tells the user to select an individual job.
+// Why it matters: a header aggregates several jobs, so a retry dispatched from it would pick one variant
+// arbitrarily while the user believes they retried the whole group.
 func TestStagesPanel_RetryBlockedOnMatrixGroup(t *testing.T) {
+	// Given: the cursor on the matrix group header (row 1)
 	m := newMatrixPipelineModel()
 	m.updateStageTable()
-
-	// Cursor on matrix group header (row 1)
 	m.pipelineView.stageSelected = 1
 	m.pipelineView.stageTable.SetCursor(1)
 
+	// When: R is pressed
 	retryMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")}
 	updated, _ := m.handleStagesPanelKey(retryMsg)
 	got := updated.(Model)
 
+	// Then: no modal opens and the hint names the required action
 	if got.pipelineView.retryConfirm.active {
 		t.Fatal("R on matrix group header should not open retry modal")
 	}
@@ -417,51 +497,69 @@ func TestStagesPanel_RetryBlockedOnMatrixGroup(t *testing.T) {
 	}
 }
 
+// TestStagesPanel_CancelBlockedOnMatrixGroup: C on a matrix header is refused with a hint.
+// Given the cursor on the matrix group header, when C is pressed, then the status tells the user to select
+// an individual job.
+// Why it matters: canceling an arbitrary variant instead of the intended one kills a healthy job and
+// leaves the stuck one running.
 func TestStagesPanel_CancelBlockedOnMatrixGroup(t *testing.T) {
+	// Given: the cursor on the matrix group header
 	m := newMatrixPipelineModel()
 	m.updateStageTable()
-
 	m.pipelineView.stageSelected = 1
 	m.pipelineView.stageTable.SetCursor(1)
 
+	// When: C is pressed
 	cancelMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")}
 	updated, _ := m.handleStagesPanelKey(cancelMsg)
 	got := updated.(Model)
 
+	// Then: the hint names the required action
 	if !strings.Contains(got.status, "Select an individual job") {
 		t.Errorf("C on matrix group should show hint, got status=%q", got.status)
 	}
 }
 
+// TestStagesPanel_PlayBlockedOnMatrixGroup: P on a matrix header is refused with a hint.
+// Given the cursor on the matrix group header, when P is pressed, then the status tells the user to select
+// an individual job.
+// Why it matters: playing an arbitrary variant would start a manual job the user never chose to run.
 func TestStagesPanel_PlayBlockedOnMatrixGroup(t *testing.T) {
+	// Given: the cursor on the matrix group header
 	m := newMatrixPipelineModel()
 	m.updateStageTable()
-
 	m.pipelineView.stageSelected = 1
 	m.pipelineView.stageTable.SetCursor(1)
 
+	// When: P is pressed
 	playMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")}
 	updated, _ := m.handleStagesPanelKey(playMsg)
 	got := updated.(Model)
 
+	// Then: the hint names the required action
 	if !strings.Contains(got.status, "Select an individual job") {
 		t.Errorf("P on matrix group should show hint, got status=%q", got.status)
 	}
 }
 
+// TestStagesPanel_RetryAllowedOnMatrixChild: R on a matrix child opens the retry modal for that exact job.
+// Given the cursor on the failed "test: [aws, backup]" child row, when R is pressed, then the retry modal
+// opens targeting job ID 3.
+// Why it matters: retrying one variant is the whole point of expanding a group, and a wrong job ID would
+// re-run a passing variant while the failed one stays red.
 func TestStagesPanel_RetryAllowedOnMatrixChild(t *testing.T) {
+	// Given: the cursor on a child row (row 3 = "test: [aws, backup]" with failed status)
 	m := newMatrixPipelineModel()
 	m.updateStageTable()
-
-	// Move to a child row (row 3 = "test: [aws, backup]" with failed status)
 	m.pipelineView.stageSelected = 3
 	m.pipelineView.stageTable.SetCursor(3)
 
+	// When: R is pressed
 	retryMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")}
 	updated, _ := m.handleStagesPanelKey(retryMsg)
 	got := updated.(Model)
 
-	// Retry modal should open for the child job
+	// Then: the retry modal opens for exactly that child job
 	if !got.pipelineView.retryConfirm.active {
 		t.Fatal("R on matrix child should open retry modal")
 	}
@@ -470,7 +568,13 @@ func TestStagesPanel_RetryAllowedOnMatrixChild(t *testing.T) {
 	}
 }
 
+// TestResetCaches_PreservesMatrixExpanded: cache resets keep bridge expand state but drop derived rows.
+// Given expanded bridge entries and built rows, when resetCaches runs, then matrixExpanded survives while
+// jobRows and stageJobRows are cleared.
+// Why it matters: auto-refresh resets caches every few seconds, so losing expand state would snap open
+// downstream pipelines shut mid-read, while stale rows would keep mapping actions to jobs that no longer exist.
 func TestResetCaches_PreservesMatrixExpanded(t *testing.T) {
+	// Given: two expanded bridges and a built stage table
 	m := newMatrixPipelineModel()
 	m.pipelineView.matrixExpanded = map[string]bool{
 		"bridge:100": true,
@@ -478,16 +582,16 @@ func TestResetCaches_PreservesMatrixExpanded(t *testing.T) {
 	}
 	m.updateStageTable()
 
-	// Reset caches (as happens during auto-refresh)
+	// When: the caches are reset, as happens during auto-refresh
 	m.pipelineView.resetCaches()
 
-	// matrixExpanded should survive (used for bridges)
+	// Then: the bridge expand state survives
 	if len(m.pipelineView.matrixExpanded) != 2 {
 		t.Fatalf("expected matrixExpanded to survive resetCaches, got %d entries",
 			len(m.pipelineView.matrixExpanded))
 	}
 
-	// But jobRows and stageJobRows should be cleared
+	// And: the derived row slices are cleared
 	if m.pipelineView.jobRows != nil {
 		t.Error("jobRows should be cleared after resetCaches")
 	}
@@ -496,31 +600,43 @@ func TestResetCaches_PreservesMatrixExpanded(t *testing.T) {
 	}
 }
 
+// TestSelectedStageJobRow_OutOfBounds: row lookup returns nil outside the valid range.
+// Given a built stage table, when the selection index is 999, -1, and 0, then the out-of-range lookups
+// return nil and the valid one returns a row.
+// Why it matters: auto-refresh can shrink the row list under the cursor, and an unguarded index would
+// panic the key handler on the next action.
 func TestSelectedStageJobRow_OutOfBounds(t *testing.T) {
+	// Given: a built stage table
 	m := newMatrixPipelineModel()
 	m.updateStageTable()
 
-	// Out of bounds
+	// When/Then: an index past the end resolves to nil
 	m.pipelineView.stageSelected = 999
 	if row := m.selectedStageJobRow(); row != nil {
 		t.Fatal("expected nil for out-of-bounds index")
 	}
 
-	// Negative
+	// And: a negative index resolves to nil
 	m.pipelineView.stageSelected = -1
 	if row := m.selectedStageJobRow(); row != nil {
 		t.Fatal("expected nil for negative index")
 	}
 
-	// Valid
+	// And: a valid index resolves to a row
 	m.pipelineView.stageSelected = 0
 	if row := m.selectedStageJobRow(); row == nil {
 		t.Fatal("expected non-nil for valid index")
 	}
 }
 
+// TestUpdateStageTable_NoMatrixJobs_BackwardsCompatible: pipelines without matrix jobs render flat rows
+// with per-stage labels and no tree glyphs.
+// Given a plain two-stage pipeline, when the stage table updates, then every row is rowKindJob mapping 1:1
+// to the jobs, no tree icons appear, and the stage column labels only the first job of each stage.
+// Why it matters: matrix grouping must leave ordinary pipelines rendering unchanged, or every non-matrix
+// project pays a visual cost for a feature it does not use.
 func TestUpdateStageTable_NoMatrixJobs_BackwardsCompatible(t *testing.T) {
-	// Ensure non-matrix pipelines still work exactly as before
+	// Given: a plain two-stage pipeline with no matrix jobs
 	stagesCache := NewAsyncCache[int, []gitlab.PipelineStage]()
 	stagesCache.Set(10, []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
@@ -549,16 +665,18 @@ func TestUpdateStageTable_NoMatrixJobs_BackwardsCompatible(t *testing.T) {
 			logViewport: viewport.New(60, 20),
 		},
 	}
+
+	// When: the stage table updates
 	m.updateStageTable()
 
-	// All rows should be regular jobs
+	// Then: every row is a regular job
 	for i, row := range m.pipelineView.stageJobRows {
 		if row.Kind != rowKindJob {
 			t.Errorf("row %d: expected rowKindJob for non-matrix pipeline, got %d", i, row.Kind)
 		}
 	}
 
-	// jobRows should map 1:1 to jobs
+	// And: jobRows maps 1:1 to the jobs
 	if len(m.pipelineView.jobRows) != 3 {
 		t.Fatalf("expected 3 jobRows, got %d", len(m.pipelineView.jobRows))
 	}
@@ -566,13 +684,13 @@ func TestUpdateStageTable_NoMatrixJobs_BackwardsCompatible(t *testing.T) {
 		t.Errorf("jobRows[0] = %q, want compile", m.pipelineView.jobRows[0].Name)
 	}
 
-	// Table rows should show job names directly (no tree icons)
+	// And: the table shows job names directly, with no tree icons
 	tableRows := m.pipelineView.stageTable.Rows()
 	if strings.Contains(tableRows[0][0], iconTreeCollapsed) || strings.Contains(tableRows[0][0], iconTreeExpanded) {
 		t.Errorf("non-matrix job should not have tree icons: %q", tableRows[0][0])
 	}
 
-	// Stage column should appear on first job of each stage, empty on rest
+	// And: the stage column labels only the first job of each stage
 	if tableRows[0][1] != "build" {
 		t.Errorf("first build job stage col = %q, want 'build'", tableRows[0][1])
 	}
@@ -584,7 +702,13 @@ func TestUpdateStageTable_NoMatrixJobs_BackwardsCompatible(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_BridgeCollapsed: an unexpanded bridge renders as a single header row.
+// Given one job and one bridge with a downstream pipeline but no expand state, when rows are built, then
+// the bridge contributes exactly one rowKindBridge row carrying its name, group key, and stage.
+// Why it matters: the "bridge:<id>" group key is the toggle identity, so a wrong key would make enter
+// expand a different trigger than the one selected.
 func TestBuildStageJobRows_BridgeCollapsed(t *testing.T) {
+	// Given: one plain job plus a bridge with a downstream pipeline
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 	}
@@ -604,9 +728,10 @@ func TestBuildStageJobRows_BridgeCollapsed(t *testing.T) {
 		},
 	}
 
+	// When: rows are built with no expand state
 	rows := buildStageJobRows(stages, jobs, bridges, nil, nil)
 
-	// compile(1) + bridge(1) = 2
+	// Then: compile(1) + bridge(1) = 2, with the bridge row carrying its identity
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
@@ -630,7 +755,13 @@ func TestBuildStageJobRows_BridgeCollapsed(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_BridgeExpanded: an expanded bridge grows a downstream child row.
+// Given a bridge with a downstream pipeline and its key in the expanded map, when rows are built, then a
+// child rowKindBridge row with IsLast=true and the downstream status follows the header.
+// Why it matters: that child row is the only place the downstream pipeline's status is visible without
+// leaving the parent pipeline.
 func TestBuildStageJobRows_BridgeExpanded(t *testing.T) {
+	// Given: one plain job plus a bridge with a downstream pipeline
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 	}
@@ -650,10 +781,11 @@ func TestBuildStageJobRows_BridgeExpanded(t *testing.T) {
 		},
 	}
 
+	// When: rows are built with the bridge marked expanded
 	expanded := map[string]bool{"bridge:100": true}
 	rows := buildStageJobRows(stages, jobs, bridges, expanded, nil)
 
-	// compile(1) + bridge header(1) + bridge child(1) = 3
+	// Then: compile(1) + bridge header(1) + bridge child(1) = 3
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
@@ -668,7 +800,13 @@ func TestBuildStageJobRows_BridgeExpanded(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_BridgeNoDownstream: expanding a bridge without a downstream pipeline adds nothing.
+// Given a bridge whose DownstreamPipeline is nil but whose key is expanded, when rows are built, then only
+// the header row appears.
+// Why it matters: a trigger that has not created its downstream yet must not render a phantom child row
+// for the cursor to land on.
 func TestBuildStageJobRows_BridgeNoDownstream(t *testing.T) {
+	// Given: a bridge with no downstream pipeline
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 	}
@@ -684,11 +822,11 @@ func TestBuildStageJobRows_BridgeNoDownstream(t *testing.T) {
 		},
 	}
 
-	// Even when expanded, no child row since no downstream pipeline
+	// When: rows are built with the bridge marked expanded anyway
 	expanded := map[string]bool{"bridge:200": true}
 	rows := buildStageJobRows(stages, jobs, bridges, expanded, nil)
 
-	// compile(1) + bridge header(1) = 2 (no child because no downstream)
+	// Then: compile(1) + bridge header(1) = 2, no child because there is no downstream
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
@@ -697,7 +835,13 @@ func TestBuildStageJobRows_BridgeNoDownstream(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_BridgeInCorrectStage: bridges render inside their own stage, after its jobs.
+// Given jobs in build and deploy plus a deploy-stage bridge, when rows are built, then the bridge appears
+// as the last deploy row rather than attaching to another stage.
+// Why it matters: a bridge shown under the wrong stage misleads the user about where in the pipeline flow
+// the downstream trigger sits.
 func TestBuildStageJobRows_BridgeInCorrectStage(t *testing.T) {
+	// Given: jobs in two stages and a bridge belonging to deploy
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 		{Name: "deploy", Status: "success"},
@@ -716,13 +860,13 @@ func TestBuildStageJobRows_BridgeInCorrectStage(t *testing.T) {
 		},
 	}
 
+	// When: the rows are built
 	rows := buildStageJobRows(stages, jobs, bridges, nil, nil)
 
-	// compile(1) + push(1) + bridge(1) = 3
+	// Then: compile(1) + push(1) + bridge(1) = 3, with the bridge in deploy after "push"
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
-	// Bridge should be in deploy stage, after "push"
 	if rows[0].Stage != "build" {
 		t.Errorf("row 0: stage = %q, want build", rows[0].Stage)
 	}
@@ -734,11 +878,16 @@ func TestBuildStageJobRows_BridgeInCorrectStage(t *testing.T) {
 	}
 }
 
+// TestStagesPanel_EnterTogglesBridge: enter expands a bridge row and enter again collapses it.
+// Given the cursor on a bridge row in the stages panel, when enter is pressed twice, then the expanded map
+// gains and then loses the bridge key while the row count grows by one and shrinks back.
+// Why it matters: this toggle is the only way to peek into downstream pipelines from the panel, and a
+// stuck state would either hide them or permanently clutter the table.
 func TestStagesPanel_EnterTogglesBridge(t *testing.T) {
+	// Given: the cursor on the bridge row
 	m := newBridgePipelineModel()
 	m.updateStageTable()
 
-	// Find the bridge row
 	bridgeIdx := -1
 	for i, row := range m.pipelineView.stageJobRows {
 		if row.Kind == rowKindBridge {
@@ -752,14 +901,15 @@ func TestStagesPanel_EnterTogglesBridge(t *testing.T) {
 
 	initialRowCount := len(m.pipelineView.stageJobRows)
 
-	// Move cursor to bridge row and press Enter to expand
 	m.pipelineView.stageSelected = bridgeIdx
 	m.pipelineView.stageTable.SetCursor(bridgeIdx)
 
+	// When: enter is pressed on the bridge
 	enterMsg := tea.KeyMsg{Type: tea.KeyEnter}
 	updated, _ := m.handleStagesPanelKey(enterMsg)
 	got := updated.(Model)
 
+	// Then: the bridge expands and its child row appears
 	groupKey := fmt.Sprintf("bridge:%d", 100)
 	if !got.pipelineView.matrixExpanded[groupKey] {
 		t.Fatal("Enter should expand the bridge")
@@ -768,12 +918,13 @@ func TestStagesPanel_EnterTogglesBridge(t *testing.T) {
 		t.Fatalf("after expand: expected %d rows, got %d", initialRowCount+1, len(got.pipelineView.stageJobRows))
 	}
 
-	// Press Enter again to collapse
+	// When: enter is pressed again
 	got.pipelineView.stageSelected = bridgeIdx
 	got.pipelineView.stageTable.SetCursor(bridgeIdx)
 	updated, _ = got.handleStagesPanelKey(enterMsg)
 	got = updated.(Model)
 
+	// Then: the bridge collapses back to its original row count
 	if got.pipelineView.matrixExpanded[groupKey] {
 		t.Fatal("second Enter should collapse the bridge")
 	}
@@ -782,12 +933,17 @@ func TestStagesPanel_EnterTogglesBridge(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_BridgeOnlyStage: a stage whose only member is a bridge still renders it.
+// Given a trigger stage with no regular jobs, when rows are built, then the bridge row appears under that
+// stage after the other stage's job.
+// Why it matters: trigger-only stages are common in multi-project setups, and dropping them would hide the
+// deploy trigger from its pipeline entirely.
 func TestBuildStageJobRows_BridgeOnlyStage(t *testing.T) {
+	// Given: a trigger stage whose only member is a bridge (build has the regular job)
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 		{Name: "trigger", Status: "success"},
 	}
-	// Only the build stage has regular jobs; trigger has none
 	jobs := []gitlab.PipelineJob{
 		{ID: 1, Name: "compile", Stage: "build", Status: "success"},
 	}
@@ -804,9 +960,10 @@ func TestBuildStageJobRows_BridgeOnlyStage(t *testing.T) {
 		},
 	}
 
+	// When: the rows are built
 	rows := buildStageJobRows(stages, jobs, bridges, nil, nil)
 
-	// compile(1) + bridge(1) = 2
+	// Then: compile(1) + bridge(1) = 2, with the bridge under its own stage
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
@@ -821,14 +978,18 @@ func TestBuildStageJobRows_BridgeOnlyStage(t *testing.T) {
 	}
 }
 
+// TestUpdateStageTable_BridgeOnlyStageInjected: a stage that exists only in the bridges cache is injected
+// into the table.
+// Given a stages cache without "build" and a bridges cache holding a build-stage trigger, when the stage
+// table updates, then a third row renders the bridge with "build" in its stage column.
+// Why it matters: stage summaries are derived from regular jobs, so without injection a stage containing
+// only a trigger silently disappears from the panel.
 func TestUpdateStageTable_BridgeOnlyStageInjected(t *testing.T) {
-	// Simulates a real pipeline where "build" stage has only a bridge trigger
-	// and no regular jobs. PipelineStages (built from jobs) won't include "build",
-	// but updateStageTable should inject it from the bridges cache.
+	// Given: a stages cache missing "build" because no regular jobs belong to it,
+	// while the bridges cache holds a build-stage trigger
 	stagesCache := NewAsyncCache[int, []gitlab.PipelineStage]()
 	stagesCache.Set(10, []gitlab.PipelineStage{
 		{Name: "prebuild", Status: "success"},
-		// "build" stage is missing — no regular jobs belong to it
 	})
 
 	jobsCache := NewAsyncCache[int, []gitlab.PipelineJob]()
@@ -871,14 +1032,16 @@ func TestUpdateStageTable_BridgeOnlyStageInjected(t *testing.T) {
 			logViewport: viewport.New(60, 20),
 		},
 	}
+
+	// When: the stage table updates
 	m.updateStageTable()
 
-	// Should have: prepare:matrix(1) + terraform:validate(1) + bridge(1) = 3
+	// Then: prepare:matrix(1) + terraform:validate(1) + bridge(1) = 3
 	if len(m.pipelineView.stageJobRows) != 3 {
 		t.Fatalf("expected 3 stageJobRows, got %d", len(m.pipelineView.stageJobRows))
 	}
 
-	// First two are regular jobs in prebuild
+	// And: the first two rows are the regular prebuild jobs
 	if m.pipelineView.stageJobRows[0].Kind != rowKindJob {
 		t.Errorf("row 0: expected rowKindJob, got %d", m.pipelineView.stageJobRows[0].Kind)
 	}
@@ -886,7 +1049,7 @@ func TestUpdateStageTable_BridgeOnlyStageInjected(t *testing.T) {
 		t.Errorf("row 1: expected rowKindJob, got %d", m.pipelineView.stageJobRows[1].Kind)
 	}
 
-	// Last row is the bridge in the injected "build" stage
+	// And: the last row is the bridge in the injected "build" stage
 	if m.pipelineView.stageJobRows[2].Kind != rowKindBridge {
 		t.Errorf("row 2: expected rowKindBridge, got %d", m.pipelineView.stageJobRows[2].Kind)
 	}
@@ -897,20 +1060,25 @@ func TestUpdateStageTable_BridgeOnlyStageInjected(t *testing.T) {
 		t.Errorf("row 2: bridge name = %q, want trigger:matrix-plan", m.pipelineView.stageJobRows[2].Bridge.Name)
 	}
 
-	// Check the table row shows the bridge stage
+	// And: the rendered table row shows the injected stage name
 	tableRows := m.pipelineView.stageTable.Rows()
 	if tableRows[2][1] != "build" {
 		t.Errorf("bridge row stage column = %q, want build", tableRows[2][1])
 	}
 }
 
+// TestPipelineView_EnterTogglesBridge: the legacy pipeline view's enter toggle matches the stages panel.
+// Given a bridge row selected in modePipelines with stages focus, when enter is pressed twice, then the
+// bridge expands and collapses exactly as in the multi-panel handler.
+// Why it matters: the standalone pipeline view routes keys through a different handler, and a missed
+// branch there would make the same key work in one surface and dead-end in the other.
 func TestPipelineView_EnterTogglesBridge(t *testing.T) {
+	// Given: the cursor on the bridge row in the legacy pipeline view
 	m := newBridgePipelineModel()
 	m.mode = modePipelines
 	m.pipelineView.focus = pipelineFocusStages
 	m.updateStageTable()
 
-	// Find the bridge row
 	bridgeIdx := -1
 	for i, row := range m.pipelineView.stageJobRows {
 		if row.Kind == rowKindBridge {
@@ -924,14 +1092,15 @@ func TestPipelineView_EnterTogglesBridge(t *testing.T) {
 
 	initialRowCount := len(m.pipelineView.stageJobRows)
 
-	// Move cursor to bridge row and press Enter to expand
 	m.pipelineView.stageSelected = bridgeIdx
 	m.pipelineView.stageTable.SetCursor(bridgeIdx)
 
+	// When: enter is pressed through the legacy handler
 	enterMsg := tea.KeyMsg{Type: tea.KeyEnter}
 	updated, _ := m.handlePipelineViewKey(enterMsg)
 	got := updated.(Model)
 
+	// Then: the bridge expands and its child row appears
 	groupKey := fmt.Sprintf("bridge:%d", 100)
 	if !got.pipelineView.matrixExpanded[groupKey] {
 		t.Fatal("Enter should expand the bridge in old pipeline mode")
@@ -940,12 +1109,13 @@ func TestPipelineView_EnterTogglesBridge(t *testing.T) {
 		t.Fatalf("after expand: expected %d rows, got %d", initialRowCount+1, len(got.pipelineView.stageJobRows))
 	}
 
-	// Press Enter again to collapse
+	// When: enter is pressed again
 	got.pipelineView.stageSelected = bridgeIdx
 	got.pipelineView.stageTable.SetCursor(bridgeIdx)
 	updated, _ = got.handlePipelineViewKey(enterMsg)
 	got = updated.(Model)
 
+	// Then: the bridge collapses back to its original row count
 	if got.pipelineView.matrixExpanded[groupKey] {
 		t.Fatal("second Enter should collapse the bridge")
 	}
@@ -954,7 +1124,15 @@ func TestPipelineView_EnterTogglesBridge(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_BridgeExpandedWithChildJobs: loaded downstream jobs render as child rows under
+// the bridge.
+// Given an expanded bridge whose downstream pipeline has three fetched jobs, when rows are built, then the
+// header is followed by three rowKindBridgeChild rows carrying each job, its status, the downstream
+// project ID, and IsLast only on the final row.
+// Why it matters: ChildProjectID is what routes actions on child jobs to the downstream project, so a
+// missing ID would aim them at the parent project instead.
 func TestBuildStageJobRows_BridgeExpandedWithChildJobs(t *testing.T) {
+	// Given: an expanded bridge whose downstream jobs have been fetched
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 	}
@@ -984,24 +1162,21 @@ func TestBuildStageJobRows_BridgeExpandedWithChildJobs(t *testing.T) {
 		},
 	}
 
+	// When: the rows are built
 	rows := buildStageJobRows(stages, jobs, bridges, expanded, childJobs)
 
-	// compile(1) + bridge header(1) + 3 child jobs = 5
+	// Then: compile(1) + bridge header(1) + 3 child jobs = 5
 	if len(rows) != 5 {
 		t.Fatalf("expected 5 rows, got %d", len(rows))
 	}
-
-	// Row 0: regular job
 	if rows[0].Kind != rowKindJob {
 		t.Errorf("row 0: expected rowKindJob, got %d", rows[0].Kind)
 	}
-
-	// Row 1: bridge header
 	if rows[1].Kind != rowKindBridge {
 		t.Errorf("row 1: expected rowKindBridge, got %d", rows[1].Kind)
 	}
 
-	// Rows 2-4: bridge child jobs
+	// And: each child row carries its job and the downstream project ID
 	for i := 2; i <= 4; i++ {
 		if rows[i].Kind != rowKindBridgeChild {
 			t.Errorf("row %d: expected rowKindBridgeChild, got %d", i, rows[i].Kind)
@@ -1014,7 +1189,7 @@ func TestBuildStageJobRows_BridgeExpandedWithChildJobs(t *testing.T) {
 		}
 	}
 
-	// Check specific child jobs
+	// And: the child jobs appear in order
 	if rows[2].Job.Name != "child-build" {
 		t.Errorf("row 2: job name = %q, want child-build", rows[2].Job.Name)
 	}
@@ -1025,7 +1200,7 @@ func TestBuildStageJobRows_BridgeExpandedWithChildJobs(t *testing.T) {
 		t.Errorf("row 4: job name = %q, want child-deploy", rows[4].Job.Name)
 	}
 
-	// Check IsLast
+	// And: only the final child is marked IsLast
 	if rows[2].IsLast {
 		t.Error("row 2 should not be IsLast")
 	}
@@ -1036,7 +1211,7 @@ func TestBuildStageJobRows_BridgeExpandedWithChildJobs(t *testing.T) {
 		t.Error("row 4 should be IsLast")
 	}
 
-	// Check statuses
+	// And: each child row reflects its own job status
 	if rows[2].Status != "success" {
 		t.Errorf("row 2: status = %q, want success", rows[2].Status)
 	}
@@ -1048,7 +1223,14 @@ func TestBuildStageJobRows_BridgeExpandedWithChildJobs(t *testing.T) {
 	}
 }
 
+// TestBuildStageJobRows_BridgeExpandedNoChildJobsYet: an expanded bridge shows a placeholder until its
+// child jobs load.
+// Given an expanded bridge whose downstream jobs have not been fetched, when rows are built, then a single
+// rowKindBridge placeholder with IsLast=true follows the header.
+// Why it matters: expansion triggers an async fetch, and without the placeholder the group would render as
+// mysteriously empty during the load.
 func TestBuildStageJobRows_BridgeExpandedNoChildJobsYet(t *testing.T) {
+	// Given: an expanded bridge with a running downstream pipeline
 	stages := []gitlab.PipelineStage{
 		{Name: "build", Status: "success"},
 	}
@@ -1069,15 +1251,16 @@ func TestBuildStageJobRows_BridgeExpandedNoChildJobsYet(t *testing.T) {
 		},
 	}
 
+	// When: rows are built with no child jobs loaded yet
 	expanded := map[string]bool{"bridge:100": true}
-	// No child jobs loaded yet — empty map
 	rows := buildStageJobRows(stages, jobs, bridges, expanded, nil)
 
-	// compile(1) + bridge header(1) + placeholder(1) = 3 (same as old behavior)
+	// Then: compile(1) + bridge header(1) + placeholder(1) = 3
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
-	// Placeholder should be rowKindBridge with IsLast=true
+
+	// And: the placeholder is a rowKindBridge marked IsLast
 	if rows[2].Kind != rowKindBridge || !rows[2].IsLast {
 		t.Errorf("row 2: expected placeholder (rowKindBridge, IsLast=true), got kind=%d IsLast=%v", rows[2].Kind, rows[2].IsLast)
 	}

@@ -10,22 +10,20 @@ import (
 	"testing"
 
 	gl "gitlab.com/gitlab-org/api/client-go"
-
-	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
-// TestExitCodeFor exercises every branch of the error→exit-code map.
-// The mapping is the stable scripting contract documented in the
-// `lazylab pipeline status --help` output, so any change here is a
-// breaking change for shell wrappers that already depend on the codes.
+// TestExitCodeFor: every error class resolves to its contracted exit code.
+// Given one representative error per branch (HTTP statuses, transport
+// failures, cancellation, generics), when exitCodeFor maps each, then the code
+// matches the published contract, wrapped or not.
+// Why it matters: shell wrappers branch on these exact codes, so a remapping
+// silently corrupts their retry/backoff decisions.
 //
-// HTTP-status branches build their errors by routing a real call through
-// an httptest server so the SDK's *gl.ErrorResponse plumbing fires — a
-// hand-rolled *gitlab.APIError would bypass AsAPIError's chain-walking
-// (it only recognizes the SDK's concrete error type) and produce a
-// false negative. The cost is one local Listen per case, which is
-// negligible at the size of the table.
+// HTTP-status errors are fabricated as *gl.ErrorResponse (see
+// apiErrorFromHTTP), the SDK's concrete type: AsAPIError only recognizes that
+// type when walking the chain, so a hand-rolled error would exercise nothing.
 func TestExitCodeFor(t *testing.T) {
+	// Given: a representative error for every branch of the contract
 	unauthorized := apiErrorFromHTTP(t, http.StatusUnauthorized)
 	forbidden := apiErrorFromHTTP(t, http.StatusForbidden)
 	notFound := apiErrorFromHTTP(t, http.StatusNotFound)
@@ -55,47 +53,37 @@ func TestExitCodeFor(t *testing.T) {
 			want: exitOK,
 		},
 		{
-			name: "watchedFailureError maps to exitWatchedFailure",
-			err:  &watchedFailureError{Resource: "pipeline", Status: "failed"},
-			want: exitWatchedFailure,
-		},
-		{
-			name: "wrapped watchedFailureError still exitWatchedFailure",
-			err:  fmt.Errorf("watcher loop terminated: %w", &watchedFailureError{Resource: "job", Status: "canceled"}),
-			want: exitWatchedFailure,
-		},
-		{
-			name: "401 unauthorized → exitUnauthorized",
+			name: "401 unauthorized -> exitUnauthorized",
 			err:  unauthorized,
 			want: exitUnauthorized,
 		},
 		{
-			name: "403 forbidden → exitUnauthorized (same scripting bucket)",
+			name: "403 forbidden -> exitUnauthorized (same scripting bucket)",
 			err:  forbidden,
 			want: exitUnauthorized,
 		},
 		{
-			name: "429 rate limited → exitTransient",
+			name: "429 rate limited -> exitTransient",
 			err:  rateLimited,
 			want: exitTransient,
 		},
 		{
-			name: "500 server error → exitTransient",
+			name: "500 server error -> exitTransient",
 			err:  serverErr500,
 			want: exitTransient,
 		},
 		{
-			name: "502 bad gateway → exitTransient",
+			name: "502 bad gateway -> exitTransient",
 			err:  serverErr502,
 			want: exitTransient,
 		},
 		{
-			name: "503 service unavailable → exitTransient",
+			name: "503 service unavailable -> exitTransient",
 			err:  serverErr503,
 			want: exitTransient,
 		},
 		{
-			name: "404 not found → exitGeneric (not a transient retry)",
+			name: "404 not found -> exitGeneric (not a transient retry)",
 			err:  notFound,
 			want: exitGeneric,
 		},
@@ -110,17 +98,12 @@ func TestExitCodeFor(t *testing.T) {
 			want: exitTransient,
 		},
 		{
-			name: "ErrNoProjectContext is generic (user input error, not a network failure)",
-			err:  gitlab.ErrNoProjectContext,
-			want: exitGeneric,
-		},
-		{
-			name: "net.Error (dial refused) → exitNetworkFailure",
+			name: "net.Error (dial refused) -> exitNetworkFailure",
 			err:  &fakeNetErr{msg: "dial tcp: connection refused"},
 			want: exitNetworkFailure,
 		},
 		{
-			name: "net.Error (timeout) → exitNetworkFailure",
+			name: "net.Error (timeout) -> exitNetworkFailure",
 			err:  &fakeNetErr{msg: "i/o timeout", timeout: true},
 			want: exitNetworkFailure,
 		},
@@ -138,22 +121,14 @@ func TestExitCodeFor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// When: the error is mapped to an exit code
 			got := exitCodeFor(tt.err)
+
+			// Then: the code matches the contract
 			if got != tt.want {
 				t.Fatalf("exitCodeFor(%v) = %d, want %d", tt.err, got, tt.want)
 			}
 		})
-	}
-}
-
-// TestWatchedFailureError_Message pins the human-readable shape of the
-// watched-failure error message. Scripts may grep stderr for this
-// substring (e.g. `lazylab pipeline watch 2>&1 | grep "ended with"`).
-func TestWatchedFailureError_Message(t *testing.T) {
-	e := &watchedFailureError{Resource: "pipeline", Status: "failed"}
-	want := "pipeline ended with status: failed"
-	if got := e.Error(); got != want {
-		t.Fatalf("Error() = %q, want %q", got, want)
 	}
 }
 
@@ -183,9 +158,8 @@ var _ net.Error = (*fakeNetErr)(nil)
 // apiErrorFromHTTP fabricates an error of the exact shape AsAPIError
 // recognizes: a *gl.ErrorResponse with a populated Response field, which
 // gitlab.AsAPIError walks via errors.As. We avoid spinning up an httptest
-// server because the SDK's default retry policy would burn 5+ seconds
-// per 429/5xx case — multiply by every status code in the table and the
-// test would take 30+ seconds. A hand-built ErrorResponse is the same
+// server because the SDK's default retry policy would burn 5+ seconds per
+// 429/5xx case, 30+ seconds across the table. A hand-built ErrorResponse is the same
 // type the SDK would produce in production, so the predicate logic gets
 // the same coverage at zero runtime cost.
 func apiErrorFromHTTP(t *testing.T, status int) error {

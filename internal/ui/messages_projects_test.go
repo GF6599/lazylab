@@ -10,12 +10,18 @@ import (
 	gl "gitlab.com/gitlab-org/api/client-go"
 )
 
-// TestFormatLoadErr verifies that the typed-error UI helper picks the right
-// status line for each HTTP status the GitLab client can surface. Errors are
-// fabricated directly via *gl.ErrorResponse rather than provoked through the
-// SDK, because the helper only cares about what errors.As can extract from
-// the chain.
+// TestFormatLoadErr: each class of load failure maps to its own exact status-bar message.
+// Given error chains for 401, 403, 404, 429, and 502 plus a plain error and nil, when formatLoadErr
+// renders each, then every case yields its precise phrase, from token guidance for 401 through the
+// "Failed to load <action>" fallback down to an empty string for nil.
+// Why it matters: this string is the only explanation a user gets for a failed load, and a wrong
+// mapping would tell someone with an expired token that GitLab is down instead of pointing them at
+// GITLAB_TOKEN.
+//
+// Errors are fabricated directly via *gl.ErrorResponse rather than provoked through the SDK, because
+// the helper only cares about what errors.As can extract from the chain.
 func TestFormatLoadErr(t *testing.T) {
+	// Given: error chains for each failure class with their expected status lines
 	tests := []struct {
 		name   string
 		action string
@@ -80,6 +86,7 @@ func TestFormatLoadErr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// When/Then: rendering the error yields the exact expected phrase
 			if got := formatLoadErr(tt.action, tt.err); got != tt.want {
 				t.Errorf("formatLoadErr(%q, err) = %q, want %q", tt.action, got, tt.want)
 			}
@@ -88,8 +95,8 @@ func TestFormatLoadErr(t *testing.T) {
 }
 
 // wrapHTTPErr fabricates an error chain that mirrors what the gitlab SDK
-// produces for a given HTTP status — a *gl.ErrorResponse with the requisite
-// *http.Response embedded — wrapped once with fmt.Errorf the way client.go
+// produces for a given HTTP status: a *gl.ErrorResponse with the requisite
+// *http.Response embedded, wrapped once with fmt.Errorf the way client.go
 // would.
 func wrapHTTPErr(status int) error {
 	sdkErr := &gl.ErrorResponse{

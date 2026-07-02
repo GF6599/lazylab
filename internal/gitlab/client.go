@@ -73,17 +73,15 @@ func NewClient(token, host string) (*Client, error) {
 // list) from a single Bubble Tea Cmd.
 //
 // Service is a compound of per-domain sub-interfaces (ProjectService,
-// PipelineService, MRService, RepoService, UserService). Call sites that
-// need only a slice of the surface can depend on the relevant sub-interface
-// directly, which keeps test doubles small. *Client satisfies every
-// sub-interface, so existing consumers that take Service continue to work
-// unchanged.
+// PipelineService, MRService, RepoService). Call sites that need only a
+// slice of the surface can depend on the relevant sub-interface directly,
+// which keeps test doubles small. *Client satisfies every sub-interface,
+// so existing consumers that take Service continue to work unchanged.
 type Service interface {
 	ProjectService
 	PipelineService
 	MRService
 	RepoService
-	UserService
 }
 
 // Verify at compile time that *Client satisfies Service.
