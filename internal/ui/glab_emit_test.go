@@ -56,6 +56,19 @@ func TestGlabSelection(t *testing.T) {
 			wantOK: true,
 		},
 		{
+			name: "configured instance host tags the selection",
+			model: func() Model {
+				m := focusedPipelineModel()
+				m.opts.Host = "https://gitlab.mycompany.com"
+				return m
+			},
+			want: glabcmd.Selection{
+				Kind: glabcmd.KindPipeline, Host: "https://gitlab.mycompany.com",
+				ProjectPath: "acme/widgets", Ref: "main", PipelineID: 4242,
+			},
+			wantOK: true,
+		},
+		{
 			name: "focused job carries job id",
 			model: func() Model {
 				return Model{
@@ -68,6 +81,23 @@ func TestGlabSelection(t *testing.T) {
 				}
 			},
 			want:   glabcmd.Selection{Kind: glabcmd.KindJob, ProjectPath: "acme/widgets", JobID: 99821},
+			wantOK: true,
+		},
+		{
+			name: "matrix child row emits its real job",
+			model: func() Model {
+				job := gitlab.PipelineJob{ID: 7101, Name: "lint: [go, v1.24]", Stage: "test"}
+				return Model{
+					focus: FocusState{Active: PanelStages},
+					pipelineView: pipelineViewState{
+						project:       gitlab.ProjectNode{PathWithNamespace: "acme/widgets"},
+						jobRows:       []gitlab.PipelineJob{job},
+						stageJobRows:  []stageJobRow{{Kind: rowKindMatrixChild, Job: &job}},
+						stageSelected: 0,
+					},
+				}
+			},
+			want:   glabcmd.Selection{Kind: glabcmd.KindJob, ProjectPath: "acme/widgets", JobID: 7101},
 			wantOK: true,
 		},
 		{
@@ -110,6 +140,40 @@ func TestGlabSelection(t *testing.T) {
 						project:       gitlab.ProjectNode{PathWithNamespace: "acme/widgets"},
 						jobRows:       []gitlab.PipelineJob{job},
 						stageJobRows:  []stageJobRow{{Kind: rowKindBridgeChild, Job: &job, ChildProjectID: 555}},
+						stageSelected: 0,
+					},
+				}
+			},
+			want:   glabcmd.Selection{},
+			wantOK: false,
+		},
+		{
+			name: "bridge header row is refused (bridge ID is not a job ID)",
+			model: func() Model {
+				bridge := gitlab.PipelineBridge{ID: 314, Name: "trigger-downstream", Stage: "deploy"}
+				return Model{
+					focus: FocusState{Active: PanelStages},
+					pipelineView: pipelineViewState{
+						project:       gitlab.ProjectNode{PathWithNamespace: "acme/widgets"},
+						jobRows:       []gitlab.PipelineJob{{ID: 314, Name: "trigger-downstream"}},
+						stageJobRows:  []stageJobRow{{Kind: rowKindBridge, Bridge: &bridge}},
+						stageSelected: 0,
+					},
+				}
+			},
+			want:   glabcmd.Selection{},
+			wantOK: false,
+		},
+		{
+			name: "matrix group header is refused (aggregates several jobs)",
+			model: func() Model {
+				jobs := []gitlab.PipelineJob{{ID: 1, Name: "lint: [go, v1.24]"}, {ID: 2, Name: "lint: [go, v1.25]"}}
+				return Model{
+					focus: FocusState{Active: PanelStages},
+					pipelineView: pipelineViewState{
+						project:       gitlab.ProjectNode{PathWithNamespace: "acme/widgets"},
+						jobRows:       []gitlab.PipelineJob{jobs[0]},
+						stageJobRows:  []stageJobRow{{Kind: rowKindMatrixGroup, Jobs: jobs}},
 						stageSelected: 0,
 					},
 				}
@@ -162,8 +226,8 @@ func TestGlabCommands(t *testing.T) {
 	if len(cmds) != 4 {
 		t.Fatalf("got %d commands, want 4", len(cmds))
 	}
-	if cmds[0].Cmd != "glab ci view main -R acme/widgets" {
-		t.Errorf("cmds[0].Cmd = %q", cmds[0].Cmd)
+	if cmds[0].Cmd != "glab ci get -p 4242 -R acme/widgets" {
+		t.Errorf("cmds[0].Cmd = %q, want the ID-precise get as the yank default", cmds[0].Cmd)
 	}
 
 	// And: nothing selected resolves to not-ok
@@ -253,8 +317,8 @@ func TestHandleGlabPreviewKey(t *testing.T) {
 			active:  true,
 			project: "acme/widgets",
 			commands: []glabcmd.Command{
-				{Label: "View pipeline (branch)", Cmd: "glab ci view main -R acme/widgets"},
 				{Label: "Get pipeline by ID", Cmd: "glab ci get -p 4242 -R acme/widgets"},
+				{Label: "View latest pipeline on ref", Cmd: "glab ci view main -R acme/widgets"},
 			},
 		}
 		return m
