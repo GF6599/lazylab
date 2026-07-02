@@ -19,10 +19,11 @@ type glabPreviewState struct {
 }
 
 // glabSelection projects the currently focused panel and its selected item into a
-// glabcmd.Selection. The bool is false when nothing emittable is focused (an empty
-// list, or a bridge/downstream child job whose project is identified only by numeric
-// ID and so cannot form a correct -R). The project path always comes from the panel
-// that owns the item, since pipeline/job/MR entities do not carry their own path.
+// glabcmd.Selection. The bool is false when nothing emittable is focused: an empty
+// list, or a stages row that does not map 1:1 to a real job. The project path always
+// comes from the panel that owns the item, since pipeline/job/MR entities do not
+// carry their own path; Host carries the configured instance so pasted commands
+// target it rather than glab's own default host.
 func (m Model) glabSelection() (glabcmd.Selection, bool) {
 	active := m.focus.Active
 	if active == PanelDetail {
@@ -32,24 +33,26 @@ func (m Model) glabSelection() (glabcmd.Selection, bool) {
 	switch active {
 	case PanelProjects:
 		if p, ok := m.selectedProject(); ok {
-			return glabcmd.Selection{Kind: glabcmd.KindProject, ProjectPath: p.PathWithNamespace}, true
+			return glabcmd.Selection{Kind: glabcmd.KindProject, Host: m.opts.Host, ProjectPath: p.PathWithNamespace}, true
 		}
 	case PanelPipelines:
 		if pl := m.selectedPipeline(); pl != nil {
 			return glabcmd.Selection{
 				Kind:        glabcmd.KindPipeline,
+				Host:        m.opts.Host,
 				ProjectPath: m.pipelineView.project.PathWithNamespace,
 				Ref:         pl.Ref,
 				PipelineID:  pl.ID,
 			}, true
 		}
 	case PanelStages:
-		if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild {
+		if !m.stageRowEmitsJobCommands() {
 			return glabcmd.Selection{}, false
 		}
 		if job := m.selectedPipelineJob(); job != nil {
 			return glabcmd.Selection{
 				Kind:        glabcmd.KindJob,
+				Host:        m.opts.Host,
 				ProjectPath: m.pipelineView.project.PathWithNamespace,
 				JobID:       job.ID,
 			}, true
@@ -58,6 +61,7 @@ func (m Model) glabSelection() (glabcmd.Selection, bool) {
 		if mr := m.mrView.selectedMR(); mr != nil {
 			return glabcmd.Selection{
 				Kind:        glabcmd.KindMergeRequest,
+				Host:        m.opts.Host,
 				ProjectPath: m.mrView.project.PathWithNamespace,
 				MRIID:       mr.IID,
 			}, true
@@ -65,6 +69,16 @@ func (m Model) glabSelection() (glabcmd.Selection, bool) {
 	}
 
 	return glabcmd.Selection{}, false
+}
+
+// stageRowEmitsJobCommands reports whether the focused stages row maps 1:1 to a real
+// job the jobs API accepts. Bridge headers synthesize a PipelineJob carrying the
+// bridge ID (which job trace/retry/cancel reject), matrix group headers aggregate
+// several jobs, and bridge children live in a downstream project identified only by
+// numeric ID, so none of them can form a correct command.
+func (m Model) stageRowEmitsJobCommands() bool {
+	row := m.selectedStageJobRow()
+	return row == nil || row.Kind == rowKindJob || row.Kind == rowKindMatrixChild
 }
 
 // glabCommands resolves the focused selection into its ordered glab commands and

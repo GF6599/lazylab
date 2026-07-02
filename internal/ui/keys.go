@@ -392,27 +392,31 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 				return []key.Binding{
 					k.Up, k.Down, k.ScrollUp, k.ScrollDown,
 					k.Top, k.Bottom, resolve, k.Enter,
-					k.Comment, k.CycleTab, k.Left, k.Copy,
-					k.Theme, k.Help, k.Quit,
+					k.Comment, k.CycleTab, k.Left,
+					k.YankGlab, k.GlabPreview,
+					k.Copy, k.Theme, k.Help, k.Quit,
 				}
 			case mrDetailTabDiff:
 				return []key.Binding{
 					k.Up, k.Down, k.ScrollUp, k.ScrollDown,
 					k.Top, k.Bottom, k.Comment, k.CycleTab,
-					k.Left, k.Copy, k.Theme, k.Help, k.Quit,
+					k.Left, k.YankGlab, k.GlabPreview,
+					k.Copy, k.Theme, k.Help, k.Quit,
 				}
 			default:
 				return []key.Binding{
 					k.ScrollUp, k.ScrollDown, k.Top, k.Bottom,
-					k.Comment, k.CycleTab, k.Left, k.Copy,
-					k.Theme, k.Help, k.Quit,
+					k.Comment, k.CycleTab, k.Left,
+					k.YankGlab, k.GlabPreview,
+					k.Copy, k.Theme, k.Help, k.Quit,
 				}
 			}
 		}
 		return []key.Binding{
 			k.ScrollUp, k.ScrollDown, k.Top, k.Bottom,
-			k.Retry, k.CycleTab, k.Left, k.Copy,
-			k.Theme, k.Help, k.Quit,
+			k.Retry, k.CycleTab, k.Left,
+			k.YankGlab, k.GlabPreview,
+			k.Copy, k.Theme, k.Help, k.Quit,
 		}
 	default:
 		return []key.Binding{k.Theme, k.Help, k.Quit}
