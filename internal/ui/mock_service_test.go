@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -34,9 +33,6 @@ type mockService struct {
 	GetMergeRequestDiffRefsFn       func(ctx context.Context, projectID, mrIID int) (gitlab.MRDiffRefs, error)
 	ListBranchesFn                  func(ctx context.Context, projectID int, search string) ([]string, error)
 	CreateMergeRequestFn            func(ctx context.Context, projectID int, opts gitlab.CreateMROptions) (gitlab.MergeRequestSummary, error)
-	GetPipelineFn                   func(ctx context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error)
-	LatestPipelineForSHAFn          func(ctx context.Context, projectID int, sha string) (gitlab.PipelineSummary, error)
-	GetJobFn                        func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
 }
 
 var _ gitlab.Service = (*mockService)(nil)
@@ -214,32 +210,4 @@ func (m *mockService) CreateMergeRequest(ctx context.Context, projectID int, opt
 		return m.CreateMergeRequestFn(ctx, projectID, opts)
 	}
 	return gitlab.MergeRequestSummary{}, nil
-}
-
-// Methods below default to returning an explicit "Fn not set" error
-// rather than a zero value. Defaulting to nil-error meant tests that
-// forgot to wire a method silently exercised phantom data; the error
-// forces each test to opt in to the surface area it actually needs.
-// Older methods keep the permissive zero-value default to avoid
-// retrofitting unrelated tests.
-
-func (m *mockService) GetPipeline(ctx context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error) {
-	if m.GetPipelineFn != nil {
-		return m.GetPipelineFn(ctx, projectID, pipelineID)
-	}
-	return gitlab.PipelineSummary{}, fmt.Errorf("mockService: GetPipelineFn not set")
-}
-
-func (m *mockService) LatestPipelineForSHA(ctx context.Context, projectID int, sha string) (gitlab.PipelineSummary, error) {
-	if m.LatestPipelineForSHAFn != nil {
-		return m.LatestPipelineForSHAFn(ctx, projectID, sha)
-	}
-	return gitlab.PipelineSummary{}, fmt.Errorf("mockService: LatestPipelineForSHAFn not set")
-}
-
-func (m *mockService) GetJob(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error) {
-	if m.GetJobFn != nil {
-		return m.GetJobFn(ctx, projectID, jobID)
-	}
-	return gitlab.PipelineJob{}, fmt.Errorf("mockService: GetJobFn not set")
 }

@@ -30,61 +30,6 @@ type PipelineService interface {
 	PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
 	ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error)
 	GetPipelineTestReport(ctx context.Context, projectID, pipelineID int) (*TestReport, error)
-	// GetPipeline fetches a single pipeline by ID. Used by ref resolution
-	// when the user passes a numeric pipeline argument and we need the
-	// concrete record (status, ref, SHA) for display.
-	GetPipeline(ctx context.Context, projectID, pipelineID int) (PipelineSummary, error)
-	// LatestPipelineForSHA returns the most recent pipeline anchored to a
-	// specific commit SHA. Distinct from LatestPipeline (which filters by
-	// ref) because a commit can outlive its branch, and the CLI's HEAD-
-	// resolution path needs the SHA, not the ref name.
-	LatestPipelineForSHA(ctx context.Context, projectID int, sha string) (PipelineSummary, error)
-	// GetJob fetches a single job by ID. Used by the streaming-log path
-	// to poll the job's status alongside trace bytes, and by future
-	// commands that need a job's full record (artifacts, runner, etc.)
-	// without first listing the whole pipeline.
-	GetJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
-}
-
-// GetPipeline fetches a single pipeline by ID. Stages are not pre-loaded —
-// callers needing them should pair this with PipelineStages, matching the
-// lazy-loading pattern ListPipelines already uses.
-func (c *Client) GetPipeline(ctx context.Context, projectID, pipelineID int) (PipelineSummary, error) {
-	p, _, err := c.api.Pipelines.GetPipeline(projectID, int64(pipelineID), gl.WithContext(ctx))
-	if err != nil {
-		return PipelineSummary{}, fmt.Errorf("get pipeline %d: %w", pipelineID, err)
-	}
-	return pipelineSummary(p), nil
-}
-
-// LatestPipelineForSHA returns the most recent pipeline whose commit
-// matches sha. Distinct from LatestPipeline (which filters by ref) because
-// a single SHA can have multiple pipelines (push pipeline + detached MR
-// pipeline) — sorting by updated_at desc and taking the first row matches
-// the "what just ran for what I pushed" intuition.
-//
-// Returns ErrNoPipelines if no pipeline exists for that SHA. The CLI's
-// HEAD-resolution path treats this as a soft signal (maybe the user just
-// pushed and the pipeline hasn't been created yet) and surfaces it with a
-// hint to wait.
-func (c *Client) LatestPipelineForSHA(ctx context.Context, projectID int, sha string) (PipelineSummary, error) {
-	if strings.TrimSpace(sha) == "" {
-		return PipelineSummary{}, fmt.Errorf("latest pipeline for sha: empty sha")
-	}
-	opts := &gl.ListProjectPipelinesOptions{
-		ListOptions: gl.ListOptions{PerPage: 1, Page: 1},
-		OrderBy:     gl.Ptr("updated_at"),
-		Sort:        gl.Ptr("desc"),
-		SHA:         gl.Ptr(sha),
-	}
-	pipelines, _, err := c.api.Pipelines.ListProjectPipelines(projectID, opts, gl.WithContext(ctx))
-	if err != nil {
-		return PipelineSummary{}, fmt.Errorf("list pipelines for sha %s: %w", sha, err)
-	}
-	if len(pipelines) == 0 {
-		return PipelineSummary{}, ErrNoPipelines
-	}
-	return pipelineSummaryFromInfo(pipelines[0]), nil
 }
 
 // LatestPipeline returns the single most recent pipeline for a project/ref,

@@ -33,25 +33,6 @@ func derefTime(t *time.Time) time.Time {
 	return *t
 }
 
-// GetJob fetches a single job by ID. Pairs with GetJobTrace when polling a
-// running job: the trace endpoint returns bytes, GetJob returns the current
-// status, and the poller stops once status becomes terminal.
-//
-// A zero jobID is rejected up front with a plain "missing job id" error to
-// catch the common "nothing selected" caller bug before the round trip. SDK
-// failures are returned %w-wrapped (as "get job %d") so AsAPIError and
-// friends can classify the HTTP status.
-func (c *Client) GetJob(ctx context.Context, projectID, jobID int) (PipelineJob, error) {
-	if jobID == 0 {
-		return PipelineJob{}, fmt.Errorf("get job: missing job id")
-	}
-	job, _, err := c.api.Jobs.GetJob(projectID, int64(jobID), gl.WithContext(ctx))
-	if err != nil {
-		return PipelineJob{}, fmt.Errorf("get job %d: %w", jobID, err)
-	}
-	return mapJob(job), nil
-}
-
 // ListPipelineJobs returns every job across all pages for the given pipeline.
 // Returns ErrNoJobs when the pipeline exists but has no jobs yet (e.g., right
 // after creation before GitLab schedules them).
