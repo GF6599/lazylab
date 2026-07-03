@@ -122,16 +122,6 @@ func panelLabel(id PanelID) string {
 	}
 }
 
-// panelShortcut returns the number key shortcut for sidebar panels (1-indexed).
-func panelShortcut(id PanelID) int {
-	for i, p := range SidebarPanels {
-		if p == id {
-			return i + 1
-		}
-	}
-	return 0
-}
-
 // panelByShortcut returns the panel for a 1-based shortcut number.
 func panelByShortcut(n int) (PanelID, bool) {
 	if n < 1 || n > len(SidebarPanels) {

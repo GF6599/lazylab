@@ -28,31 +28,6 @@ func TestPanelLabel(t *testing.T) {
 	}
 }
 
-// TestPanelShortcut: sidebar panels map to number keys 1-4 and the detail pane to none.
-// Given each panel, when its shortcut is looked up, then the sidebar panels return 1 through 4 in order
-// and PanelDetail returns 0.
-// Why it matters: this mapping must agree with the numbers baked into panelLabel, or the advertised key
-// jumps to a different panel than its title claims.
-func TestPanelShortcut(t *testing.T) {
-	// Given: each panel with its expected number key
-	tests := []struct {
-		id   PanelID
-		want int
-	}{
-		{PanelProjects, 1},
-		{PanelPipelines, 2},
-		{PanelStages, 3},
-		{PanelMRs, 4},
-		{PanelDetail, 0},
-	}
-	for _, tt := range tests {
-		// When/Then: the shortcut matches the panel's number key
-		if got := panelShortcut(tt.id); got != tt.want {
-			t.Errorf("panelShortcut(%d) = %d, want %d", tt.id, got, tt.want)
-		}
-	}
-}
-
 // TestPanelByShortcut: number keys 1-4 resolve to sidebar panels and everything else is rejected.
 // Given shortcut numbers in and out of the valid range, when each is resolved, then 1-4 return the
 // matching sidebar panel with ok=true while 0, 5, and -1 report ok=false.
