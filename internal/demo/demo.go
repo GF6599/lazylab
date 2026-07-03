@@ -46,10 +46,7 @@ func (d *DemoService) ListProjects(_ context.Context, opts gitlab.ProjectListOpt
 	if start >= total {
 		return gitlab.ProjectPage{Page: page, TotalPages: totalPages}, nil
 	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
+	end := min(start+perPage, total)
 
 	pp := gitlab.ProjectPage{
 		Projects:   all[start:end],
@@ -134,10 +131,7 @@ func (d *DemoService) ListPipelines(_ context.Context, projectID int, opts gitla
 	if start >= total {
 		return gitlab.PipelinePage{Page: page, TotalPages: totalPages}, nil
 	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
+	end := min(start+perPage, total)
 
 	pp := gitlab.PipelinePage{
 		Pipelines:  all[start:end],
@@ -241,10 +235,7 @@ func (d *DemoService) ListMergeRequests(_ context.Context, projectID int, opts g
 	if start >= total {
 		return gitlab.MRPage{Page: page, TotalPages: totalPages}, nil
 	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
+	end := min(start+perPage, total)
 
 	mp := gitlab.MRPage{
 		MergeRequests: all[start:end],
