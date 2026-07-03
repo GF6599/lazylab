@@ -230,18 +230,6 @@ func displayRef(ex explorerState) string {
 	return ex.ref
 }
 
-func parentDir(path string) string {
-	if path == "" {
-		return ""
-	}
-	path = strings.TrimSuffix(path, "/")
-	idx := strings.LastIndex(path, "/")
-	if idx == -1 {
-		return ""
-	}
-	return path[:idx]
-}
-
 func (m *Model) findDirIndex(path string) int {
 	for i := range m.explorer.stack {
 		if m.explorer.stack[i].path == path {

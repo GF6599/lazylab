@@ -18,31 +18,6 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
-// TestParentDir: repository paths resolve to their parent directory, with the root's parent empty.
-// Given nested and trailing-slash paths, when the parent is computed, then each drops its last segment
-// and top-level entries return the empty root.
-// Why it matters: the explorer's "go up" navigation follows this value, and a wrong parent would jump the
-// file browser to a directory that does not exist.
-func TestParentDir(t *testing.T) {
-	// Given: root, top-level, nested, and trailing-slash paths
-	tests := []struct {
-		path string
-		want string
-	}{
-		{"", ""},
-		{"src", ""},
-		{"src/pkg", "src"},
-		{"src/pkg/util", "src/pkg"},
-		{"src/pkg/util/", "src/pkg"},
-	}
-	for _, tt := range tests {
-		// When/Then: the parent drops exactly the last segment
-		if got := parentDir(tt.path); got != tt.want {
-			t.Fatalf("parentDir(%q) = %q, want %q", tt.path, got, tt.want)
-		}
-	}
-}
-
 // TestVisibleProjectsSearch: a search query filters the project list and clearing it restores the page.
 // Given three projects, when the query is "api" and then empty, then only api-server is visible first and
 // the full page comes back after.
@@ -920,29 +895,6 @@ func TestQueueExplorerPreviewFile(t *testing.T) {
 	cmd := m.queueExplorerPreview()
 	if cmd == nil || m.explorer.preview.path != "README.md" || !m.explorer.preview.loading {
 		t.Fatalf("file preview not queued: %#v", m.explorer.preview)
-	}
-}
-
-// TestWrapPreviewLine: preview lines split into width-bounded segments and degenerate widths pass through.
-// Given a 12-character line at width 5 and a line at width 0, when each wraps, then the first yields three
-// segments none wider than 5 and the second returns the original line untouched.
-// Why it matters: one unwrapped long line would stretch the preview pane and shear the explorer's column
-// layout.
-func TestWrapPreviewLine(t *testing.T) {
-	// When/Then: a 12-character line at width 5 wraps into three bounded segments
-	segments := wrapPreviewLine("abcdefghijkl", 5)
-	if len(segments) != 3 {
-		t.Fatalf("expected 3 segments, got %d (%v)", len(segments), segments)
-	}
-	for _, seg := range segments {
-		if lipgloss.Width(seg) > 5 {
-			t.Fatalf("segment %q exceeds width 5", seg)
-		}
-	}
-
-	// And: a non-positive width returns the original line
-	if got := wrapPreviewLine("line", 0); len(got) != 1 || got[0] != "line" {
-		t.Fatalf("width <= 0 should return original line, got %#v", got)
 	}
 }
 

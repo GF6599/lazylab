@@ -535,10 +535,7 @@ func renderBranchPicker(bp branchPickerState, width int) string {
 		if bp.selected >= maxVisible {
 			start = bp.selected - maxVisible + 1
 		}
-		end := start + maxVisible
-		if end > len(bp.filtered) {
-			end = len(bp.filtered)
-		}
+		end := min(start+maxVisible, len(bp.filtered))
 		for i := start; i < end; i++ {
 			cursor := "  "
 			style := itemStyle

@@ -46,10 +46,7 @@ func (d *DemoService) ListProjects(_ context.Context, opts gitlab.ProjectListOpt
 	if start >= total {
 		return gitlab.ProjectPage{Page: page, TotalPages: totalPages}, nil
 	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
+	end := min(start+perPage, total)
 
 	pp := gitlab.ProjectPage{
 		Projects:   all[start:end],
@@ -134,10 +131,7 @@ func (d *DemoService) ListPipelines(_ context.Context, projectID int, opts gitla
 	if start >= total {
 		return gitlab.PipelinePage{Page: page, TotalPages: totalPages}, nil
 	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
+	end := min(start+perPage, total)
 
 	pp := gitlab.PipelinePage{
 		Pipelines:  all[start:end],
@@ -241,10 +235,7 @@ func (d *DemoService) ListMergeRequests(_ context.Context, projectID int, opts g
 	if start >= total {
 		return gitlab.MRPage{Page: page, TotalPages: totalPages}, nil
 	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
+	end := min(start+perPage, total)
 
 	mp := gitlab.MRPage{
 		MergeRequests: all[start:end],
@@ -331,55 +322,4 @@ func (d *DemoService) CreateMergeRequest(_ context.Context, _ int, opts gitlab.C
 		WebURL:       "https://gitlab.example.com/demo/project/-/merge_requests/999",
 		UpdatedAt:    refTime,
 	}, nil
-}
-
-// GetPipeline looks up a demo pipeline by ID within projectID. On a miss it
-// returns the bare gitlab.ErrNoPipelines sentinel (matchable with errors.Is) —
-// intentionally unlike the real client, which wraps the upstream error with %w
-// ("get pipeline %d: %w"); the demo has no upstream error to wrap.
-func (d *DemoService) GetPipeline(_ context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error) {
-	for _, p := range demoPipelines(projectID) {
-		if p.ID == pipelineID {
-			return p, nil
-		}
-	}
-	return gitlab.PipelineSummary{}, gitlab.ErrNoPipelines
-}
-
-// GetJob looks up a demo job by ID across projectID's pipelines. On a miss it
-// fabricates a successful job with the requested ID rather than erroring, so
-// the streaming-log poll loop terminates immediately in demo mode.
-func (d *DemoService) GetJob(_ context.Context, projectID, jobID int) (gitlab.PipelineJob, error) {
-	// Demo data is keyed loosely by project; surface the first matching
-	// job so the CLI streaming path can be exercised offline. A real
-	// streamer would care about transitions, but demo jobs are already
-	// terminal so a single fetch terminates the loop.
-	for _, pipe := range demoPipelines(projectID) {
-		for _, j := range demoJobs(projectID, pipe.ID) {
-			if j.ID == jobID {
-				return j, nil
-			}
-		}
-	}
-	return gitlab.PipelineJob{ID: jobID, Status: "success"}, nil
-}
-
-// LatestPipelineForSHA returns the demo pipeline whose commit matches sha. It
-// returns gitlab.ErrNoPipelines (matchable with errors.Is) on any miss —
-// whether projectID has no pipelines at all or none for that SHA — matching the
-// real client's contract so callers' not-found fallback paths still fire in
-// demo mode rather than being silently fed a wrong pipeline.
-func (d *DemoService) LatestPipelineForSHA(_ context.Context, projectID int, sha string) (gitlab.PipelineSummary, error) {
-	// Match the real gitlab client's contract: ErrNoPipelines on any
-	// miss, whether the project has no pipelines at all or none for
-	// the requested SHA. Returning pipelines[0] on a SHA miss used to
-	// silently lie — callers expecting errors.Is(err, ErrNoPipelines)
-	// would never trigger their fallback path in demo mode, hiding
-	// real bugs in the CLI's not-found handling.
-	for _, p := range demoPipelines(projectID) {
-		if p.SHA == sha {
-			return p, nil
-		}
-	}
-	return gitlab.PipelineSummary{}, gitlab.ErrNoPipelines
 }

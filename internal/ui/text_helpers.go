@@ -40,47 +40,6 @@ func wrapText(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// wrapPreviewLine hard-wraps a single line at width boundaries, respecting
-// multi-byte character widths. Used for unhighlighted preview content where
-// glamour's built-in wrapping is not available.
-func wrapPreviewLine(line string, width int) []string {
-	if width <= 0 {
-		return []string{line}
-	}
-	if line == "" {
-		return []string{""}
-	}
-	var segments []string
-	var b strings.Builder
-	currentWidth := 0
-	for _, r := range line {
-		rw := lipgloss.Width(string(r))
-		if currentWidth+rw > width && b.Len() > 0 {
-			segments = append(segments, b.String())
-			b.Reset()
-			currentWidth = 0
-		}
-		if rw > width {
-			segments = append(segments, string(r))
-			continue
-		}
-		b.WriteRune(r)
-		currentWidth += rw
-		if currentWidth == width {
-			segments = append(segments, b.String())
-			b.Reset()
-			currentWidth = 0
-		}
-	}
-	if b.Len() > 0 {
-		segments = append(segments, b.String())
-	}
-	if len(segments) == 0 {
-		return []string{""}
-	}
-	return segments
-}
-
 // wrapSelectedItem hard-wraps text for a selected list item so that the
 // full content is visible instead of being truncated with "…". The first
 // line uses full width; continuation lines are indented by indent visible
