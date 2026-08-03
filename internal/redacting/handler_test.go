@@ -86,6 +86,56 @@ func TestRedact(t *testing.T) {
 			input: "leak: glPAT-abc123def456",
 			want:  "leak: [REDACTED-TOKEN]",
 		},
+		{
+			// The header name normalises, as Authorization does.
+			name:  "PRIVATE-TOKEN header",
+			input: "PRIVATE-TOKEN: abcdefghijklmnopqrst",
+			want:  "PRIVATE-TOKEN: [REDACTED]",
+		},
+		{
+			name:  "Private-Token header, mixed case",
+			input: "request failed, Private-Token: abcdefghijklmnopqrst",
+			want:  "request failed, PRIVATE-TOKEN: [REDACTED]",
+		},
+		{
+			// Consuming the newline would destroy the surrounding error text.
+			name:  "Authorization header in a multi-line message",
+			input: "Authorization: Bearer abc123\nPRIVATE-TOKEN: xyz789\nrequest returned 401",
+			want:  "Authorization: [REDACTED]\nPRIVATE-TOKEN: [REDACTED]\nrequest returned 401",
+		},
+		{
+			name:  "Bearer with the value on the next line",
+			input: "Bearer\nretrying in 5s",
+			want:  "Bearer\nretrying in 5s",
+		},
+		{
+			name:  "PRIVATE-TOKEN header with no value",
+			input: "PRIVATE-TOKEN:\nGET /api/v4/projects returned 401",
+			want:  "PRIVATE-TOKEN:\nGET /api/v4/projects returned 401",
+		},
+		{
+			// "Authorization:Bearer x" is legal HTTP, so the space is optional.
+			name:  "Authorization header with no space after the colon",
+			input: "Authorization:abcdefghijklmnopqrst",
+			want:  "Authorization: [REDACTED]",
+		},
+		{
+			// A legacy 20-character token predates the gl prefix entirely.
+			name:  "private_token query parameter",
+			input: "GET https://gitlab.com/api/v4/projects?private_token=abcdefghijklmnopqrst&per_page=30",
+			want:  "GET https://gitlab.com/api/v4/projects?private_token=[REDACTED]&per_page=30",
+		},
+		{
+			// Rewriting the name would corrupt the URL the log line exists to show.
+			name:  "access_token query parameter",
+			input: "GET https://gitlab.com/api/v4/projects?access_token=abcdefghijklmnopqrst&per_page=30",
+			want:  "GET https://gitlab.com/api/v4/projects?access_token=[REDACTED]&per_page=30",
+		},
+		{
+			name:  "query parameter name keeps its own case",
+			input: "GET /api?ACCESS_TOKEN=abcdefghijklmnopqrst",
+			want:  "GET /api?ACCESS_TOKEN=[REDACTED]",
+		},
 	}
 
 	for _, tt := range tests {
