@@ -5,12 +5,23 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/GF6599/lazylab/internal/termsafe"
 )
 
-// View is the top-level Bubble Tea render entry point. It dispatches to the
-// active mode's renderer and composites modal overlays (help, retry confirm)
-// on top of the base view when needed.
+// View is the top-level Bubble Tea render entry point.
+//
+// Every byte the terminal receives passes through here, which is why the escape
+// filter sits at this one seam rather than at each place remote content enters
+// the model.
 func (m Model) View() string {
+	return termsafe.Filter(m.render())
+}
+
+// render dispatches to the active mode's renderer and composites modal overlays
+// (help, retry confirm) on top of the base view when needed. Call [Model.View]
+// instead: output that skips it reaches the terminal unfiltered.
+func (m Model) render() string {
 	width := m.width
 	if width <= 0 {
 		width = 80
