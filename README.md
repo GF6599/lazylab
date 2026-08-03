@@ -53,6 +53,8 @@ Every emitted command carries `-R <group/project>`, so it targets the project yo
 
 A GitLab token is the only required value, and you can skip even that when `glab` is logged in (see below). Everything else has a default. Precedence (highest first): CLI flags > env vars (`GITLAB_*` prefix) > config file > glab credentials > compiled defaults.
 
+Supply the token through `GITLAB_TOKEN`, a config file, or `glab auth login`. The `--token` flag works and stays supported, but prefer the others: a command-line argument is visible to every local user through the process list, and your shell writes it to the history file.
+
 Run `lazylab --help` for the flag surface. Defaults and validation rules live in `internal/config/config.go`.
 
 Config files are optional. Viper parses YAML, TOML, and JSON. Point at one with `--config <path>` or `$LAZYLAB_CONFIG`.

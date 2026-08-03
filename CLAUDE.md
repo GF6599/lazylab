@@ -14,8 +14,9 @@ Lazylab is a Bubble Tea-powered terminal UI for browsing GitLab projects, pipeli
 export GITLAB_TOKEN=glpat-xxxx
 go run ./cmd/lazylab
 
-# Run with flags (overrides env vars)
-go run ./cmd/lazylab --token glpat-xxxx --host https://gitlab.mycompany.com --projects-per-page 100
+# Run with flags (overrides env vars). Keep the token out of the command line:
+# a flag value is visible in the process list and lands in shell history.
+go run ./cmd/lazylab --host https://gitlab.mycompany.com --projects-per-page 100
 
 # Run with config file
 go run ./cmd/lazylab --config ./lazylab.yaml
@@ -23,8 +24,8 @@ go run ./cmd/lazylab --config ./lazylab.yaml
 # Run with debug logging
 go run ./cmd/lazylab --log-level debug
 
-# Using justfile shortcuts
-just run https://gitlab.com glpat-xxxx
+# Using justfile shortcuts (reads GITLAB_TOKEN from the environment or .env)
+just run https://gitlab.com
 ```
 
 ### Testing
