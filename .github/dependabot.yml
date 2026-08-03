@@ -1,0 +1,26 @@
+version: 2
+
+updates:
+  # A pinned SHA never updates on its own, so without this the workflow pins rot
+  # into permanently stale versions.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Majors are left out of the group so a breaking change gets its own review.
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
