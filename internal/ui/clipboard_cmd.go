@@ -16,6 +16,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/atotto/clipboard"
+
+	"github.com/GF6599/lazylab/internal/termsafe"
 )
 
 // clipboardWrite is swapped by tests because CI machines have no OS clipboard
@@ -36,6 +38,10 @@ type clipboardWroteMsg struct {
 // succeeds; on failure a generic "Failed to copy" is emitted instead, matching
 // the pre-refactor wording the user already sees.
 func writeClipboardCmd(text, successMsg string) tea.Cmd {
+	// The clipboard is the one exit that does not pass through Model.View, so it
+	// filters here. Shell quoting is no substitute: it wraps an escape sequence
+	// carried in by a branch name without disarming it.
+	text = termsafe.Filter(text)
 	return func() tea.Msg {
 		if err := clipboardWrite(text); err != nil {
 			return clipboardWroteMsg{ok: false, status: "Failed to copy", err: err}

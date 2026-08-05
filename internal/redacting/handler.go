@@ -11,7 +11,9 @@
 //
 // The regex patterns are intentionally broad (matching any gl*-prefixed
 // token with 6+ characters) to catch future GitLab token formats without
-// code changes.
+// code changes. Credentials that carry no gl prefix, such as a legacy
+// access token or a runner token, are caught instead by the field that
+// carries them: an auth header or a token query parameter.
 package redacting
 
 import (
@@ -51,17 +53,37 @@ var (
 	// "gl", followed by "-" and 6+ token characters. Widened from the
 	// previous gl[a-z]{2,4}- so uppercase variants and single-char-prefix
 	// tokens don't slip through.
-	tokenPattern      = regexp.MustCompile(`gl[a-zA-Z0-9]{1,8}-[a-zA-Z0-9_-]{6,}`)
-	authHeaderPattern = regexp.MustCompile(`[Aa]uthorization:\s+[^\s]+(\s+[^\s]+)*`)
-	bearerPattern     = regexp.MustCompile(`[Bb]earer\s+[a-zA-Z0-9_-]+`)
+	tokenPattern = regexp.MustCompile(`gl[a-zA-Z0-9]{1,8}-[a-zA-Z0-9_-]{6,}`)
+
+	// Every pattern below separates fields with [ \t] and never \s, because \s
+	// matches a newline and consumed the rest of the message instead of the
+	// rest of the line. The gap after the colon is optional, because
+	// "Authorization:Bearer x" is legal HTTP.
+	//
+	// Authorization takes the rest of its line on purpose, so that
+	// "Bearer <token>" redacts as one unit rather than leaving the scheme bare.
+	authHeaderPattern = regexp.MustCompile(`[Aa]uthorization:[ \t]*\S+([ \t]+\S+)*`)
+	bearerPattern     = regexp.MustCompile(`[Bb]earer[ \t]+[a-zA-Z0-9_-]+`)
+
+	// PRIVATE-TOKEN is the header the GitLab SDK sends for a personal access
+	// token, so it is the primary path and Authorization is the OAuth one. Its
+	// value is a single field, so it stops at whitespace.
+	privateTokenHeaderPattern = regexp.MustCompile(`(?i)private-token:[ \t]*\S+`)
+
+	// The GitLab REST API accepts a credential in either of two query
+	// parameters: private_token for access tokens and access_token for OAuth.
+	// Capturing the name keeps the URL readable as the request that was made.
+	tokenParamPattern = regexp.MustCompile(`(?i)((?:private|access)_token)=[^&\s]+`)
 )
 
 // Redact sanitizes sensitive information from a string. Callers outside
 // the slog pipeline (e.g. TUI status lines that surface raw error text)
 // can use this directly to apply the same scrub rules.
 func Redact(s string) string {
-	// Order matters: auth header first, then bearer, then tokens.
+	// Order matters: headers first, then bearer, then tokens.
 	s = authHeaderPattern.ReplaceAllString(s, "Authorization: [REDACTED]")
+	s = privateTokenHeaderPattern.ReplaceAllString(s, "PRIVATE-TOKEN: [REDACTED]")
+	s = tokenParamPattern.ReplaceAllString(s, "${1}=[REDACTED]")
 	s = bearerPattern.ReplaceAllString(s, "Bearer [REDACTED]")
 	s = tokenPattern.ReplaceAllString(s, "[REDACTED-TOKEN]")
 	return s

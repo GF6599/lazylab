@@ -7,10 +7,13 @@ set shell := ["bash", "-uc"]
 default:
 	@just --list
 
-# Run against a GitLab host with a token
+# The token is deliberately not a recipe argument, because a command line is
+# visible to every local user.
+
+# Run against a GitLab host, reading GITLAB_TOKEN from the environment or .env
 [group('run')]
-run HOST="https://gitlab.com" TOKEN="$GITLAB_TOKEN":
-	go run ./cmd/lazylab --host {{HOST}} --token {{TOKEN}}
+run HOST="https://gitlab.com":
+	go run ./cmd/lazylab --host {{HOST}}
 
 # Run tests with the race detector
 [group('dev')]

@@ -77,7 +77,7 @@ type Config struct {
 // value" and apply the correct precedence.
 func RegisterFlags(fs *pflag.FlagSet) {
 	fs.String(FlagHost, "", "GitLab host, defaults to https://gitlab.com")
-	fs.String(FlagToken, "", "GitLab personal access token (api scope)")
+	fs.String(FlagToken, "", "GitLab personal access token (api scope); prefer $GITLAB_TOKEN, as a flag value is visible in the process list")
 	fs.Int(FlagProjectsPerPage, 0, "Number of projects to request per page")
 	fs.String(FlagConfig, "", "Optional config file (YAML, TOML, JSON)")
 	fs.String(FlagLogLevel, "", "Log level: debug, info, warn, error")
