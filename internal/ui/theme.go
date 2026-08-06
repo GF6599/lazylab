@@ -262,8 +262,8 @@ func rebuildStyles() {
 	pipelineSkipped = lipgloss.NewStyle().Bold(true).Foreground(colorSubtle)
 	pipelineUnknown = lipgloss.NewStyle().Bold(true).Foreground(colorMuted)
 
-	paneBorderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorSubtle)
-	paneBorderFocusStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorActive)
+	paneBorderStyle = lipgloss.NewStyle().Border(frameBorder).BorderForeground(colorSubtle)
+	paneBorderFocusStyle = lipgloss.NewStyle().Border(frameBorder).BorderForeground(colorActive)
 	explorerHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	explorerFocusHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(colorActive)
 	detailHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
@@ -294,7 +294,7 @@ func rebuildStyles() {
 	modalLabelStyle = lipgloss.NewStyle().Foreground(colorMuted)
 	modalFocusLabelStyle = lipgloss.NewStyle().Foreground(colorActive).Bold(true)
 	modalBorderStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(frameBorder).
 		BorderForeground(colorSubtle).
 		Padding(1, 2)
 

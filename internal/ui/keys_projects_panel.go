@@ -208,7 +208,7 @@ func newStageTable(width int) table.Model {
 func stageTableStyles() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
-		BorderStyle(lipgloss.RoundedBorder()).
+		BorderStyle(frameBorder).
 		BorderForeground(colorSubtle).
 		BorderBottom(true).
 		Bold(false).

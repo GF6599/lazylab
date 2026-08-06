@@ -97,6 +97,11 @@ var (
 	mrTextinputCursorStyle     lipgloss.Style
 )
 
+// frameBorder is the corner and edge set every frame draws with. It is one
+// variable rather than a shape named at each call site, so the corner style
+// stays a single lever and a rounded surface can only come back deliberately.
+var frameBorder = lipgloss.NormalBorder()
+
 // baseWidthStyle is a zero-value lipgloss.Style used as the seed for per-frame
 // `.Width(w)` calls in render hot paths. Hoisted from inline lipgloss.NewStyle()
 // calls in renderPaneGap, renderPipelineListPane, and renderPipelineStagesPane

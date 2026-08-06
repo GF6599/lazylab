@@ -244,7 +244,6 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 		titleStyleLocal = borderTitleFocusedStyle
 	}
 
-	// Top border: ╭─ Title ── Tab1 | Tab2 ───╮
 	topLine := buildTopBorder(width, title, tabs, activeTab, borderStyle, titleStyleLocal)
 
 	// Compute scrollbar thumb range when content overflows.
@@ -270,17 +269,16 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 
 	var body strings.Builder
 	for i, line := range contentLines {
-		body.WriteString(borderStyle.Render("│"))
+		body.WriteString(borderStyle.Render(frameBorder.Left))
 		body.WriteString(fitLine(line, contentWidth))
 		if hasScrollbar && i >= thumbStart && i < thumbEnd {
 			body.WriteString(thumbStyle.Render("▐"))
 		} else {
-			body.WriteString(borderStyle.Render("│"))
+			body.WriteString(borderStyle.Render(frameBorder.Right))
 		}
 		body.WriteString("\n")
 	}
 
-	// Bottom border: ╰──────────── 3 of 47 ──╯
 	bottomLine := buildBottomBorder(width, footer, borderStyle)
 
 	return topLine + "\n" + body.String() + bottomLine
@@ -289,14 +287,14 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 // buildTopBorder constructs the top border with title and optional tabs.
 func buildTopBorder(width int, title string, tabs []string, activeTab int, borderStyle, titleStyleLocal lipgloss.Style) string {
 	if width < 4 {
-		return borderStyle.Render(strings.Repeat("─", width))
+		return borderStyle.Render(strings.Repeat(frameBorder.Top, width))
 	}
 
-	left := "╭─ "
-	right := " ─╮"
+	left := frameBorder.TopLeft + frameBorder.Top + " "
+	right := " " + frameBorder.Top + frameBorder.TopRight
 	available := width - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if available < 1 {
-		return borderStyle.Render("╭" + strings.Repeat("─", max(0, width-2)) + "╮")
+		return borderStyle.Render(frameBorder.TopLeft + strings.Repeat(frameBorder.Top, max(0, width-2)) + frameBorder.TopRight)
 	}
 
 	var middle strings.Builder
@@ -326,7 +324,7 @@ func buildTopBorder(width int, title string, tabs []string, activeTab int, borde
 
 	// Fill remaining with horizontal line
 	if available > 0 {
-		middle.WriteString(borderStyle.Render(strings.Repeat("─", available)))
+		middle.WriteString(borderStyle.Render(strings.Repeat(frameBorder.Top, available)))
 	}
 
 	return borderStyle.Render(left) + middle.String() + borderStyle.Render(right)
@@ -352,23 +350,23 @@ func buildTabString(tabs []string, activeTab int) string {
 // buildBottomBorder constructs the bottom border with optional footer counter.
 func buildBottomBorder(width int, footer string, borderStyle lipgloss.Style) string {
 	if width < 4 {
-		return borderStyle.Render(strings.Repeat("─", width))
+		return borderStyle.Render(strings.Repeat(frameBorder.Bottom, width))
 	}
 
-	left := "╰"
-	right := "╯"
+	left := frameBorder.BottomLeft
+	right := frameBorder.BottomRight
 	available := width - ansi.StringWidth(left) - ansi.StringWidth(right)
 
 	if footer == "" || available < len(footer)+4 {
-		return borderStyle.Render(left + strings.Repeat("─", max(0, available)) + right)
+		return borderStyle.Render(left + strings.Repeat(frameBorder.Bottom, max(0, available)) + right)
 	}
 
 	footerRendered := borderFooterStyle.Render(footer)
 	footerWidth := ansi.StringWidth(footerRendered)
 	fillLeft := available - footerWidth - 2 // 2 for " " padding around footer
 	if fillLeft < 1 {
-		return borderStyle.Render(left + strings.Repeat("─", max(0, available)) + right)
+		return borderStyle.Render(left + strings.Repeat(frameBorder.Bottom, max(0, available)) + right)
 	}
 
-	return borderStyle.Render(left+strings.Repeat("─", fillLeft)+" ") + footerRendered + borderStyle.Render(" "+right)
+	return borderStyle.Render(left+strings.Repeat(frameBorder.Bottom, fillLeft)+" ") + footerRendered + borderStyle.Render(" "+right)
 }
