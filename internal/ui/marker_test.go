@@ -113,3 +113,33 @@ func TestMarker_EnclosesAWrappedRowWithOnePair(t *testing.T) {
 		}
 	}
 }
+
+// TestRow_NeverRendersWiderThanItsPane: a list row stays inside the width it is given.
+// Given a label longer than the row, when the row renders at every width from 0 to 12, both while it
+// is current and while it is not, then no line it produces is wider than the width asked for.
+// Why it matters: a row wider than its pane pushes the frame's right edge off and tears every border
+// below it, and the narrow widths are exactly the ones no golden file covers.
+func TestRow_NeverRendersWiderThanItsPane(t *testing.T) {
+	// Given: a label far longer than any of the widths under test
+	long := "team/some-quite-long-project-name"
+
+	for width := 0; width <= 12; width++ {
+		for _, current := range []bool{true, false} {
+			// When: the row renders at that width
+			var b strings.Builder
+			mk := markerFor(0, 0)
+			if !current {
+				mk = markerFor(1, 0)
+			}
+			renderListItem(&b, mk, long, 0, width, current, false)
+
+			// Then: every line it produced fits the width
+			for i, line := range strings.Split(b.String(), "\n") {
+				if got := ansi.StringWidth(line); got > width {
+					t.Errorf("width %d, current=%v: line %d is %d cells wide: %q",
+						width, current, i, got, line)
+				}
+			}
+		}
+	}
+}

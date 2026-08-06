@@ -265,7 +265,14 @@ const maxWrapLines = 3
 func renderListItem(w io.Writer, mk rowMarker, line string, indent, width int, isSelected, ansiClamp bool) {
 	// The bracket pair replaces the row's horizontal padding rather than adding
 	// to it, so the label gets the width less those two cells.
-	inner := max(0, width-2)
+	inner := width - 2
+	if inner < 1 {
+		// clampLine reads a width of zero or less as "no limit" and hands back
+		// the whole label, so below three cells draw the pair alone and cut it
+		// to the space there is.
+		fmt.Fprint(w, fitLine(mk.render(""), width))
+		return
+	}
 
 	if isSelected && lipgloss.Width(line) > inner {
 		wrapped := wrapSelectedItem(line, inner, indent, maxWrapLines)
