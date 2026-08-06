@@ -122,7 +122,7 @@ func renderPipelineListPane(m Model, width, height int, focused bool) string {
 func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 	b := &strings.Builder{}
 	pipeline := m.selectedPipeline()
-	title := "Stages"
+	title := "stages"
 	if pipeline != nil {
 		stages, _ := m.pipelineView.stages.Get(pipeline.ID)
 		if m.pipelineView.stages.IsLoading(pipeline.ID) && len(stages) > 0 {
@@ -201,7 +201,7 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 // when the user has scrolled away from the bottom.
 func renderPipelineLogPane(m Model, width int, focused bool) string {
 	b := &strings.Builder{}
-	title := "Log Preview"
+	title := "log preview"
 	job := m.pipelineLogJob()
 	if job != nil {
 		title = fmt.Sprintf("Log · %s", job.Name)

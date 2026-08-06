@@ -124,7 +124,7 @@ func TestAppWalk_TabsSearchPanelJumpsAndMRDetail(t *testing.T) {
 
 	// Then: the Favorites tab advertises its empty state and lists no projects
 	view := m.View()
-	requireContains(t, view, "1 Projects", "No favorites yet (press f)")
+	requireContains(t, view, panelLabel(PanelProjects), "No favorites yet (press f)")
 	requireNotContains(t, view, "acme-corp/api-gateway")
 
 	// When: t switches the projects tab and the returned auto-load commands
@@ -169,23 +169,23 @@ func TestAppWalk_TabsSearchPanelJumpsAndMRDetail(t *testing.T) {
 	// When: 2 jumps to the pipelines panel
 	m, _ = press(m, keyMsg("2"))
 
-	// Then: focus lands on the panel advertised as "2 Pipelines", which lists
+	// Then: focus lands on the panel advertised as "2 pipelines", which lists
 	// the selected project's newest demo pipeline
 	if m.focus.Active != PanelPipelines {
 		t.Fatalf("focus = %d, want PanelPipelines", m.focus.Active)
 	}
-	requireContains(t, m.View(), "2 Pipelines", "#1001003", "feature/add-metrics")
+	requireContains(t, m.View(), panelLabel(PanelPipelines), "#1001003", "feature/add-metrics")
 
 	// When: 4 jumps to the MRs panel
 	m, _ = press(m, keyMsg("4"))
 
-	// Then: focus lands on "4 Merge Requests" and only the open demo MRs are
+	// Then: focus lands on "4 merge requests" and only the open demo MRs are
 	// listed (the merged and closed ones stay out of the Open tab)
 	if m.focus.Active != PanelMRs {
 		t.Fatalf("focus = %d, want PanelMRs", m.focus.Active)
 	}
 	view = m.View()
-	requireContains(t, view, "4 Merge Requests", "!100101", "!100102", "!100105", "add health check")
+	requireContains(t, view, panelLabel(PanelMRs), "!100101", "!100102", "!100105", "add health check")
 	requireNotContains(t, view, "!100103", "!100104")
 
 	// When: enter opens the detail pane for the selected MR
@@ -266,7 +266,7 @@ func TestExplorerFlow_BrowsesTreeDescendsAndCloses(t *testing.T) {
 	}
 	view = m.View()
 	requireNotContains(t, view, "Explorer", "Path: cmd")
-	requireContains(t, view, "1 Projects", "4 Merge Requests")
+	requireContains(t, view, panelLabel(PanelProjects), panelLabel(PanelMRs))
 	if m.status != "Back to projects" {
 		t.Fatalf("status = %q, want %q", m.status, "Back to projects")
 	}
@@ -435,7 +435,7 @@ func TestMRReplyModal_CancelAndSubmit(t *testing.T) {
 	m, _ = press(m, keyMsg("c"))
 
 	// Then: the modal renders its title, input placeholder, and hint line
-	requireContains(t, m.View(), "New Comment", "Type your comment...", "Ctrl+S to send", "Esc to cancel")
+	requireContains(t, m.View(), "new comment", "Type your comment...", "Ctrl+S to send", "Esc to cancel")
 
 	// When: esc cancels the modal
 	m, cancelCmd := press(m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -447,7 +447,7 @@ func TestMRReplyModal_CancelAndSubmit(t *testing.T) {
 	if m.mrView.reply.active {
 		t.Fatal("expected the reply modal to close on esc")
 	}
-	requireNotContains(t, m.View(), "New Comment")
+	requireNotContains(t, m.View(), "new comment")
 	if strings.Contains(m.status, "Posting comment") {
 		t.Fatalf("status = %q, want no posting toast after cancel", m.status)
 	}
@@ -510,7 +510,7 @@ func TestHelpOverlay_ListsFocusedPanelBindings(t *testing.T) {
 	}
 	view := m.View()
 	requireNotContains(t, view, "Help - Press ? or Esc to close")
-	requireContains(t, view, "1 Projects")
+	requireContains(t, view, panelLabel(PanelProjects))
 }
 
 // TestProjectSearch_SuppressesGlabYank: while the project search is typing, y

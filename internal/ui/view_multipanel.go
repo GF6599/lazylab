@@ -426,10 +426,12 @@ func renderMRDiffPane(m *Model, width, height int) string {
 func detailPaneTitle(m *Model) string {
 	switch detailContextPanel(m) {
 	case PanelProjects:
+		// The rule carries the path and the body carries the heading, so the two
+		// never spend their space saying the same word.
 		if proj, ok := m.selectedProject(); ok {
-			return "Details · " + clampLine(proj.PathWithNamespace, 30)
+			return clampLine(proj.PathWithNamespace, 40)
 		}
-		return "Details"
+		return panelLabel(PanelDetail)
 	case PanelPipelines, PanelStages:
 		tab := pipelineDetailTabLabels[m.pipelineView.detailTab]
 		switch m.pipelineView.detailTab {

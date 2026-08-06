@@ -78,7 +78,7 @@ const (
 	projectTabAll
 )
 
-var projectTabLabels = []string{"★ Favorites", "All"}
+var projectTabLabels = []string{"★ favorites", "all"}
 
 // Options configures the model at creation time. Zero values are replaced with
 // sensible defaults in [NewModel]:

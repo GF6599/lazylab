@@ -89,7 +89,7 @@ const (
 	detailTabArtifacts                          // Job artifacts list
 )
 
-var pipelineDetailTabLabels = []string{"Log", "Tests", "Artifacts"}
+var pipelineDetailTabLabels = []string{"log", "tests", "artifacts"}
 
 // mrDetailTab selects which content the Detail pane renders when the user
 // is in the MR context. Comments and diffs are fetched lazily on first view.
@@ -101,24 +101,24 @@ const (
 	mrDetailTabDiff                        // Unified diff
 )
 
-var mrDetailTabLabels = []string{"Info", "Comments", "Diff"}
+var mrDetailTabLabels = []string{"info", "comments", "diff"}
 
 // panelLabel returns the display title for a panel, with a number hint
 // for sidebar panels so users know they can press 1-4 to jump directly.
 func panelLabel(id PanelID) string {
 	switch id {
 	case PanelProjects:
-		return "1 Projects"
+		return "1 projects"
 	case PanelPipelines:
-		return "2 Pipelines"
+		return "2 pipelines"
 	case PanelStages:
-		return "3 Stages"
+		return "3 stages"
 	case PanelMRs:
-		return "4 Merge Requests"
+		return "4 merge requests"
 	case PanelDetail:
-		return "Detail"
+		return "detail"
 	default:
-		return "Unknown"
+		return "unknown"
 	}
 }
 
