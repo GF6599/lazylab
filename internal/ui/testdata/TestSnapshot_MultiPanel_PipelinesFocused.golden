@@ -1,13 +1,13 @@
 ┌─ 1 Projects ── ★ Favorites | All ──┐ ┌─ Log ── Log | Tests | Artifacts ──────────────────────────────────────────────┐
-│> ✓ team/alpha                      │ │ Select a stage to preview logs                                                │
-│  team/beta                         │ │                                                                               │
+│[✓ team/alpha]                      │ │ Select a stage to preview logs                                                │
+│ team/beta                          │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 └──────────────────────────── 1 of 2 ┘ │                                                                               │
 ┌─ 2 Pipelines ──────────────────────┐ │                                                                               │
-│> ✓ #10 unknown main                │ │                                                                               │
+│[✓ #10 unknown main]                │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
@@ -30,8 +30,8 @@
 │                                    │ │                                                                               │
 └────────────────────────────────────┘ │                                                                               │
 ┌─ 4 Merge Requests ─────────────────┐ │                                                                               │
-│> !42 Add dark mode support         │ │                                                                               │
-│  !41 Fix login redirect            │ │                                                                               │
+│[!42 Add dark mode support]         │ │                                                                               │
+│ !41 Fix login redirect             │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │

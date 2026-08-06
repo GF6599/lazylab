@@ -23,12 +23,20 @@ var (
 	colorWarning      lipgloss.TerminalColor
 	colorAccent       lipgloss.TerminalColor
 	colorError        lipgloss.TerminalColor
+
+	// The marker is the bracket pair around the current row and the marked is
+	// the row's own label. They are two roles on purpose: the brackets are
+	// chrome saying "this one", the label is the item. Every surface reads them
+	// from here, because consumers each picking their own is how they drift.
+	colorMarker lipgloss.TerminalColor
+	colorMarked lipgloss.TerminalColor
 )
 
 // Component styles: titles, list items, status indicators, and pipeline state colors.
 var (
 	titleStyle        lipgloss.Style
 	itemStyle         lipgloss.Style
+	markerStyle       lipgloss.Style
 	selectedItemStyle lipgloss.Style
 	errorStyle        lipgloss.Style
 	searchStyle       lipgloss.Style

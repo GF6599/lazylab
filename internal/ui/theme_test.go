@@ -35,16 +35,16 @@ func TestApplyTheme_SetsColors(t *testing.T) {
 
 // TestApplyTheme_RebuildStyles: applying a theme rebuilds the derived styles, not just the color vars.
 // Given styles built for the previously active theme, when Tokyo Night is applied, then
-// selectedItemStyle's foreground equals Tokyo Night's Active color.
+// selectedItemStyle's foreground equals the color Tokyo Night marks the current row with.
 // Why it matters: lipgloss styles capture colors when built, so skipping the rebuild would repoint
-// the color vars but leave selection highlights frozen in the old theme.
+// the color vars but leave the marked row frozen in the old theme.
 func TestApplyTheme_RebuildStyles(t *testing.T) {
 	// When: Tokyo Night is applied over whatever styles were active
 	applyTheme(ThemeTokyoNight)
 
-	// Then: the prebuilt selection style carries Tokyo Night's Active foreground
+	// Then: the prebuilt marked-row style carries Tokyo Night's marked foreground
 	fg := selectedItemStyle.GetForeground()
-	want := lipgloss.Color(themes[ThemeTokyoNight].Active)
+	want := lipgloss.Color(themes[ThemeTokyoNight].Accent)
 	if fg != want {
 		t.Errorf("selectedItemStyle foreground = %v, want %v after Tokyo Night", fg, want)
 	}
@@ -137,5 +137,28 @@ func TestThemeLabel(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("ThemeLabel(%d) = %q, want %q", tc.input, got, tc.want)
 		}
+	}
+}
+
+// TestMarkerColors_AreGoldAndIris: the marker is gold and the row it marks is iris.
+// Given the default preset, when a theme is applied, then the marker color is the palette's gold and
+// the marked color is its iris, and the marked row carries no background.
+// Why it matters: the brackets are chrome saying "this one" and the label is the item, so collapsing
+// the two onto one color, or filling the row behind them, loses the distinction they exist to draw.
+func TestMarkerColors_AreGoldAndIris(t *testing.T) {
+	// Given/When: the default preset is applied
+	applyTheme(ThemeRosePineMoon)
+
+	// Then: the marker takes gold and the marked row takes iris
+	if want := lipgloss.Color("#f6c177"); colorMarker != want {
+		t.Errorf("colorMarker = %v, want %v (gold)", colorMarker, want)
+	}
+	if want := lipgloss.Color("#c4a7e7"); colorMarked != want {
+		t.Errorf("colorMarked = %v, want %v (iris)", colorMarked, want)
+	}
+
+	// And: the marked row carries no background, because a fill is not a marker
+	if bg := selectedItemStyle.GetBackground(); bg != (lipgloss.NoColor{}) {
+		t.Errorf("marked row has background %v, the bracket pair is the marker", bg)
 	}
 }

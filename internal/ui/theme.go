@@ -242,6 +242,12 @@ func applyTheme(t ThemeName) {
 	colorAccent = lipgloss.Color(p.Accent)
 	colorError = lipgloss.Color(p.Error)
 
+	// Rose Pine names the marker gold and the marked iris, which are the same
+	// two hues a theme already carries as its warning and accent. Aliasing them
+	// keeps every preset consistent without a second copy of the hex.
+	colorMarker = colorWarning
+	colorMarked = colorAccent
+
 	rebuildStyles()
 }
 
@@ -250,7 +256,8 @@ func applyTheme(t ThemeName) {
 func rebuildStyles() {
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	itemStyle = lipgloss.NewStyle().Foreground(colorText)
-	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(colorActive).Background(colorHighlightLow)
+	markerStyle = lipgloss.NewStyle().Foreground(colorMarker)
+	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(colorMarked)
 	errorStyle = lipgloss.NewStyle().Foreground(colorError)
 	searchStyle = lipgloss.NewStyle().Foreground(colorSubtle)
 	progressStyle = lipgloss.NewStyle().Foreground(colorMuted)

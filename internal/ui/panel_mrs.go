@@ -191,14 +191,9 @@ func renderMRsPanel(m *Model, width, height int) string {
 	end = min(end, total)
 	for i := offset; i < end; i++ {
 		mr := m.mrView.mrs[i]
-		cursor := " "
-		style := itemStyle
-		if i == m.mrView.selected {
-			cursor = ">"
-			style = selectedItemStyle
-		}
-		line := clampLine(cursor+" !"+strconv.Itoa(mr.IID)+" "+mr.Title, width)
-		lines = append(lines, style.Render(line))
+		mk := markerFor(i, m.mrView.selected)
+		line := clampLine("!"+strconv.Itoa(mr.IID)+" "+mr.Title, max(0, width-2))
+		lines = append(lines, mk.render(line))
 	}
 	return joinLines(lines)
 }
@@ -537,13 +532,8 @@ func renderBranchPicker(bp branchPickerState, width int) string {
 		}
 		end := min(start+maxVisible, len(bp.filtered))
 		for i := start; i < end; i++ {
-			cursor := "  "
-			style := itemStyle
-			if i == bp.selected {
-				cursor = "> "
-				style = selectedItemStyle
-			}
-			b.WriteString(style.Render(clampLine(cursor+bp.filtered[i], width)))
+			mk := markerFor(i, bp.selected)
+			b.WriteString(mk.render(clampLine(bp.filtered[i], max(0, width-2))))
 			b.WriteString("\n")
 		}
 	}

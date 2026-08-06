@@ -1,6 +1,6 @@
 ┌─ 1 Projects ── ★ Favorites | All ──┐ ┌─ Details · team/alpha ────────────────────────────────────────────────────────┐
-│> ✓ team/alpha                      │ │Details                                                                        │
-│  team/beta                         │ │                                                                               │
+│[✓ team/alpha]                      │ │Details                                                                        │
+│ team/beta                          │ │                                                                               │
 │                                    │ │ Project                                                                       │
 │                                    │ │───────────────────────────────────────────────────────────────────────────────│
 │                                    │ │ Name: alpha                                                                   │
@@ -14,7 +14,7 @@
 │                                    │ │───────────────────────────────────────────────────────────────────────────────│
 └──────────────────────────── 1 of 2 ┘ │ Pipeline (all refs):                                                          │
 ┌─ 2 Pipelines ──────────────────────┐ │  Status: success (#100)                                                       │
-│> ✓ #10 unknown main                │ │  URL: https://gitlab.com/team/alpha/-/pipelines/100                           │
+│[✓ #10 unknown main]                │ │  URL: https://gitlab.com/team/alpha/-/pipelines/100                           │
 │                                    │ │───────────────────────────────────────────────────────────────────────────────│
 │                                    │ │ Recent Commits                                                                │
 │                                    │ │───────────────────────────────────────────────────────────────────────────────│
@@ -30,8 +30,8 @@
 │                                    │ │                                                                               │
 └────────────────────────────────────┘ │                                                                               │
 ┌─ 4 Merge Requests ─────────────────┐ │                                                                               │
-│> !42 Add dark mode support         │ │                                                                               │
-│  !41 Fix login redirect            │ │                                                                               │
+│[!42 Add dark mode support]         │ │                                                                               │
+│ !41 Fix login redirect             │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
