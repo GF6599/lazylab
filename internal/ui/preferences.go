@@ -52,28 +52,28 @@ func newPreferencesStore(host string) (*preferencesStore, error) {
 func (s *preferencesStore) Load() (LayoutMode, ScreenMode, ThemeName, error) {
 	data, err := os.ReadFile(s.path)
 	if os.IsNotExist(err) {
-		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, nil
+		return LayoutDefault, ScreenNormal, ThemeRosePine, nil
 	}
 	if err != nil {
-		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, fmt.Errorf("read preferences: %w", err)
+		return LayoutDefault, ScreenNormal, ThemeRosePine, fmt.Errorf("read preferences: %w", err)
 	}
 	var file preferencesFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, fmt.Errorf("decode preferences: %w", err)
+		return LayoutDefault, ScreenNormal, ThemeRosePine, fmt.Errorf("decode preferences: %w", err)
 	}
 	if file.Version != preferencesVersion {
-		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, nil
+		return LayoutDefault, ScreenNormal, ThemeRosePine, nil
 	}
 	// Validate enum ranges
 	if file.LayoutMode < LayoutDefault || file.LayoutMode > LayoutWide {
-		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, nil
+		return LayoutDefault, ScreenNormal, ThemeRosePine, nil
 	}
 	if file.ScreenMode < ScreenNormal || file.ScreenMode > ScreenFull {
-		return LayoutDefault, ScreenNormal, ThemeRosePineMoon, nil
+		return LayoutDefault, ScreenNormal, ThemeRosePine, nil
 	}
 	theme := file.Theme
 	if theme < 0 || theme >= themeCount {
-		theme = ThemeRosePineMoon
+		theme = ThemeRosePine
 	}
 	return file.LayoutMode, file.ScreenMode, theme, nil
 }

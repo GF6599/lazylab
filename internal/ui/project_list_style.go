@@ -117,5 +117,5 @@ var frameBorder = lipgloss.NormalBorder()
 var baseWidthStyle = lipgloss.NewStyle()
 
 func init() {
-	applyTheme(ThemeRosePineMoon)
+	applyTheme(ThemeRosePine)
 }
