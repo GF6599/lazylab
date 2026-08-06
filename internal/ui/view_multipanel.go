@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/GF6599/lazylab/internal/redacting"
 )
@@ -140,7 +141,7 @@ func renderStagesPanelContent(m Model, width, height int) string {
 
 	// Reserve 1 line for the selected job name hint when it would be truncated.
 	hint := stageTableSelectedHint(&m, width)
-	content := colorizeStatusIcons(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor())
+	content := styleStageTable(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor())
 	if hint != "" {
 		return renderWithBottomHint(content, hint, height)
 	}
@@ -535,11 +536,15 @@ func panelTabs(panel PanelID, m *Model) ([]string, int) {
 	}
 }
 
-// colorizeStatusIcons replaces plain status icon characters in rendered table
-// output with their colored equivalents, skipping the selected row to avoid
-// nested ANSI that breaks the selection background. The cursor parameter is the
-// table's selected row index; data rows start at line offset 2 (header + border).
-func colorizeStatusIcons(s string, cursor int) string {
+// styleStageTable colors the status icons in rendered table output and marks the
+// row under the cursor. The cursor parameter is the table's selected row index;
+// data rows start at line offset 2 (header + border).
+//
+// The bracket pair cannot come from the row data here the way it does in every
+// other list, because the table widget owns its own row rendering. It is cut
+// into the row's outer cell padding instead, which keeps the line the width the
+// pane laid out for it.
+func styleStageTable(s string, cursor int) string {
 	replacements := []struct {
 		plain   string
 		colored string
@@ -558,6 +563,7 @@ func colorizeStatusIcons(s string, cursor int) string {
 	selectedLine := cursor + 2 // header + border = 2 offset lines
 	for i, line := range lines {
 		if i == selectedLine {
+			lines[i] = markStageRow(line)
 			continue
 		}
 		for _, r := range replacements {
@@ -566,4 +572,16 @@ func colorizeStatusIcons(s string, cursor int) string {
 		lines[i] = line
 	}
 	return strings.Join(lines, "\n")
+}
+
+// markStageRow replaces the row's first and last cell with the bracket pair.
+// Both cells are the table's own padding, so the row keeps its width and the
+// text between the brackets does not shift.
+func markStageRow(line string) string {
+	width := ansi.StringWidth(line)
+	if width < 3 {
+		return line
+	}
+	inner := ansi.TruncateLeft(ansi.Truncate(line, width-1, ""), 1, "")
+	return markerStyle.Render(markerFlat[0]) + inner + markerStyle.Render(markerFlat[1])
 }

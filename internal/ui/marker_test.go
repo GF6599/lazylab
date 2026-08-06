@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -140,6 +141,47 @@ func TestRow_NeverRendersWiderThanItsPane(t *testing.T) {
 						width, current, i, got, line)
 				}
 			}
+		}
+	}
+}
+
+// TestStageTable_MarksTheCurrentRow: the stage table marks its current row like every other list.
+// Given a stage table holding two jobs with the second under the cursor, when the table renders, then
+// the row under the cursor carries the bracket pair, no other row does, and every line keeps the
+// table's width.
+// Why it matters: the table is the one list the bracket cannot come from the row data, so without this
+// its current row is told apart by colour alone, which a low-colour terminal does not show at all.
+func TestStageTable_MarksTheCurrentRow(t *testing.T) {
+	// Given: a stage table with the second of two jobs under the cursor
+	const width = 40
+	tbl := newStageTable(width)
+	tbl.SetRows([]table.Row{
+		{"build", "build", iconSuccess + " SUCCESS"},
+		{"test", "test", iconFailed + " FAILED"},
+	})
+	tbl.SetCursor(1)
+
+	// When: the rendered table is styled for display
+	lines := strings.Split(styleStageTable(tbl.View(), tbl.Cursor()), "\n")
+
+	// Then: the row under the cursor is the only one carrying the pair
+	var marked []int
+	for i, line := range lines {
+		if strings.Contains(line, markerFlat[0]) && strings.Contains(line, markerFlat[1]) {
+			marked = append(marked, i)
+		}
+	}
+	if len(marked) != 1 {
+		t.Fatalf("expected exactly one marked row, got %d: %q", len(marked), lines)
+	}
+	if !strings.Contains(lines[marked[0]], "test") {
+		t.Errorf("the marked row is not the one under the cursor: %q", lines[marked[0]])
+	}
+
+	// And: marking it costs no width, so the table still lines up in its pane
+	for i, line := range lines {
+		if got := ansi.StringWidth(line); got != width {
+			t.Errorf("line %d is %d cells wide, want %d: %q", i, got, width, line)
 		}
 	}
 }
