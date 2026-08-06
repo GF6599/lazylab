@@ -1,4 +1,4 @@
-┌─ 1 Projects ── ★ Favorites | All─ ─┐ ┌─ Log ── Log | Tests | Artifacts───────────────────────────────────────────── ─┐
+┌─ 1 Projects ── ★ Favorites | All ──┐ ┌─ Log ── Log | Tests | Artifacts ──────────────────────────────────────────────┐
 │> ✓ team/alpha                      │ │ Select a stage to preview logs                                                │
 │  team/beta                         │ │                                                                               │
 │                                    │ │                                                                               │
@@ -6,7 +6,7 @@
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 └──────────────────────────── 1 of 2 ┘ │                                                                               │
-┌─ 2 Pipelines───────────────────── ─┐ │                                                                               │
+┌─ 2 Pipelines ──────────────────────┐ │                                                                               │
 │> ✓ #10 unknown main                │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
@@ -21,7 +21,7 @@
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 └──────────────────────────── 1 of 1 ┘ │                                                                               │
-┌─ 3 Stages──────────────────────── ─┐ │                                                                               │
+┌─ 3 Stages ─────────────────────────┐ │                                                                               │
 │ No stages available                │ │                                                                               │
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
@@ -29,7 +29,7 @@
 │                                    │ │                                                                               │
 │                                    │ │                                                                               │
 └────────────────────────────────────┘ │                                                                               │
-┌─ 4 Merge Requests──────────────── ─┐ │                                                                               │
+┌─ 4 Merge Requests ─────────────────┐ │                                                                               │
 │> !42 Add dark mode support         │ │                                                                               │
 │  !41 Fix login redirect            │ │                                                                               │
 │                                    │ │                                                                               │

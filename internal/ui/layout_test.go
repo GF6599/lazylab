@@ -707,3 +707,50 @@ func TestFrames_DrawSquareCorners(t *testing.T) {
 		}
 	}
 }
+
+// TestPaneTitle_KeepsASpaceBeforeTheFillRule: a pane title never touches the rule around it.
+// Given a pane with a title alone and a pane with a title and tabs, when the top border is built at
+// every width from 20 to 80, then a space separates the label from the rule, the rule itself carries
+// no gap, and the border spans exactly the width asked for.
+// Why it matters: the rule and the label are drawn cell by cell, and a fit check that misjudges either
+// by one renders the border wider than its pane, which tears every frame on screen.
+func TestPaneTitle_KeepsASpaceBeforeTheFillRule(t *testing.T) {
+	// Given: plain styles and two panes, one with tabs and one without
+	plain := lipgloss.NewStyle()
+	cases := []struct {
+		name   string
+		title  string
+		tabs   []string
+		joined string
+	}{
+		{name: "title alone", title: "pipelines", tabs: nil, joined: "pipelines─"},
+		{name: "title and tabs", title: "projects", tabs: []string{"favorites", "all"}, joined: "all─"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// When: the top border is built at every width the label still fits in
+			for width := 20; width <= 80; width++ {
+				got := buildTopBorder(width, tc.title, tc.tabs, 0, plain, plain)
+				if !strings.Contains(got, tc.title) {
+					continue
+				}
+
+				// Then: the rule does not run straight into the label
+				if strings.Contains(got, tc.joined) {
+					t.Errorf("width %d: rule touches the label: found %q in %q", width, tc.joined, got)
+				}
+
+				// And: the rule itself is never broken by a gap
+				if gap := frameBorder.Top + " " + frameBorder.Top; strings.Contains(got, gap) {
+					t.Errorf("width %d: gap inside the rule: %q", width, got)
+				}
+
+				// And: spending a cell on the gap never changes the border width
+				if w := ansi.StringWidth(got); w != width {
+					t.Errorf("width = %d, want %d, in %q", w, width, got)
+				}
+			}
+		})
+	}
+}

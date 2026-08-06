@@ -290,18 +290,18 @@ func buildTopBorder(width int, title string, tabs []string, activeTab int, borde
 		return borderStyle.Render(strings.Repeat(frameBorder.Top, width))
 	}
 
-	left := frameBorder.TopLeft + frameBorder.Top + " "
-	right := " " + frameBorder.Top + frameBorder.TopRight
-	available := width - ansi.StringWidth(left) - ansi.StringWidth(right)
-	if available < 1 {
-		return borderStyle.Render(frameBorder.TopLeft + strings.Repeat(frameBorder.Top, max(0, width-2)) + frameBorder.TopRight)
-	}
+	// A label opens the rule with "┌─ " and takes a cell after it, so the rule
+	// that follows never runs into the label. Both cells are reserved before
+	// anything is placed, because a label admitted without room for its gap is a
+	// label welded to the corner.
+	lead := frameBorder.TopLeft + frameBorder.Top + " "
+	const gapCells = 1
+	available := width - ansi.StringWidth(lead) - gapCells - 1 // 1 for the closing corner
 
 	var middle strings.Builder
-	if title != "" {
+	if title != "" && available > 0 {
 		rendered := titleStyleLocal.Render(title)
-		titleWidth := ansi.StringWidth(rendered)
-		if titleWidth <= available {
+		if titleWidth := ansi.StringWidth(rendered); titleWidth <= available {
 			middle.WriteString(rendered)
 			available -= titleWidth
 		} else {
@@ -311,23 +311,32 @@ func buildTopBorder(width int, title string, tabs []string, activeTab int, borde
 		}
 	}
 
-	if len(tabs) > 0 && available > 4 {
+	if len(tabs) > 0 {
 		tabStr := buildTabString(tabs, activeTab)
-		tabWidth := ansi.StringWidth(tabStr)
-		if tabWidth+3 <= available { // 3 for " ── " separator
-			sep := " ── "
+		sep := " ── "
+		// Budget the separator at its real width. Charging less lets the tabs be
+		// accepted when they do not fit, and the rule then overruns the pane by
+		// the shortfall and tears the frame.
+		cost := ansi.StringWidth(sep) + ansi.StringWidth(tabStr)
+		if cost <= available {
 			middle.WriteString(borderStyle.Render(sep))
 			middle.WriteString(tabStr)
-			available -= ansi.StringWidth(sep) + tabWidth
+			available -= cost
 		}
 	}
 
-	// Fill remaining with horizontal line
+	// With no label the lead has nothing to introduce, so the rule is a plain run
+	// between the corners rather than a gap stranded after the first dash.
+	if middle.Len() == 0 {
+		return borderStyle.Render(frameBorder.TopLeft + strings.Repeat(frameBorder.Top, width-2) + frameBorder.TopRight)
+	}
+
+	middle.WriteString(" ")
 	if available > 0 {
 		middle.WriteString(borderStyle.Render(strings.Repeat(frameBorder.Top, available)))
 	}
 
-	return borderStyle.Render(left) + middle.String() + borderStyle.Render(right)
+	return borderStyle.Render(lead) + middle.String() + borderStyle.Render(frameBorder.TopRight)
 }
 
 // buildTabString constructs the tab portion: "Tab1 | Tab2"
