@@ -582,6 +582,10 @@ func markStageRow(line string) string {
 	if width < 3 {
 		return line
 	}
-	inner := ansi.TruncateLeft(ansi.Truncate(line, width-1, ""), 1, "")
-	return markerStyle.Render(markerFlat[0]) + inner + markerStyle.Render(markerFlat[1])
+	// The table writes a foreground into every cell, and a style wrapped around
+	// the finished row cannot override a colour already in the string. So drop
+	// the cell styling and render the label in the marked colour here.
+	plain := ansi.Strip(line)
+	inner := ansi.TruncateLeft(ansi.Truncate(plain, width-1, ""), 1, "")
+	return markerStyle.Render(markerFlat[0]) + selectedItemStyle.Render(inner) + markerStyle.Render(markerFlat[1])
 }

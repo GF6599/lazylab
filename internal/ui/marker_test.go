@@ -185,3 +185,35 @@ func TestStageTable_MarksTheCurrentRow(t *testing.T) {
 		}
 	}
 }
+
+// TestStageTable_MarkedRowKeepsItsText: marking a row does not disturb the text it marks.
+// Given a table row already carrying the per-cell styling the widget emits, when the row is marked,
+// then the text between the brackets is that row's text unchanged and the line keeps its width.
+// Why it matters: the marker re-renders the row to recolour it, so a slip there drops or shifts a job
+// name, and the styling around it hides that from any plain comparison of the two strings.
+func TestStageTable_MarkedRowKeepsItsText(t *testing.T) {
+	// Given: a rendered table whose rows carry the widget's own cell styling
+	const width = 40
+	tbl := newStageTable(width)
+	tbl.SetRows([]table.Row{
+		{"build", "build", iconSuccess + " SUCCESS"},
+		{"deploy-production", "deploy", iconManual + " MANUAL"},
+	})
+	tbl.SetCursor(1)
+	raw := strings.Split(tbl.View(), "\n")[3] // header + rule + first row = 3
+
+	// When: that row is marked
+	marked := markStageRow(raw)
+
+	// Then: the visible text is the row's own, bracketed, with nothing lost
+	rawText := ansi.Strip(raw)
+	want := markerFlat[0] + rawText[1:len(rawText)-1] + markerFlat[1]
+	if got := ansi.Strip(marked); got != want {
+		t.Errorf("marked row text = %q, want %q", got, want)
+	}
+
+	// And: it still occupies exactly the table's width
+	if got := ansi.StringWidth(marked); got != width {
+		t.Errorf("marked row is %d cells wide, want %d", got, width)
+	}
+}
