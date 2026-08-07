@@ -207,7 +207,8 @@ func TestAppWalk_TabsSearchPanelJumpsAndMRDetail(t *testing.T) {
 		t.Fatalf("detailTab = %d, want mrDetailTabComments", m.mrView.detailTab)
 	}
 	view = m.View()
-	requireContains(t, view,
+	requireContains(
+		t, view,
 		"Bob Smith", "[resolved]", "internal/handler/handler.go:14",
 		"Should we also add a", "Good idea",
 	)
@@ -238,7 +239,8 @@ func TestExplorerFlow_BrowsesTreeDescendsAndCloses(t *testing.T) {
 	// Then: the overlay lists the demo root entries and previews the selected
 	// cmd/ directory's children
 	view := m.View()
-	requireContains(t, view,
+	requireContains(
+		t, view,
 		"Explorer", "acme-corp/api-gateway @ main", "Path: /",
 		"cmd/", "internal/", "README.md", "go.mod",
 		"Preview", "server/",
@@ -368,7 +370,8 @@ func TestCreateMRModal_CancelAndSubmit(t *testing.T) {
 	m, _ = press(m, keyMsg("N"))
 
 	// Then: the modal renders its title, field labels, and hint line
-	requireContains(t, m.View(),
+	requireContains(
+		t, m.View(),
 		"Create Merge Request", "Title", "Source Branch", "Target Branch",
 		"Description", "Ctrl+S create", "Esc cancel",
 	)
@@ -495,7 +498,8 @@ func TestHelpOverlay_ListsFocusedPanelBindings(t *testing.T) {
 	m, _ = press(m, keyMsg("?"))
 
 	// Then: it lists the projects panel's bindings, naming the glab keys
-	requireContains(t, m.View(),
+	requireContains(
+		t, m.View(),
 		"Help - Press ? or Esc to close",
 		"yank glab cmd", "glab cmd menu",
 		"toggle favorite", "file explorer",
