@@ -791,7 +791,7 @@ func (m Model) Init() tea.Cmd {
 // that forgets it drops the follow-up tick and the animation stops for good.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var spinnerCmd tea.Cmd
-	if m.isLoading() {
+	if m.needsAnimation() {
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
 	}
 	updated, cmd := m.routeMsg(msg)

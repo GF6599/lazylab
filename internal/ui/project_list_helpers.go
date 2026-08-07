@@ -163,6 +163,32 @@ func stageTableSelectedHint(m *Model, width int) string {
 	return explorerHintStyle.Render(clampLine(" "+clean, width))
 }
 
+// needsAnimation reports whether anything on screen should be moving. Update keeps the
+// spinner tick chain alive only while this holds, so a state that animates but is not
+// named here freezes on its first frame.
+func (m *Model) needsAnimation() bool {
+	return m.isLoading() || m.hasLivePipeline()
+}
+
+// hasLivePipeline reports whether a pipeline on screen is still working. This is
+// deliberately separate from isLoading: a running pipeline is the state the user watches
+// longest, and it is precisely the state in which no fetch is in flight.
+func (m *Model) hasLivePipeline() bool {
+	if m.mode != modePipelines && m.mode != modeMultiPanel {
+		return false
+	}
+	for _, pipeline := range m.pipelineView.pipelines {
+		if isLivePipelineStatus(pipeline.Status) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLivePipelineStatus(status string) bool {
+	return strings.EqualFold(status, "running") || strings.EqualFold(status, "pending")
+}
+
 // isLoading returns true if anything is currently loading that should animate the spinner.
 func (m *Model) isLoading() bool {
 	// Project list loading
