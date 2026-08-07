@@ -26,9 +26,12 @@ jobs:
 
       - run: go test -race ./...
 
-      # The tool directive in go.mod pins the scanner, so this job and a laptop
-      # report the same findings.
-      - run: go tool govulncheck ./...
+      # Every tool below is pinned by a tool directive in go.mod, so this job
+      # and a laptop report the same findings.
+      - run: go tool staticcheck ./...
 
-      # gofumpt and staticcheck are deliberately absent: both fail on code that
-      # predates this gate. `just lint` still runs them locally.
+      # -d is what fails the step on a diff, and it prints the diff that failed
+      # it. Passing -l alone would list the same files and still exit 0.
+      - run: go tool gofumpt -l -d .
+
+      - run: go tool govulncheck ./...

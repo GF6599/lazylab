@@ -42,14 +42,14 @@ install: build
 # Format with gofumpt
 [group('dev')]
 fmt:
-	~/go/bin/gofumpt -w .
+	go tool gofumpt -w .
 
 # Vet, staticcheck, and gofumpt diff check
 [group('dev')]
 lint:
 	go vet ./...
-	~/go/bin/staticcheck ./...
-	~/go/bin/gofumpt -l -d . && test -z "$(~/go/bin/gofumpt -l .)"
+	go tool staticcheck ./...
+	go tool gofumpt -l -d .
 
 # Report unreachable code (informational, test-only functions are expected)
 [group('dev')]
