@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -203,19 +202,18 @@ func newStageTable(width int) table.Model {
 }
 
 // stageTableStyles returns the themed table.Styles used by every stage-table
-// callsite. Selected is built from scratch to avoid inheriting the default
-// Color("212") (bright pink) foreground from DefaultStyles().
+// callsite. Selected takes the shared marked-row style, which both replaces the
+// default Color("212") (bright pink) foreground and keeps the current row the
+// same colour here as in every other list.
 func stageTableStyles() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
-		BorderStyle(lipgloss.RoundedBorder()).
+		BorderStyle(frameBorder).
 		BorderForeground(colorSubtle).
 		BorderBottom(true).
 		Bold(false).
 		Foreground(colorSubtle)
-	s.Selected = lipgloss.NewStyle().
-		Foreground(colorText).
-		Background(colorHighlightMed)
+	s.Selected = selectedItemStyle
 	s.Cell = s.Cell.
 		Foreground(colorText)
 	return s

@@ -6,7 +6,7 @@ Output doc/demo.gif
 Set FontSize 14
 Set Width 1400
 Set Height 800
-Set Theme "Catppuccin Mocha"
+Set Theme "Rose Pine"
 Set Framerate 30
 Set TypingSpeed 50ms
 

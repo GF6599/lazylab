@@ -23,7 +23,7 @@ type ThemeName int
 // ~ hotkey. Their iota values are the persisted preference, so existing entries
 // must keep their order; append new presets before themeCount.
 const (
-	ThemeRosePineMoon ThemeName = iota
+	ThemeRosePine ThemeName = iota
 	ThemeTokyoNight
 	ThemeCatppuccinMocha
 	ThemeGruvboxDark
@@ -37,7 +37,7 @@ const (
 )
 
 var themeNames = [themeCount]string{
-	"Rose Pine Moon",
+	"Rose Pine",
 	"Tokyo Night",
 	"Catppuccin Mocha",
 	"Gruvbox Dark",
@@ -54,7 +54,7 @@ func ThemeLabel(t ThemeName) string {
 	if t >= 0 && t < themeCount {
 		return themeNames[t]
 	}
-	return themeNames[ThemeRosePineMoon]
+	return themeNames[ThemeRosePine]
 }
 
 // NextTheme returns the next theme in the cycle, wrapping around.
@@ -80,10 +80,10 @@ type themePalette struct {
 }
 
 var themes = [themeCount]themePalette{
-	// Rose Pine Moon
+	// Rose Pine (main)
 	{
-		HighlightLow: "#2a283e",
-		HighlightMed: "#44415a",
+		HighlightLow: "#21202e",
+		HighlightMed: "#403d52",
 		Text:         "#e0def4",
 		Muted:        "#6e6a86",
 		Subtle:       "#908caa",
@@ -217,7 +217,7 @@ var currentTheme ThemeName
 
 // applyTheme sets the 10 global color vars from the given theme's palette,
 // rebuilds all derived style vars, and updates currentTheme. Out-of-range
-// values fall back to ThemeRosePineMoon.
+// values fall back to ThemeRosePine.
 //
 // This only updates package-level globals. Bubble Tea sub-components that
 // store their own style copies (spinner, help, paginator, stage table) must
@@ -226,7 +226,7 @@ var currentTheme ThemeName
 // renderers compiled against the previous theme.
 func applyTheme(t ThemeName) {
 	if t < 0 || t >= themeCount {
-		t = ThemeRosePineMoon
+		t = ThemeRosePine
 	}
 	currentTheme = t
 	p := themes[t]
@@ -242,6 +242,12 @@ func applyTheme(t ThemeName) {
 	colorAccent = lipgloss.Color(p.Accent)
 	colorError = lipgloss.Color(p.Error)
 
+	// Rose Pine names the marker gold and the marked iris, which are the same
+	// two hues a theme already carries as its warning and accent. Aliasing them
+	// keeps every preset consistent without a second copy of the hex.
+	colorMarker = colorWarning
+	colorMarked = colorAccent
+
 	rebuildStyles()
 }
 
@@ -250,7 +256,8 @@ func applyTheme(t ThemeName) {
 func rebuildStyles() {
 	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	itemStyle = lipgloss.NewStyle().Foreground(colorText)
-	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(colorActive).Background(colorHighlightLow)
+	markerStyle = lipgloss.NewStyle().Foreground(colorMarker)
+	selectedItemStyle = lipgloss.NewStyle().Bold(true).Foreground(colorMarked)
 	errorStyle = lipgloss.NewStyle().Foreground(colorError)
 	searchStyle = lipgloss.NewStyle().Foreground(colorSubtle)
 	progressStyle = lipgloss.NewStyle().Foreground(colorMuted)
@@ -262,8 +269,8 @@ func rebuildStyles() {
 	pipelineSkipped = lipgloss.NewStyle().Bold(true).Foreground(colorSubtle)
 	pipelineUnknown = lipgloss.NewStyle().Bold(true).Foreground(colorMuted)
 
-	paneBorderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorSubtle)
-	paneBorderFocusStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorActive)
+	paneBorderStyle = lipgloss.NewStyle().Border(frameBorder).BorderForeground(colorSubtle)
+	paneBorderFocusStyle = lipgloss.NewStyle().Border(frameBorder).BorderForeground(colorActive)
 	explorerHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 	explorerFocusHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(colorActive)
 	detailHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
@@ -294,7 +301,7 @@ func rebuildStyles() {
 	modalLabelStyle = lipgloss.NewStyle().Foreground(colorMuted)
 	modalFocusLabelStyle = lipgloss.NewStyle().Foreground(colorActive).Bold(true)
 	modalBorderStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(frameBorder).
 		BorderForeground(colorSubtle).
 		Padding(1, 2)
 

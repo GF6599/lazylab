@@ -736,7 +736,7 @@ func (m *Model) updateStageTable() {
 		m.pipelineView.stageSelected = max(0, len(tableRows)-1)
 	}
 	if m.pipelineView.stageSelected >= 0 && m.pipelineView.stageSelected < len(tableRows) {
-		m.pipelineView.stageTable.SetCursor(m.pipelineView.stageSelected)
+		moveTableCursor(&m.pipelineView.stageTable, m.pipelineView.stageSelected)
 	}
 }
 

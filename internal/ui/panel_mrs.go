@@ -61,7 +61,7 @@ const (
 	mrTabClosed
 )
 
-var mrTabLabels = []string{"Open", "Merged", "Closed"}
+var mrTabLabels = []string{"open", "merged", "closed"}
 
 func mrTabStateString(t mrTab) string {
 	switch t {
@@ -191,14 +191,9 @@ func renderMRsPanel(m *Model, width, height int) string {
 	end = min(end, total)
 	for i := offset; i < end; i++ {
 		mr := m.mrView.mrs[i]
-		cursor := " "
-		style := itemStyle
-		if i == m.mrView.selected {
-			cursor = ">"
-			style = selectedItemStyle
-		}
-		line := clampLine(cursor+" !"+strconv.Itoa(mr.IID)+" "+mr.Title, width)
-		lines = append(lines, style.Render(line))
+		mk := markerFor(i, m.mrView.selected)
+		line := clampLine("!"+strconv.Itoa(mr.IID)+" "+mr.Title, max(0, width-2))
+		lines = append(lines, mk.render(line))
 	}
 	return joinLines(lines)
 }
@@ -255,7 +250,7 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx 
 		// Selection indicator
 		selPrefix := "  "
 		if i == selectedIdx {
-			selPrefix = "▶ "
+			selPrefix = iconSelection + " "
 		}
 
 		for j, note := range d.Notes {
@@ -406,7 +401,7 @@ func renderMRReplyModal(m Model, width int) string {
 	}
 
 	b := &strings.Builder{}
-	title := "Reply to Discussion"
+	title := "reply"
 	if m.mrView.reply.isNew {
 		if m.mrView.reply.position != nil {
 			title = fmt.Sprintf("Comment on %s:%d", m.mrView.reply.position.NewPath, m.mrView.reply.position.NewLine)
@@ -414,7 +409,7 @@ func renderMRReplyModal(m Model, width int) string {
 				title = fmt.Sprintf("Comment on %s:%d", m.mrView.reply.position.OldPath, m.mrView.reply.position.OldLine)
 			}
 		} else {
-			title = "New Comment"
+			title = "new comment"
 		}
 	}
 	b.WriteString(detailHeaderStyle.Render(clampLine(title, innerWidth)))
@@ -537,13 +532,8 @@ func renderBranchPicker(bp branchPickerState, width int) string {
 		}
 		end := min(start+maxVisible, len(bp.filtered))
 		for i := start; i < end; i++ {
-			cursor := "  "
-			style := itemStyle
-			if i == bp.selected {
-				cursor = "> "
-				style = selectedItemStyle
-			}
-			b.WriteString(style.Render(clampLine(cursor+bp.filtered[i], width)))
+			mk := markerFor(i, bp.selected)
+			b.WriteString(mk.render(clampLine(bp.filtered[i], max(0, width-2))))
 			b.WriteString("\n")
 		}
 	}

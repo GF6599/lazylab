@@ -78,7 +78,7 @@ const (
 	projectTabAll
 )
 
-var projectTabLabels = []string{"★ Favorites", "All"}
+var projectTabLabels = []string{"★ favorites", "all"}
 
 // Options configures the model at creation time. Zero values are replaced with
 // sensible defaults in [NewModel]:
@@ -143,7 +143,7 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		return
 	}
 
-	cursor, style := listCursorStyle(index, m.Index())
+	mk := markerFor(index, m.Index())
 
 	// Add pipeline status icon if available
 	statusIcon := ""
@@ -166,9 +166,9 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	}
 
 	width := m.Width()
-	line := fmt.Sprintf("%s %s%s%s", cursor, favIcon, statusIcon, proj.project.PathWithNamespace)
-	indent := lipgloss.Width(fmt.Sprintf("%s %s%s", cursor, favIcon, statusIcon))
-	renderListItem(w, style, line, indent, width, index == m.Index(), false)
+	line := fmt.Sprintf("%s%s%s", favIcon, statusIcon, proj.project.PathWithNamespace)
+	indent := lipgloss.Width(fmt.Sprintf("%s%s", favIcon, statusIcon))
+	renderListItem(w, mk, line, indent, width, index == m.Index(), false)
 }
 
 // pipelineItem wraps a GitLab pipeline for use with bubbles/list
@@ -195,11 +195,11 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 		return
 	}
 
-	cursor, style := listCursorStyle(index, m.Index())
+	mk := markerFor(index, m.Index())
 	isSelected := index == m.Index()
 
-	// Use plain icon when selected so the selection background applies
-	// uniformly; colored icon otherwise for at-a-glance status.
+	// The marked label takes one colour, so drop the per-status colour on the
+	// current row and keep it elsewhere for at-a-glance status.
 	icon := pipelineStatusIcon(pItem.summary.Status)
 	if !isSelected {
 		icon = pipelineStatusStyle(pItem.summary.Status).Render(icon)
@@ -214,10 +214,10 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 		ref = "unknown-ref"
 	}
 
-	line := fmt.Sprintf("%s %s #%d %s %s", cursor, icon, pItem.summary.ID, timestamp, ref)
+	line := fmt.Sprintf("%s #%d %s %s", icon, pItem.summary.ID, timestamp, ref)
 	width := m.Width()
-	indent := lipgloss.Width(fmt.Sprintf("%s %s ", cursor, icon))
-	renderListItem(w, style, line, indent, width, isSelected, true)
+	indent := lipgloss.Width(fmt.Sprintf("%s ", icon))
+	renderListItem(w, mk, line, indent, width, isSelected, true)
 }
 
 // treeEntryItem wraps a GitLab tree entry for use with bubbles/list
@@ -240,7 +240,7 @@ func (d treeEntryDelegate) Render(w io.Writer, m list.Model, index int, item lis
 		return
 	}
 
-	cursor, style := listCursorStyle(index, m.Index())
+	mk := markerFor(index, m.Index())
 
 	icon := explorerEntryIcon(eItem.entry)
 	name := eItem.entry.Name
@@ -249,9 +249,9 @@ func (d treeEntryDelegate) Render(w io.Writer, m list.Model, index int, item lis
 	}
 
 	width := m.Width()
-	line := fmt.Sprintf("%s%s %s", cursor, icon, name)
-	indent := lipgloss.Width(fmt.Sprintf("%s%s ", cursor, icon))
-	renderListItem(w, style, line, indent, width, index == m.Index(), false)
+	line := fmt.Sprintf("%s %s", icon, name)
+	indent := lipgloss.Width(fmt.Sprintf("%s ", icon))
+	renderListItem(w, mk, line, indent, width, index == m.Index(), false)
 }
 
 // maxWrapLines is the maximum number of lines a selected list item can wrap to.
@@ -262,20 +262,34 @@ const maxWrapLines = 3
 // delegate render call, so extra newlines push subsequent items down without
 // corruption. When ansiClamp is true, unselected items use ANSI-aware clamping
 // to preserve inline color sequences (e.g. pipeline status icons).
-func renderListItem(w io.Writer, style lipgloss.Style, line string, indent, width int, isSelected, ansiClamp bool) {
-	if isSelected && lipgloss.Width(line) > width {
-		for i, wl := range wrapSelectedItem(line, width, indent, maxWrapLines) {
+func renderListItem(w io.Writer, mk rowMarker, line string, indent, width int, isSelected, ansiClamp bool) {
+	// The bracket pair replaces the row's horizontal padding rather than adding
+	// to it, so the label gets the width less those two cells.
+	inner := width - 2
+	if inner < 1 {
+		// clampLine reads a width of zero or less as "no limit" and hands back
+		// the whole label, so below three cells draw the pair alone and cut it
+		// to the space there is.
+		fmt.Fprint(w, fitLine(mk.render(""), width))
+		return
+	}
+
+	if isSelected && lipgloss.Width(line) > inner {
+		wrapped := wrapSelectedItem(line, inner, indent, maxWrapLines)
+		for i, wl := range wrapped {
 			if i > 0 {
 				fmt.Fprint(w, "\n")
 			}
-			fmt.Fprint(w, style.Render(fitLine(wl, width)))
+			// Every wrapped line is padded to the same width so the right-hand
+			// pieces stack into one straight edge down the block.
+			fmt.Fprint(w, mk.spanning(i, len(wrapped)).render(fitLine(wl, inner)))
 		}
 		return
 	}
 	if ansiClamp && !isSelected {
-		fmt.Fprint(w, style.Render(clampLineANSI(line, width)))
+		fmt.Fprint(w, mk.render(clampLineANSI(line, inner)))
 	} else {
-		fmt.Fprint(w, style.Render(clampLine(line, width)))
+		fmt.Fprint(w, mk.render(clampLine(line, inner)))
 	}
 }
 

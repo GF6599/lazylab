@@ -95,7 +95,8 @@ func pipelineCommands(sel Selection, repo string) []Command {
 			Cmd:   fmt.Sprintf("glab ci view %s %s", shellQuote(sel.Ref), repo),
 		})
 	}
-	return append(cmds,
+	return append(
+		cmds,
 		Command{Label: "List pipelines", Cmd: "glab ci list " + repo},
 		Command{Label: "Cancel pipeline", Cmd: fmt.Sprintf("glab ci cancel pipeline %d %s", sel.PipelineID, repo)},
 	)

@@ -92,7 +92,7 @@ func (m Model) handleStagesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pipelineView.stageSelected = newIdx
-		m.pipelineView.stageTable.SetCursor(newIdx)
+		moveTableCursor(&m.pipelineView.stageTable, newIdx)
 		m.resetPipelineLogPreview()
 		return m, m.queuePipelineLogPreview()
 	case key.Matches(msg, m.keys.Retry):

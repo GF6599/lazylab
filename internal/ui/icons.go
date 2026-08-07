@@ -11,18 +11,36 @@ import (
 	"time"
 )
 
+// Every glyph below is East Asian Neutral and is not an emoji, so it measures
+// one cell everywhere. Two classes of glyph do not, and both tear a pane by
+// pushing its rows one cell past the border:
+//
+//   - An East Asian Ambiguous glyph, which a terminal in a CJK locale draws at
+//     two cells. This rules out the obvious ● ○ ▶ — and the middle dot ·.
+//   - An emoji Unicode leaves in text presentation by default, such as ⏱ or ▶,
+//     which Go measures at one cell and an emoji-presenting terminal draws at
+//     two.
+//
+// Neither property is sufficient on its own. A glyph can satisfy both and still
+// draw past its cell, which no width library can report: ⬤ U+2B24 measures one
+// cell and overruns the column in Agave. Look at a new icon rendered before
+// trusting its properties.
+//
+// The wide emoji further down are deliberate: they carry default emoji
+// presentation, so every terminal agrees they are two cells.
+
 // Pipeline status icons — each maps to a GitLab CI pipeline/job status string.
 const (
 	iconSuccess    = "✓"
 	iconFailed     = "✗"
-	iconRunning    = "●"
-	iconPending    = "○"
+	iconRunning    = "◉"
+	iconPending    = "◦"
 	iconCanceled   = "⊘"
 	iconSkipped    = "−"
-	iconManual     = "▶"
+	iconManual     = "►"
 	iconBlocked    = "◧"
 	iconUnknown    = "?"
-	iconNoPipeline = "—"
+	iconNoPipeline = "∅"
 )
 
 // General icons
@@ -32,7 +50,8 @@ const (
 	iconPublic        = "🌐"
 	iconInternal      = "🏢"
 	iconStar          = "⭐"
-	iconClock         = "⏱"
+	iconClock         = "◷"
+	iconSelection     = "►"
 	iconLoading       = "⟳"
 	iconTreeCollapsed = "▸"
 	iconTreeExpanded  = "▾"

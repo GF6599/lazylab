@@ -244,7 +244,6 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 		titleStyleLocal = borderTitleFocusedStyle
 	}
 
-	// Top border: ╭─ Title ── Tab1 | Tab2 ───╮
 	topLine := buildTopBorder(width, title, tabs, activeTab, borderStyle, titleStyleLocal)
 
 	// Compute scrollbar thumb range when content overflows.
@@ -270,17 +269,16 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 
 	var body strings.Builder
 	for i, line := range contentLines {
-		body.WriteString(borderStyle.Render("│"))
+		body.WriteString(borderStyle.Render(frameBorder.Left))
 		body.WriteString(fitLine(line, contentWidth))
 		if hasScrollbar && i >= thumbStart && i < thumbEnd {
 			body.WriteString(thumbStyle.Render("▐"))
 		} else {
-			body.WriteString(borderStyle.Render("│"))
+			body.WriteString(borderStyle.Render(frameBorder.Right))
 		}
 		body.WriteString("\n")
 	}
 
-	// Bottom border: ╰──────────── 3 of 47 ──╯
 	bottomLine := buildBottomBorder(width, footer, borderStyle)
 
 	return topLine + "\n" + body.String() + bottomLine
@@ -289,21 +287,21 @@ func renderBorderedPane(content string, width, height int, focused bool, title s
 // buildTopBorder constructs the top border with title and optional tabs.
 func buildTopBorder(width int, title string, tabs []string, activeTab int, borderStyle, titleStyleLocal lipgloss.Style) string {
 	if width < 4 {
-		return borderStyle.Render(strings.Repeat("─", width))
+		return borderStyle.Render(strings.Repeat(frameBorder.Top, width))
 	}
 
-	left := "╭─ "
-	right := " ─╮"
-	available := width - ansi.StringWidth(left) - ansi.StringWidth(right)
-	if available < 1 {
-		return borderStyle.Render("╭" + strings.Repeat("─", max(0, width-2)) + "╮")
-	}
+	// A label opens the rule with "┌─ " and takes a cell after it, so the rule
+	// that follows never runs into the label. Both cells are reserved before
+	// anything is placed, because a label admitted without room for its gap is a
+	// label welded to the corner.
+	lead := frameBorder.TopLeft + frameBorder.Top + " "
+	const gapCells = 1
+	available := width - ansi.StringWidth(lead) - gapCells - 1 // 1 for the closing corner
 
 	var middle strings.Builder
-	if title != "" {
+	if title != "" && available > 0 {
 		rendered := titleStyleLocal.Render(title)
-		titleWidth := ansi.StringWidth(rendered)
-		if titleWidth <= available {
+		if titleWidth := ansi.StringWidth(rendered); titleWidth <= available {
 			middle.WriteString(rendered)
 			available -= titleWidth
 		} else {
@@ -313,23 +311,32 @@ func buildTopBorder(width int, title string, tabs []string, activeTab int, borde
 		}
 	}
 
-	if len(tabs) > 0 && available > 4 {
+	if len(tabs) > 0 {
 		tabStr := buildTabString(tabs, activeTab)
-		tabWidth := ansi.StringWidth(tabStr)
-		if tabWidth+3 <= available { // 3 for " ── " separator
-			sep := " ── "
+		sep := " ── "
+		// Budget the separator at its real width. Charging less lets the tabs be
+		// accepted when they do not fit, and the rule then overruns the pane by
+		// the shortfall and tears the frame.
+		cost := ansi.StringWidth(sep) + ansi.StringWidth(tabStr)
+		if cost <= available {
 			middle.WriteString(borderStyle.Render(sep))
 			middle.WriteString(tabStr)
-			available -= ansi.StringWidth(sep) + tabWidth
+			available -= cost
 		}
 	}
 
-	// Fill remaining with horizontal line
-	if available > 0 {
-		middle.WriteString(borderStyle.Render(strings.Repeat("─", available)))
+	// With no label the lead has nothing to introduce, so the rule is a plain run
+	// between the corners rather than a gap stranded after the first dash.
+	if middle.Len() == 0 {
+		return borderStyle.Render(frameBorder.TopLeft + strings.Repeat(frameBorder.Top, width-2) + frameBorder.TopRight)
 	}
 
-	return borderStyle.Render(left) + middle.String() + borderStyle.Render(right)
+	middle.WriteString(" ")
+	if available > 0 {
+		middle.WriteString(borderStyle.Render(strings.Repeat(frameBorder.Top, available)))
+	}
+
+	return borderStyle.Render(lead) + middle.String() + borderStyle.Render(frameBorder.TopRight)
 }
 
 // buildTabString constructs the tab portion: "Tab1 | Tab2"
@@ -352,23 +359,23 @@ func buildTabString(tabs []string, activeTab int) string {
 // buildBottomBorder constructs the bottom border with optional footer counter.
 func buildBottomBorder(width int, footer string, borderStyle lipgloss.Style) string {
 	if width < 4 {
-		return borderStyle.Render(strings.Repeat("─", width))
+		return borderStyle.Render(strings.Repeat(frameBorder.Bottom, width))
 	}
 
-	left := "╰"
-	right := "╯"
+	left := frameBorder.BottomLeft
+	right := frameBorder.BottomRight
 	available := width - ansi.StringWidth(left) - ansi.StringWidth(right)
 
 	if footer == "" || available < len(footer)+4 {
-		return borderStyle.Render(left + strings.Repeat("─", max(0, available)) + right)
+		return borderStyle.Render(left + strings.Repeat(frameBorder.Bottom, max(0, available)) + right)
 	}
 
 	footerRendered := borderFooterStyle.Render(footer)
 	footerWidth := ansi.StringWidth(footerRendered)
 	fillLeft := available - footerWidth - 2 // 2 for " " padding around footer
 	if fillLeft < 1 {
-		return borderStyle.Render(left + strings.Repeat("─", max(0, available)) + right)
+		return borderStyle.Render(left + strings.Repeat(frameBorder.Bottom, max(0, available)) + right)
 	}
 
-	return borderStyle.Render(left+strings.Repeat("─", fillLeft)+" ") + footerRendered + borderStyle.Render(" "+right)
+	return borderStyle.Render(left+strings.Repeat(frameBorder.Bottom, fillLeft)+" ") + footerRendered + borderStyle.Render(" "+right)
 }

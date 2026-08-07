@@ -23,12 +23,20 @@ var (
 	colorWarning      lipgloss.TerminalColor
 	colorAccent       lipgloss.TerminalColor
 	colorError        lipgloss.TerminalColor
+
+	// The marker is the bracket pair around the current row and the marked is
+	// the row's own label. They are two roles on purpose: the brackets are
+	// chrome saying "this one", the label is the item. Every surface reads them
+	// from here, because consumers each picking their own is how they drift.
+	colorMarker lipgloss.TerminalColor
+	colorMarked lipgloss.TerminalColor
 )
 
 // Component styles: titles, list items, status indicators, and pipeline state colors.
 var (
 	titleStyle        lipgloss.Style
 	itemStyle         lipgloss.Style
+	markerStyle       lipgloss.Style
 	selectedItemStyle lipgloss.Style
 	errorStyle        lipgloss.Style
 	searchStyle       lipgloss.Style
@@ -97,6 +105,11 @@ var (
 	mrTextinputCursorStyle     lipgloss.Style
 )
 
+// frameBorder is the corner and edge set every frame draws with. It is one
+// variable rather than a shape named at each call site, so the corner style
+// stays a single lever and a rounded surface can only come back deliberately.
+var frameBorder = lipgloss.NormalBorder()
+
 // baseWidthStyle is a zero-value lipgloss.Style used as the seed for per-frame
 // `.Width(w)` calls in render hot paths. Hoisted from inline lipgloss.NewStyle()
 // calls in renderPaneGap, renderPipelineListPane, and renderPipelineStagesPane
@@ -104,5 +117,5 @@ var (
 var baseWidthStyle = lipgloss.NewStyle()
 
 func init() {
-	applyTheme(ThemeRosePineMoon)
+	applyTheme(ThemeRosePine)
 }

@@ -42,7 +42,7 @@ func TestPreferencesStore_SaveAndLoad(t *testing.T) {
 
 // TestPreferencesStore_LoadNonexistent: a missing preferences file loads as defaults without error.
 // Given a store pointed at a path that does not exist, when Load runs, then it returns LayoutDefault,
-// ScreenNormal, and ThemeRosePineMoon with a nil error.
+// ScreenNormal, and ThemeRosePine with a nil error.
 // Why it matters: first launch has no preferences file, so an error here would break startup for every
 // new user.
 func TestPreferencesStore_LoadNonexistent(t *testing.T) {
@@ -65,8 +65,8 @@ func TestPreferencesStore_LoadNonexistent(t *testing.T) {
 	if screen != ScreenNormal {
 		t.Errorf("Load() screen = %d, want %d (ScreenNormal)", screen, ScreenNormal)
 	}
-	if theme != ThemeRosePineMoon {
-		t.Errorf("Load() theme = %d, want %d (ThemeRosePineMoon)", theme, ThemeRosePineMoon)
+	if theme != ThemeRosePine {
+		t.Errorf("Load() theme = %d, want %d (ThemeRosePine)", theme, ThemeRosePine)
 	}
 }
 
@@ -109,8 +109,8 @@ func TestPreferencesStore_VersionMismatch(t *testing.T) {
 	if screen != ScreenNormal {
 		t.Errorf("Load() screen = %d, want %d (ScreenNormal)", screen, ScreenNormal)
 	}
-	if theme != ThemeRosePineMoon {
-		t.Errorf("Load() theme = %d, want %d (ThemeRosePineMoon)", theme, ThemeRosePineMoon)
+	if theme != ThemeRosePine {
+		t.Errorf("Load() theme = %d, want %d (ThemeRosePine)", theme, ThemeRosePine)
 	}
 }
 
@@ -144,7 +144,7 @@ func TestPreferencesStore_AllModes(t *testing.T) {
 	// Given: every combination of layout, screen mode, and theme
 	layouts := []LayoutMode{LayoutDefault, LayoutWide}
 	screens := []ScreenMode{ScreenNormal, ScreenHalf, ScreenFull}
-	themesList := []ThemeName{ThemeRosePineMoon, ThemeTokyoNight, ThemeCatppuccinMocha, ThemeGruvboxDark}
+	themesList := []ThemeName{ThemeRosePine, ThemeTokyoNight, ThemeCatppuccinMocha, ThemeGruvboxDark}
 
 	for _, l := range layouts {
 		for _, s := range screens {
@@ -182,7 +182,7 @@ func TestPreferencesStore_AllModes(t *testing.T) {
 
 // TestPreferencesStore_InvalidTheme: an out-of-range theme value falls back to the default theme.
 // Given a current-version preferences file whose theme is 99, when Load runs, then it succeeds and the
-// theme comes back as ThemeRosePineMoon.
+// theme comes back as ThemeRosePine.
 // Why it matters: the theme indexes a fixed palette array, so honoring an out-of-range value from an old
 // or hand-edited file would panic on the first render.
 func TestPreferencesStore_InvalidTheme(t *testing.T) {
@@ -212,7 +212,7 @@ func TestPreferencesStore_InvalidTheme(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if theme != ThemeRosePineMoon {
-		t.Errorf("Load() theme = %d, want %d (ThemeRosePineMoon) for invalid theme value", theme, ThemeRosePineMoon)
+	if theme != ThemeRosePine {
+		t.Errorf("Load() theme = %d, want %d (ThemeRosePine) for invalid theme value", theme, ThemeRosePine)
 	}
 }

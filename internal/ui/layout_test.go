@@ -372,12 +372,12 @@ func TestBuildTopBorder_EmbedsContentWithinWidth(t *testing.T) {
 		wantContains    []string
 		wantNotContains []string
 	}{
-		{name: "width 0 renders bare line", width: 0, title: "Title", wantNotContains: []string{"╭", "Title"}},
-		{name: "width 3 renders bare line", width: 3, title: "X", wantContains: []string{"─"}, wantNotContains: []string{"╭"}},
-		{name: "width 4 renders corners only", width: 4, wantContains: []string{"╭", "╮"}},
+		{name: "width 0 renders bare line", width: 0, title: "Title", wantNotContains: []string{frameBorder.TopLeft, "Title"}},
+		{name: "width 3 renders bare line", width: 3, title: "X", wantContains: []string{frameBorder.Top}, wantNotContains: []string{frameBorder.TopLeft}},
+		{name: "width 4 renders corners only", width: 4, wantContains: []string{frameBorder.TopLeft, frameBorder.TopRight}},
 		{name: "width 5 falls back to corners", width: 5, title: "X", wantNotContains: []string{"X"}},
-		{name: "title embedded", width: 40, title: "Projects", wantContains: []string{"Projects", "╭", "╮"}},
-		{name: "empty title renders corners", width: 30, wantContains: []string{"╭", "╮"}},
+		{name: "title embedded", width: 40, title: "Projects", wantContains: []string{"Projects", frameBorder.TopLeft, frameBorder.TopRight}},
+		{name: "empty title renders corners", width: 30, wantContains: []string{frameBorder.TopLeft, frameBorder.TopRight}},
 		{name: "long title truncated to width", width: 12, title: "VeryLongTitleHere", wantNotContains: []string{"VeryLongTitleHere"}},
 		{name: "title and tabs embedded", width: 60, title: "Detail", tabs: []string{"Log", "Tests", "Artifacts"}, wantContains: []string{"Detail", "Log"}},
 		{name: "tabs render when room allows", width: 60, title: "X", tabs: []string{"A", "B"}, active: 1, wantContains: []string{"A", "B"}},
@@ -427,13 +427,13 @@ func TestBuildBottomBorder_EmbedsFooterWithinWidth(t *testing.T) {
 		wantNotContains []string
 		wantPlainDashes bool
 	}{
-		{name: "width 0 renders empty line", width: 0, footer: "footer", wantNotContains: []string{"footer", "╰"}},
-		{name: "width 3 renders bare line", width: 3, wantNotContains: []string{"╰"}},
-		{name: "width 4 renders corners", width: 4, wantContains: []string{"╰", "╯"}},
-		{name: "footer embedded", width: 40, footer: "3 of 47", wantContains: []string{"3 of 47", "╰", "╯"}},
+		{name: "width 0 renders empty line", width: 0, footer: "footer", wantNotContains: []string{"footer", frameBorder.BottomLeft}},
+		{name: "width 3 renders bare line", width: 3, wantNotContains: []string{frameBorder.BottomLeft}},
+		{name: "width 4 renders corners", width: 4, wantContains: []string{frameBorder.BottomLeft, frameBorder.BottomRight}},
+		{name: "footer embedded", width: 40, footer: "3 of 47", wantContains: []string{"3 of 47", frameBorder.BottomLeft, frameBorder.BottomRight}},
 		{name: "footer exactly fits", width: 12, footer: "1/2", wantContains: []string{"1/2"}},
 		{name: "footer omitted when too wide", width: 8, footer: "very long footer text", wantNotContains: []string{"very long footer text"}},
-		{name: "no footer renders plain border", width: 30, wantContains: []string{"╰", "╯"}, wantPlainDashes: true},
+		{name: "no footer renders plain border", width: 30, wantContains: []string{frameBorder.BottomLeft, frameBorder.BottomRight}, wantPlainDashes: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -459,10 +459,10 @@ func TestBuildBottomBorder_EmbedsFooterWithinWidth(t *testing.T) {
 
 			// And: a footer-less border is a solid line between corners
 			if tc.wantPlainDashes {
-				inner := strings.TrimSuffix(strings.TrimPrefix(got, "╰"), "╯")
+				inner := strings.TrimSuffix(strings.TrimPrefix(got, frameBorder.BottomLeft), frameBorder.BottomRight)
 				for _, r := range inner {
-					if r != '─' {
-						t.Errorf("expected only ─ between corners, found %q in %q", string(r), got)
+					if string(r) != frameBorder.Bottom {
+						t.Errorf("expected only %q between corners, found %q in %q", frameBorder.Bottom, string(r), got)
 						break
 					}
 				}
@@ -676,5 +676,81 @@ func TestRenderTooSmallView_ContainsMinDimensions(t *testing.T) {
 	result := renderTooSmallView(10, 5)
 	if !strings.Contains(result, "Minimum required") {
 		t.Fatalf("expected 'Minimum required' in message, got %q", result)
+	}
+}
+
+// --- chrome shape tests ---
+
+// TestFrames_DrawSquareCorners: every frame in the multi-panel view draws square corners.
+// Given the stub snapshot model at 120x40, when the full multi-panel view renders, then no rounded
+// corner appears anywhere in the frame.
+// Why it matters: the corner shape is one lever for the whole surface, so a rounded corner that
+// survives anywhere means a call site escaped that lever.
+func TestFrames_DrawSquareCorners(t *testing.T) {
+	// Given: the stub model at 120x40 with the projects panel focused
+	m := newSnapshotModel(PanelProjects, 120, 40)
+
+	// When: the full multi-panel view renders
+	output := renderMultiPanelView(m, m.width, m.height)
+
+	// Then: no rounded corner survives anywhere in the frame
+	for _, corner := range []string{"╭", "╮", "╰", "╯"} {
+		if strings.Contains(output, corner) {
+			t.Errorf("found rounded corner %q in the rendered frame, corners must be square", corner)
+		}
+	}
+
+	// And: square corners are actually drawn, so a border that draws none cannot pass
+	for _, corner := range []string{"┌", "┐", "└", "┘"} {
+		if !strings.Contains(output, corner) {
+			t.Errorf("missing square corner %q in the rendered frame", corner)
+		}
+	}
+}
+
+// TestPaneTitle_KeepsASpaceBeforeTheFillRule: a pane title never touches the rule around it.
+// Given a pane with a title alone and a pane with a title and tabs, when the top border is built at
+// every width from 20 to 80, then a space separates the label from the rule, the rule itself carries
+// no gap, and the border spans exactly the width asked for.
+// Why it matters: the rule and the label are drawn cell by cell, and a fit check that misjudges either
+// by one renders the border wider than its pane, which tears every frame on screen.
+func TestPaneTitle_KeepsASpaceBeforeTheFillRule(t *testing.T) {
+	// Given: plain styles and two panes, one with tabs and one without
+	plain := lipgloss.NewStyle()
+	cases := []struct {
+		name   string
+		title  string
+		tabs   []string
+		joined string
+	}{
+		{name: "title alone", title: "pipelines", tabs: nil, joined: "pipelines─"},
+		{name: "title and tabs", title: "projects", tabs: []string{"favorites", "all"}, joined: "all─"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// When: the top border is built at every width the label still fits in
+			for width := 20; width <= 80; width++ {
+				got := buildTopBorder(width, tc.title, tc.tabs, 0, plain, plain)
+				if !strings.Contains(got, tc.title) {
+					continue
+				}
+
+				// Then: the rule does not run straight into the label
+				if strings.Contains(got, tc.joined) {
+					t.Errorf("width %d: rule touches the label: found %q in %q", width, tc.joined, got)
+				}
+
+				// And: the rule itself is never broken by a gap
+				if gap := frameBorder.Top + " " + frameBorder.Top; strings.Contains(got, gap) {
+					t.Errorf("width %d: gap inside the rule: %q", width, got)
+				}
+
+				// And: spending a cell on the gap never changes the border width
+				if w := ansi.StringWidth(got); w != width {
+					t.Errorf("width = %d, want %d, in %q", w, width, got)
+				}
+			}
+		})
 	}
 }

@@ -24,13 +24,54 @@ func newBareList(items []list.Item, delegate list.ItemDelegate, w, h int) list.M
 	return l
 }
 
-// listCursorStyle returns the cursor prefix and style for a list item based
-// on whether it is the currently selected item.
-func listCursorStyle(index int, listIndex int) (string, lipgloss.Style) {
+// The bracket pieces a marked row draws. A row that fits on one line takes the
+// flat pair. A row that wraps takes the corner pieces on its first and last
+// lines and the extension pieces between, so one tall pair encloses the whole
+// block instead of a flat pair repeating on each line as its own row.
+var (
+	markerFlat   = [2]string{"[", "]"}
+	markerTop    = [2]string{"⎡", "⎤"}
+	markerMiddle = [2]string{"⎢", "⎥"}
+	markerBottom = [2]string{"⎣", "⎦"}
+)
+
+// rowMarker is the bracket pair a list row draws around its label, with the
+// style the label itself takes. Both brackets occupy a cell on every row and go
+// blank when the row is not current, so no label moves as the marker travels.
+type rowMarker struct {
+	left, right string
+	label       lipgloss.Style
+}
+
+// markerFor returns the marker a row draws, given its index and the current one.
+func markerFor(index int, listIndex int) rowMarker {
 	if index == listIndex {
-		return ">", selectedItemStyle
+		return rowMarker{left: markerFlat[0], right: markerFlat[1], label: selectedItemStyle}
 	}
-	return " ", itemStyle
+	return rowMarker{left: " ", right: " ", label: itemStyle}
+}
+
+// spanning returns the marker for line i of an n-line row.
+func (mk rowMarker) spanning(i, n int) rowMarker {
+	if n < 2 {
+		return mk
+	}
+	pieces := markerMiddle
+	switch i {
+	case 0:
+		pieces = markerTop
+	case n - 1:
+		pieces = markerBottom
+	}
+	mk.left, mk.right = pieces[0], pieces[1]
+	return mk
+}
+
+// render wraps inner in the bracket pair. The brackets take the marker colour
+// and the label its own, because the brackets are chrome and the label is the
+// item they point at.
+func (mk rowMarker) render(inner string) string {
+	return markerStyle.Render(mk.left) + mk.label.Render(inner) + markerStyle.Render(mk.right)
 }
 
 // Commonly reused strings.
@@ -341,6 +382,21 @@ func bigStepIdx(key string, idx, length, height int) (newIdx int, handled bool) 
 		return length - 1, true
 	}
 	return idx, false
+}
+
+// moveTableCursor exists because table.SetCursor moves the cursor and leaves the
+// scroll offset where it was, which drops the current row off screen on any jump
+// wider than the visible window. Only MoveUp and MoveDown carry the offset, so
+// every jump goes through them. Prefer this to SetCursor everywhere: the offset
+// is only ever correct if nothing bypasses it.
+func moveTableCursor(t *table.Model, idx int) {
+	idx = max(0, min(idx, len(t.Rows())-1))
+	switch delta := idx - t.Cursor(); {
+	case delta > 0:
+		t.MoveDown(delta)
+	case delta < 0:
+		t.MoveUp(-delta)
+	}
 }
 
 // logError logs an error if the logger is configured. This eliminates the

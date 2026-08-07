@@ -185,7 +185,8 @@ func TestRetryPipeline_FallbackCreate_PreservesBothErrors(t *testing.T) {
 	})
 
 	// And: a client wired to that transport, no real server involved.
-	api, err := gl.NewClient("test-token",
+	api, err := gl.NewClient(
+		"test-token",
 		gl.WithBaseURL("http://example.invalid/api/v4"),
 		gl.WithoutRetries(),
 		gl.WithHTTPClient(&http.Client{Transport: transport}),

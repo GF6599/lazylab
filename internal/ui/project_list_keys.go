@@ -319,7 +319,7 @@ func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.pipelineView.stageSelected = newIdx
-	m.pipelineView.stageTable.SetCursor(newIdx)
+	moveTableCursor(&m.pipelineView.stageTable, newIdx)
 	m.resetPipelineLogPreview()
 	return m, m.queuePipelineLogPreview()
 }
@@ -329,7 +329,7 @@ func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
 // selection via half-page scroll or jump-to-end.
 func (m *Model) selectPipelineAndLoadStages() tea.Cmd {
 	m.pipelineView.stageSelected = 0
-	m.pipelineView.stageTable.SetCursor(0)
+	moveTableCursor(&m.pipelineView.stageTable, 0)
 	m.resetPipelineLogPreview()
 	cmd := m.queuePipelineStagesForSelection()
 	return tea.Batch(cmd, m.queuePipelineJobsForSelection())
