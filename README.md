@@ -40,6 +40,12 @@ The UI opens on the alternate screen. Press `?` for the contextual help overlay,
 
 To explore the UI without a token, pass `--demo` for fake data.
 
+### Themes
+
+The TUI paints its own palette instead of borrowing the terminal's, so it renders the same wherever you run it. Press `~` to cycle the ten presets. The choice persists per host.
+
+Rose Pine is the default. The others are Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Dracula, Nord, Solarized Dark, Kanagawa, Everforest Dark, and One Dark.
+
 ### Emitting glab commands
 
 lazylab is TUI-only. Rather than ship its own scripting CLI, it generates [`glab`](https://gitlab.com/gitlab-org/cli) commands for whatever you have focused:
