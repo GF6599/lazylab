@@ -132,8 +132,8 @@ func (m Model) requestStageRetry(pipeline *gitlab.PipelineSummary) (tea.Model, t
 		jobName:  job.Name,
 		jobStage: job.Stage,
 	}
-	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.ChildProjectID != 0 {
-		m.pipelineView.retryConfirm.projectID = row.ChildProjectID
+	if id := m.selectedStageJobRow().downstreamProjectID(); id != 0 {
+		m.pipelineView.retryConfirm.projectID = id
 	}
 	return m, nil
 }
@@ -190,11 +190,7 @@ func (m Model) dispatchJobRetry(rc retryConfirmState) (tea.Model, tea.Cmd) {
 		jobLabel = fmt.Sprintf("%s (#%d)", rc.jobName, rc.jobID)
 	}
 	m.status = fmt.Sprintf("Retrying job %s", jobLabel)
-	projectID := m.pipelineView.project.ID
-	if rc.projectID != 0 {
-		projectID = rc.projectID
-	}
-	return m, retryJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, projectID, pipelineID, rc.jobID)
+	return m, retryJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.jobActionTargetIn(rc.projectID), pipelineID, rc.jobID)
 }
 
 // dispatchPipelineRetry issues a whole-pipeline retry, defaulting ref to the
