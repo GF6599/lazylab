@@ -424,10 +424,9 @@ func demoPipelinesPanelModel(t *testing.T) Model {
 	if cmd == nil {
 		t.Fatal("expected a pipelines fetch command after enter")
 	}
-	msg := cmd()
-	loaded, ok := msg.(pipelinesLoadedMsg)
+	loaded, ok := findMsg[pipelinesLoadedMsg](cmd)
 	if !ok {
-		t.Fatalf("expected pipelinesLoadedMsg from the fetch command, got %T", msg)
+		t.Fatal("expected a pipelinesLoadedMsg from the fetch command")
 	}
 	res, _ = m.Update(loaded)
 	m = res.(Model)

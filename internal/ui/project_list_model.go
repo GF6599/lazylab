@@ -341,6 +341,13 @@ type Model struct {
 	// flag also de-duplicates kick attempts so two concurrent tick chains can
 	// never run, which would otherwise double the API refresh rate.
 	pipelineTickAlive bool
+
+	// spinnerTickAlive tracks whether a spinner tick is in flight. The chain is
+	// self-terminating in the same way: a tick that arrives while nothing needs
+	// animating produces no successor, so ensureSpinnerTickCmd restarts it when
+	// something does. The flag also stops a second chain from starting, which would
+	// otherwise spin the frames at a multiple of the intended rate.
+	spinnerTickAlive bool
 	// Bubble components
 	keys        keyMap
 	help        help.Model
@@ -757,8 +764,8 @@ func (m *Model) refreshExplorerPreview() {
 
 // Init kicks off initial data loading. If an on-disk project cache exists, it
 // is loaded first for instant startup; otherwise a foreground API fetch begins.
-// Favorites are loaded in parallel. The spinner tick is always started so the
-// loading indicator animates immediately.
+// Favorites are loaded in parallel. The spinner tick is not started here: Update owns
+// ignition through ensureSpinnerTickCmd, so there is one path that can start a chain.
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.cache != nil {
@@ -772,7 +779,6 @@ func (m Model) Init() tea.Cmd {
 	if m.prefStore != nil {
 		cmds = append(cmds, loadPreferencesCmd(m.prefStore))
 	}
-	cmds = append(cmds, m.spinner.Tick)
 	return tea.Batch(cmds...)
 }
 
@@ -785,17 +791,24 @@ func (m Model) Init() tea.Cmd {
 //     (e.g., projectsLoadedMsg -> handleProjectsLoaded). Handlers update state
 //     and may return follow-up commands for cascading fetches.
 //
-// The spinner is only ticked when something is actively loading, to avoid
-// unnecessary redraws in idle state.
-// The spinner tick is batched here rather than inside each handler, because a handler
-// that forgets it drops the follow-up tick and the animation stops for good.
+// The spinner ticks only while something on screen needs animating, so an idle app
+// does not redraw. The tick is batched here rather than inside each handler, because a
+// handler that forgets it drops the follow-up tick and the animation stops for good.
+// needsAnimation is re-read after routing, since routing is what turns it true.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, isSpinnerTick := msg.(spinner.TickMsg); isSpinnerTick {
+		m.spinnerTickAlive = false
+	}
 	var spinnerCmd tea.Cmd
 	if m.needsAnimation() {
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
+		if spinnerCmd != nil {
+			m.spinnerTickAlive = true
+		}
 	}
 	updated, cmd := m.routeMsg(msg)
-	return updated, tea.Batch(cmd, spinnerCmd)
+	next := updated.(Model)
+	return next, tea.Batch(cmd, spinnerCmd, ensureSpinnerTickCmd(&next))
 }
 
 func (m Model) routeMsg(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/GF6599/lazylab/internal/demo"
@@ -72,6 +73,10 @@ func drainCmd(t *testing.T, m Model, cmd tea.Cmd) Model {
 		msg := c()
 		if _, ok := msg.(pipelineTickMsg); ok {
 			t.Fatal("drainCmd: chain reached the auto-refresh tick")
+		}
+		// The animation never settles by design, so it is not work to drain.
+		if _, ok := msg.(spinner.TickMsg); ok {
+			return m
 		}
 		if batch, ok := msg.(tea.BatchMsg); ok {
 			for _, sub := range batch {
@@ -654,4 +659,26 @@ func TestApp_HostileJobLogCannotDriveTheTerminal(t *testing.T) {
 	if !strings.Contains(frame, "go build ./...") {
 		t.Error("frame dropped the log text along with the escape sequence")
 	}
+}
+
+// findMsg runs cmd and returns the first message of type T it carries, unpacking a batch
+// the way the runtime does. Update batches the animation tick alongside real work, so a
+// command carrying one interesting message still arrives as a batch.
+func findMsg[T tea.Msg](cmd tea.Cmd) (T, bool) {
+	var zero T
+	if cmd == nil {
+		return zero, false
+	}
+	raw := cmd()
+	if typed, ok := raw.(T); ok {
+		return typed, true
+	}
+	if batch, ok := raw.(tea.BatchMsg); ok {
+		for _, sub := range batch {
+			if found, ok := findMsg[T](sub); ok {
+				return found, true
+			}
+		}
+	}
+	return zero, false
 }
