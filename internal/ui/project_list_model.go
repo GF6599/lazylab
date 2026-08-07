@@ -787,17 +787,23 @@ func (m Model) Init() tea.Cmd {
 //
 // The spinner is only ticked when something is actively loading, to avoid
 // unnecessary redraws in idle state.
+// The spinner tick is batched here rather than inside each handler, because a handler
+// that forgets it drops the follow-up tick and the animation stops for good.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var spinnerCmd tea.Cmd
 	if m.isLoading() {
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
 	}
+	updated, cmd := m.routeMsg(msg)
+	return updated, tea.Batch(cmd, spinnerCmd)
+}
 
+func (m Model) routeMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		return m.handleWindowSize(msg, spinnerCmd)
+		return m.handleWindowSize(msg)
 	case tea.KeyMsg:
-		return m.handleKeyMsg(msg, spinnerCmd)
+		return m.handleKeyMsg(msg)
 	case pipelineTickMsg:
 		return m.handlePipelineTickMsg()
 	case favoritesLoadedMsg:
@@ -809,19 +815,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // handleWindowSize updates layout-dependent state when the terminal is resized.
-func (m Model) handleWindowSize(msg tea.WindowSizeMsg, spinnerCmd tea.Cmd) (tea.Model, tea.Cmd) {
+func (m Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
 	m.help.Width = msg.Width
 	m.refreshPreviewHighlight()
 	m.updateViewportSizes()
-	return m, spinnerCmd
+	return m, nil
 }
 
 // handleKeyMsg processes global key bindings (quit on too-small terminal, help
 // toggle, error clear, theme toggle) before falling through to the mode-aware
 // dispatcher.
-func (m Model) handleKeyMsg(msg tea.KeyMsg, spinnerCmd tea.Cmd) (tea.Model, tea.Cmd) {
+func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.width < MinTerminalWidth || m.height < MinTerminalHeight {
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
 			return m, tea.Quit
@@ -830,26 +836,26 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg, spinnerCmd tea.Cmd) (tea.Model, tea.
 	}
 	if key.Matches(msg, m.keys.Help) {
 		m.showHelp = !m.showHelp
-		return m, spinnerCmd
+		return m, nil
 	}
 	if m.showHelp && key.Matches(msg, m.keys.CloseHelp) {
 		m.showHelp = false
-		return m, spinnerCmd
+		return m, nil
 	}
 	if m.showHelp {
-		return m, spinnerCmd
+		return m, nil
 	}
 	if key.Matches(msg, m.keys.ClearError) {
 		m.err = nil
 		m.status = ""
-		return m, spinnerCmd
+		return m, nil
 	}
 	if key.Matches(msg, m.keys.Theme) && !m.isTextInputActive() {
 		newModel, cmd := m.toggleTheme()
-		return newModel, tea.Batch(spinnerCmd, cmd)
+		return newModel, cmd
 	}
 	newModel, cmd := m.dispatchKey(msg)
-	return newModel, tea.Batch(spinnerCmd, cmd)
+	return newModel, cmd
 }
 
 // handlePipelineTickMsg drives the periodic refresh chain. The chain
