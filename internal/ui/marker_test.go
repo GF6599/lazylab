@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -162,7 +163,7 @@ func TestStageTable_MarksTheCurrentRow(t *testing.T) {
 	tbl.SetCursor(1)
 
 	// When: the rendered table is styled for display
-	lines := strings.Split(styleStageTable(tbl.View(), tbl.Cursor()), "\n")
+	lines := strings.Split(styleStageTable(tbl.View(), tbl.SelectedRow()), "\n")
 
 	// Then: the row under the cursor is the only one carrying the pair
 	var marked []int
@@ -215,5 +216,44 @@ func TestStageTable_MarkedRowKeepsItsText(t *testing.T) {
 	// And: it still occupies exactly the table's width
 	if got := ansi.StringWidth(marked); got != width {
 		t.Errorf("marked row is %d cells wide, want %d", got, width)
+	}
+}
+
+// TestStageTable_MarksTheCurrentRowWhenScrolled: the marker follows the cursor past the first window.
+// Given more jobs than the table can show at once, when the cursor walks the whole list one row at a
+// time, then the marked line is the row the table reports as current at every step.
+// Why it matters: a real pipeline has more jobs than the panel has rows, so a marker derived from the
+// cursor index alone goes missing the moment the view scrolls, which is most of the list.
+func TestStageTable_MarksTheCurrentRowWhenScrolled(t *testing.T) {
+	// Given: fifteen jobs in a table that shows fewer
+	tbl := newStageTable(40)
+	var rows []table.Row
+	for i := range 15 {
+		rows = append(rows, table.Row{fmt.Sprintf("job-%02d", i), "stage", iconSuccess + " SUCCESS"})
+	}
+	tbl.SetRows(rows)
+
+	for step := range 15 {
+		// When: the cursor moves down one row, as j does
+		if step > 0 {
+			tbl.MoveDown(1)
+		}
+		want := tbl.SelectedRow()[0]
+
+		var marked string
+		for _, line := range strings.Split(styleStageTable(tbl.View(), tbl.SelectedRow()), "\n") {
+			if strings.HasPrefix(ansi.Strip(line), markerFlat[0]) {
+				marked = ansi.Strip(line)
+			}
+		}
+
+		// Then: the row the table reports as current is the one carrying the marker
+		if marked == "" {
+			t.Errorf("row %d (%s): no row is marked", step, want)
+			continue
+		}
+		if !strings.Contains(marked, want) {
+			t.Errorf("row %d: marked %q, want the row for %s", step, marked, want)
+		}
 	}
 }

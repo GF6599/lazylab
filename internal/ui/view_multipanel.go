@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
@@ -141,7 +142,7 @@ func renderStagesPanelContent(m Model, width, height int) string {
 
 	// Reserve 1 line for the selected job name hint when it would be truncated.
 	hint := stageTableSelectedHint(&m, width)
-	content := styleStageTable(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor())
+	content := styleStageTable(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.SelectedRow())
 	if hint != "" {
 		return renderWithBottomHint(content, hint, height)
 	}
@@ -537,14 +538,13 @@ func panelTabs(panel PanelID, m *Model) ([]string, int) {
 }
 
 // styleStageTable colors the status icons in rendered table output and marks the
-// row under the cursor. The cursor parameter is the table's selected row index;
-// data rows start at line offset 2 (header + border).
+// current row, which the caller supplies as the table's selected row.
 //
 // The bracket pair cannot come from the row data here the way it does in every
 // other list, because the table widget owns its own row rendering. It is cut
 // into the row's outer cell padding instead, which keeps the line the width the
 // pane laid out for it.
-func styleStageTable(s string, cursor int) string {
+func styleStageTable(s string, selected table.Row) string {
 	replacements := []struct {
 		plain   string
 		colored string
@@ -560,7 +560,7 @@ func styleStageTable(s string, cursor int) string {
 		{iconBlocked + " BLOCKED", pipelineStatusStyle("manual").Render(iconBlocked) + " BLOCKED"},
 	}
 	lines := strings.Split(s, "\n")
-	selectedLine := cursor + 2 // header + border = 2 offset lines
+	selectedLine := stageRowLine(lines, selected)
 	for i, line := range lines {
 		if i == selectedLine {
 			lines[i] = markStageRow(line)
@@ -572,6 +572,39 @@ func styleStageTable(s string, cursor int) string {
 		lines[i] = line
 	}
 	return strings.Join(lines, "\n")
+}
+
+// stageRowLine returns the index of the rendered line carrying row, or -1 when
+// the table has scrolled it out of view. The table shifts its window as the
+// cursor moves, so the row's line cannot be derived from the cursor index.
+func stageRowLine(lines []string, row table.Row) int {
+	var wanted []string
+	for _, cell := range row {
+		if cell = strings.TrimSpace(cell); cell != "" {
+			wanted = append(wanted, cell)
+		}
+	}
+	if len(wanted) == 0 {
+		return -1
+	}
+	for i, line := range lines {
+		if rowOnLine(ansi.Strip(line), wanted) {
+			return i
+		}
+	}
+	return -1
+}
+
+// rowOnLine reports whether every cell appears on the line in order.
+func rowOnLine(plain string, cells []string) bool {
+	for _, cell := range cells {
+		at := strings.Index(plain, cell)
+		if at < 0 {
+			return false
+		}
+		plain = plain[at+len(cell):]
+	}
+	return true
 }
 
 // markStageRow replaces the row's first and last cell with the bracket pair.

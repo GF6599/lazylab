@@ -186,7 +186,7 @@ func renderPipelineStagesPane(m Model, width, height int, focused bool) string {
 	m.pipelineView.stageTable.SetColumns(stageTableColumns(width))
 	m.pipelineView.stageTable.SetWidth(width)
 	m.pipelineView.stageTable.SetHeight(max(1, tableHeight))
-	b.WriteString(styleStageTable(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.Cursor()))
+	b.WriteString(styleStageTable(m.pipelineView.stageTable.View(), m.pipelineView.stageTable.SelectedRow()))
 	b.WriteString("\n")
 	if jobHint != "" {
 		b.WriteString(jobHint)
