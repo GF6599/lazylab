@@ -250,7 +250,7 @@ func renderMRCommentsText(discussions []gitlab.MRDiscussion, width, selectedIdx 
 		// Selection indicator
 		selPrefix := "  "
 		if i == selectedIdx {
-			selPrefix = "▶ "
+			selPrefix = iconSelection + " "
 		}
 
 		for j, note := range d.Notes {
