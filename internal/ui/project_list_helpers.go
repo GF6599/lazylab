@@ -384,6 +384,21 @@ func bigStepIdx(key string, idx, length, height int) (newIdx int, handled bool) 
 	return idx, false
 }
 
+// moveTableCursor exists because table.SetCursor moves the cursor and leaves the
+// scroll offset where it was, which drops the current row off screen on any jump
+// wider than the visible window. Only MoveUp and MoveDown carry the offset, so
+// every jump goes through them. Prefer this to SetCursor everywhere: the offset
+// is only ever correct if nothing bypasses it.
+func moveTableCursor(t *table.Model, idx int) {
+	idx = max(0, min(idx, len(t.Rows())-1))
+	switch delta := idx - t.Cursor(); {
+	case delta > 0:
+		t.MoveDown(delta)
+	case delta < 0:
+		t.MoveUp(-delta)
+	}
+}
+
 // logError logs an error if the logger is configured. This eliminates the
 // repeated `if m.opts.Logger != nil { m.opts.Logger.Error(...) }` pattern.
 func (m *Model) logError(msg string, args ...any) {
