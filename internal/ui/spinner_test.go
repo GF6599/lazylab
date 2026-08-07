@@ -5,6 +5,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
 // tickFrom runs cmd and finds the spinner tick inside it, unpacking a batch the way the
@@ -50,6 +52,15 @@ func distinctFrames(frames []string) int {
 	return len(seen)
 }
 
+func runningPipelineModel() Model {
+	m := newMultiPanelModel(PanelPipelines)
+	m.spinner = newAppSpinner()
+	m.pipelineView.project = gitlab.ProjectNode{ID: 1}
+	m.pipelineView.pipelines = []gitlab.PipelineSummary{{ID: 10, Ref: "main", Status: "running"}}
+	m.pipelineView.selected = 0
+	return m
+}
+
 // TestSpinner_KeepsAnimatingWhileProjectsLoad: the loading spinner moves on its own.
 // Given a model loading its project list, when four animation frames are driven through Update,
 // then the spinner renders four frames and more than one of them differs.
@@ -60,6 +71,31 @@ func TestSpinner_KeepsAnimatingWhileProjectsLoad(t *testing.T) {
 	m := newMultiPanelModel(PanelProjects)
 	m.spinner = newAppSpinner()
 	m.loading = true
+
+	// When: four animation frames are driven through Update
+	frames := spinnerFrames(m, 4)
+
+	// Then: the animation ran for every frame and actually moved
+	if len(frames) < 4 {
+		t.Fatalf("the animation stopped after %d frames: %q", len(frames), frames)
+	}
+	if distinctFrames(frames) < 2 {
+		t.Errorf("the spinner rendered the same frame every time: %q", frames)
+	}
+}
+
+// TestSpinner_KeepsAnimatingWhileAPipelineRuns: a running pipeline animates with no load in flight.
+// Given a pipelines panel showing a running pipeline and nothing loading, when four animation
+// frames are driven through Update, then the spinner renders four frames and more than one differs.
+// Why it matters: a running pipeline is the state the user watches for minutes at a time, and it
+// is exactly the state in which nothing is loading, so a gate that only animates during a fetch
+// leaves the screen still while the thing being watched changes.
+func TestSpinner_KeepsAnimatingWhileAPipelineRuns(t *testing.T) {
+	// Given: a running pipeline on screen with nothing loading
+	m := runningPipelineModel()
+	if m.isLoading() {
+		t.Fatal("this scenario needs nothing loading, so the running pipeline is the only reason to animate")
+	}
 
 	// When: four animation frames are driven through Update
 	frames := spinnerFrames(m, 4)
