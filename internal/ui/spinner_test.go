@@ -152,3 +152,67 @@ func TestSpinner_AnimationReturnsAfterAnIdlePeriod(t *testing.T) {
 		t.Errorf("the spinner did not move after the restart: %q", frames)
 	}
 }
+
+// TestSpinner_AnimatesEveryStatusThatStillMoves: animation follows whether a pipeline can still
+// change on its own.
+// Given a pipelines panel over a pipeline in one status, when a tick is driven through Update,
+// then a follow-up tick comes back only for a status GitLab still advances by itself.
+// Why it matters: manual and blocked wait for a person and never move on their own, so animating
+// them spins forever against nothing, while created and preparing are the first seconds after a
+// retry, which is exactly when the user is watching for a sign that it worked.
+func TestSpinner_AnimatesEveryStatusThatStillMoves(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		moves  bool
+	}{
+		{"created", true},
+		{"waiting_for_resource", true},
+		{"preparing", true},
+		{"pending", true},
+		{"running", true},
+		{"scheduled", true},
+		{"success", false},
+		{"failed", false},
+		{"canceled", false},
+		{"skipped", false},
+		{"manual", false},
+		{"blocked", false},
+	} {
+		// Given: a pipelines panel over a pipeline in this status
+		m := pipelineStatusModel(tc.status)
+
+		// When: a tick is driven through Update
+		_, cmd := m.Update(tickFrom(m.spinner.Tick))
+
+		// Then: the animation continues only for a status that still moves
+		if got := tickFrom(cmd) != nil; got != tc.moves {
+			t.Errorf("status %q animates = %v, want %v", tc.status, got, tc.moves)
+		}
+	}
+}
+
+// TestSpinner_AnimatesARunningPipelineInTheProjectList: the projects panel animates too.
+// Given a projects panel whose cached status for a project is running, and no pipeline loaded
+// into the pipelines panel, when a tick is driven through Update, then a follow-up tick comes back.
+// Why it matters: the projects panel carries its own status icon per row from a separate cache, so
+// a check that reads only the pipelines panel leaves that row frozen while its pipeline runs.
+func TestSpinner_AnimatesARunningPipelineInTheProjectList(t *testing.T) {
+	// Given: a projects panel with a running pipeline cached for one project
+	m := newMultiPanelModel(PanelProjects)
+	m.spinner = newAppSpinner()
+	m.ctx = context.Background()
+	m.client = &mockService{}
+	m.pipelineView.pipelines = nil
+	if m.needsAnimation() {
+		t.Fatal("this scenario needs the cache to be the only reason to animate")
+	}
+	m.pipelineStatus.Set(1, pipelineState{hasInfo: true, info: gitlab.PipelineSummary{ID: 10, Status: "running"}})
+
+	// When: a tick is driven through Update
+	_, cmd := m.Update(tickFrom(m.spinner.Tick))
+
+	// Then: the animation continues
+	if tickFrom(cmd) == nil {
+		t.Error("the project row's pipeline is running, but the spinner stopped")
+	}
+}
