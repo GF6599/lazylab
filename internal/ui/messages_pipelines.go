@@ -277,7 +277,7 @@ func (m Model) handlePipelineRetried(msg pipelineRetriedMsg) (tea.Model, tea.Cmd
 // jobs, bridges, and the log for the affected pipeline to show the updated
 // job status.
 func (m Model) handlePipelineJobRetried(msg pipelineJobRetriedMsg) (tea.Model, tea.Cmd) {
-	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.viewProjectID {
 		return m, nil
 	}
 	m.clearAllRetryState()
@@ -323,7 +323,7 @@ func (m Model) handlePipelineCanceled(msg pipelineCanceledMsg) (tea.Model, tea.C
 }
 
 func (m Model) handleJobCanceled(msg jobCanceledMsg) (tea.Model, tea.Cmd) {
-	if m.pipelineView.project.ID != msg.projectID {
+	if m.pipelineView.project.ID != msg.viewProjectID {
 		return m, nil
 	}
 	if msg.err != nil {
@@ -335,7 +335,7 @@ func (m Model) handleJobCanceled(msg jobCanceledMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleJobPlayed(msg jobPlayedMsg) (tea.Model, tea.Cmd) {
-	if m.pipelineView.project.ID != msg.projectID {
+	if m.pipelineView.project.ID != msg.viewProjectID {
 		return m, nil
 	}
 	if msg.err != nil {

@@ -141,15 +141,16 @@ func (m Model) openRetryModalForJob() (tea.Model, tea.Cmd) {
 		jobName:  job.Name,
 		jobStage: job.Stage,
 	}
-	if row := m.selectedStageJobRow(); row != nil && row.Kind == rowKindBridgeChild && row.ChildProjectID != 0 {
-		m.pipelineView.retryConfirm.projectID = row.ChildProjectID
+	if id := m.selectedStageJobRow().downstreamProjectID(); id != 0 {
+		m.pipelineView.retryConfirm.projectID = id
 	}
 	return m, nil
 }
 
 // cancelJobAction cancels the selected job.
 func (m Model) cancelJobAction() (tea.Model, tea.Cmd) {
-	if row := m.selectedStageJobRow(); row != nil && (row.Kind == rowKindMatrixGroup || row.Kind == rowKindBridge) {
+	row := m.selectedStageJobRow()
+	if row != nil && (row.Kind == rowKindMatrixGroup || row.Kind == rowKindBridge) {
 		m.status = "Select an individual job to perform this action"
 		return m, nil
 	}
@@ -163,12 +164,13 @@ func (m Model) cancelJobAction() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Canceling job %s (#%d)...", job.Name, job.ID)
-	return m, cancelJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, job.ID)
+	return m, cancelJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.jobActionTargetIn(row.downstreamProjectID()), job.ID)
 }
 
 // playManualJob triggers a manual job.
 func (m Model) playManualJob() (tea.Model, tea.Cmd) {
-	if row := m.selectedStageJobRow(); row != nil && (row.Kind == rowKindMatrixGroup || row.Kind == rowKindBridge) {
+	row := m.selectedStageJobRow()
+	if row != nil && (row.Kind == rowKindMatrixGroup || row.Kind == rowKindBridge) {
 		m.status = "Select an individual job to perform this action"
 		return m, nil
 	}
@@ -182,5 +184,13 @@ func (m Model) playManualJob() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Playing job %s (#%d)...", job.Name, job.ID)
-	return m, playJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, job.ID)
+	return m, playJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.jobActionTargetIn(row.downstreamProjectID()), job.ID)
+}
+
+func (m Model) jobActionTargetIn(projectID int) jobActionTarget {
+	view := m.pipelineView.project.ID
+	if projectID == 0 {
+		projectID = view
+	}
+	return jobActionTarget{projectID: projectID, viewProjectID: view}
 }

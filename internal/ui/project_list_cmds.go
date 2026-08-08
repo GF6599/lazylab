@@ -102,11 +102,11 @@ type pipelineRetriedMsg struct {
 }
 
 type pipelineJobRetriedMsg struct {
-	projectID  int
-	pipelineID int
-	jobID      int
-	job        gitlab.PipelineJob
-	err        error
+	viewProjectID int
+	pipelineID    int
+	jobID         int
+	job           gitlab.PipelineJob
+	err           error
 }
 
 type pipelineTickMsg struct{}
@@ -384,12 +384,20 @@ func retryPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout 
 	}
 }
 
-func retryJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID, jobID int) tea.Cmd {
+// jobActionTarget separates the project a job action calls from the view that issued it.
+// The two differ for a bridge-child job, whose pipeline lives downstream. A reply carries
+// viewProjectID because matching on the called project discards every downstream reply.
+type jobActionTarget struct {
+	projectID     int
+	viewProjectID int
+}
+
+func retryJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, target jobActionTarget, pipelineID, jobID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
-		job, err := client.RetryJob(ctx, projectID, jobID)
-		return pipelineJobRetriedMsg{projectID: projectID, pipelineID: pipelineID, jobID: jobID, job: job, err: err}
+		job, err := client.RetryJob(ctx, target.projectID, jobID)
+		return pipelineJobRetriedMsg{viewProjectID: target.viewProjectID, pipelineID: pipelineID, jobID: jobID, job: job, err: err}
 	}
 }
 
@@ -483,16 +491,16 @@ type pipelineCanceledMsg struct {
 }
 
 type jobCanceledMsg struct {
-	projectID int
-	jobID     int
-	err       error
+	viewProjectID int
+	jobID         int
+	err           error
 }
 
 type jobPlayedMsg struct {
-	projectID int
-	jobID     int
-	job       gitlab.PipelineJob
-	err       error
+	viewProjectID int
+	jobID         int
+	job           gitlab.PipelineJob
+	err           error
 }
 
 func fetchMRsCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, state string, page, perPage int) tea.Cmd {
@@ -527,21 +535,21 @@ func cancelPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout
 	}
 }
 
-func cancelJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, jobID int) tea.Cmd {
+func cancelJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, target jobActionTarget, jobID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
-		err := client.CancelJob(ctx, projectID, jobID)
-		return jobCanceledMsg{projectID: projectID, jobID: jobID, err: err}
+		err := client.CancelJob(ctx, target.projectID, jobID)
+		return jobCanceledMsg{viewProjectID: target.viewProjectID, jobID: jobID, err: err}
 	}
 }
 
-func playJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, jobID int) tea.Cmd {
+func playJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, target jobActionTarget, jobID int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
-		job, err := client.PlayJob(ctx, projectID, jobID)
-		return jobPlayedMsg{projectID: projectID, jobID: jobID, job: job, err: err}
+		job, err := client.PlayJob(ctx, target.projectID, jobID)
+		return jobPlayedMsg{viewProjectID: target.viewProjectID, jobID: jobID, job: job, err: err}
 	}
 }
 

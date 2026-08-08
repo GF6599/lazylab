@@ -698,6 +698,97 @@ func TestRetryConfirmFlow_RetriesSelectedJob(t *testing.T) {
 	}
 }
 
+// TestStagesPanel_BridgeChildActions: cancel, play and retry on a downstream (bridge-child)
+// job address that job's own project, and every reply reaches the view that asked.
+// Given a bridge-child job selected in the stages panel whose ChildProjectID differs from the
+// parent project, when the user cancels a running one, plays a manual one and retries a failed
+// one, then each request carries the downstream project ID and each reply reports its outcome.
+// Why it matters: a child pipeline's jobs live in a different GitLab project, so a request sent
+// to the parent reaches no job, and a reply the view discards strands the action on screen with
+// no outcome and, for retry, no way to try again.
+func TestStagesPanel_BridgeChildActions(t *testing.T) {
+	// Given: a stages panel over a bridge-child job whose downstream project differs from the
+	// parent, spying on the project ID each action addresses
+	const childProjectID = 555
+	var cancelProjectID, playProjectID, retryProjectID int
+	svc := &mockService{
+		CancelJobFn: func(_ context.Context, projectID, _ int) error {
+			cancelProjectID = projectID
+			return nil
+		},
+		PlayJobFn: func(_ context.Context, projectID, jobID int) (gitlab.PipelineJob, error) {
+			playProjectID = projectID
+			return gitlab.PipelineJob{ID: jobID, Name: "release", Status: "running"}, nil
+		},
+		RetryJobFn: func(_ context.Context, projectID, jobID int) (gitlab.PipelineJob, error) {
+			retryProjectID = projectID
+			return gitlab.PipelineJob{ID: jobID, Name: "deploy", Status: "running"}, nil
+		},
+	}
+	stagesOver := func(job gitlab.PipelineJob) Model {
+		m := retryScenarioModel(svc, PanelStages)
+		m.pipelineView.stageSelected = 0
+		m.pipelineView.jobRows = []gitlab.PipelineJob{job}
+		m.pipelineView.stageJobRows = []stageJobRow{{
+			Kind: rowKindBridgeChild, Job: &m.pipelineView.jobRows[0], ChildProjectID: childProjectID,
+		}}
+		return m
+	}
+
+	for _, action := range []struct {
+		name       string
+		key        string
+		job        gitlab.PipelineJob
+		addressed  *int
+		wantStatus string
+	}{
+		{"cancel", "C", gitlab.PipelineJob{ID: 900, Name: "deploy", Stage: "deploy", Status: "running"}, &cancelProjectID, "Canceled job"},
+		{"play", "P", gitlab.PipelineJob{ID: 901, Name: "release", Stage: "deploy", Status: "manual"}, &playProjectID, "Triggered job"},
+	} {
+		// When: the user acts on a bridge-child job and the reply comes back
+		sent, cmd := stagesOver(action.job).Update(keyMsg(action.key))
+		if cmd == nil {
+			t.Fatalf("%s: expected a command from %s", action.name, action.key)
+		}
+		replied, refresh := sent.(Model).Update(cmd())
+		got := replied.(Model)
+
+		// Then: the request went to the downstream project and the reply reported the outcome
+		if *action.addressed != childProjectID {
+			t.Errorf("%s addressed project %d, want downstream %d", action.name, *action.addressed, childProjectID)
+		}
+		if !strings.Contains(got.status, action.wantStatus) {
+			t.Errorf("%s: status is %q, want it to contain %q", action.name, got.status, action.wantStatus)
+		}
+		if refresh == nil {
+			t.Errorf("%s: expected a refresh command after the reply", action.name)
+		}
+	}
+
+	// When: the user retries a failed bridge-child job through the confirm modal
+	opened, _ := stagesOver(gitlab.PipelineJob{ID: 902, Name: "deploy", Stage: "deploy", Status: "failed"}).Update(keyMsg("R"))
+	confirmed, cmd := opened.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("retry: expected a command from enter")
+	}
+	replied, _ := confirmed.(Model).Update(cmd())
+	m := replied.(Model)
+
+	// Then: the retry went to the downstream project and reported the outcome
+	if retryProjectID != childProjectID {
+		t.Errorf("retry addressed project %d, want downstream %d", retryProjectID, childProjectID)
+	}
+	if !strings.Contains(m.status, "Retried job") {
+		t.Errorf("retry: status is %q, want it to contain %q", m.status, "Retried job")
+	}
+
+	// And: retry is usable again, so pressing R reopens the modal
+	again, _ := m.Update(keyMsg("R"))
+	if view := again.(Model).View(); !strings.Contains(view, "Enter to retry job") {
+		t.Errorf("retry: R did not reopen the confirm modal, so retry stays blocked:\n%s", view)
+	}
+}
+
 // TestNormalizeColumnBounds: column normalization clamps content to the exact width and height.
 // Given one overlong line normalized to 5x2, when the lines come back, then there are exactly two rows,
 // each measuring width 5.

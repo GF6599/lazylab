@@ -314,3 +314,12 @@ func (m *Model) selectedStageJobRow() *stageJobRow {
 	}
 	return &m.pipelineView.stageJobRows[idx]
 }
+
+// downstreamProjectID returns the project a bridge-child job runs in, or 0.
+// Safe to call on a nil row.
+func (r *stageJobRow) downstreamProjectID() int {
+	if r != nil && r.Kind == rowKindBridgeChild && r.ChildProjectID != 0 {
+		return r.ChildProjectID
+	}
+	return 0
+}
