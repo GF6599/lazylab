@@ -1698,15 +1698,15 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 	proj := projectItem{project: gitlab.ProjectNode{ID: 1, PathWithNamespace: "team/app"}}
 	items := []list.Item{proj}
 	psCache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
-	frame := animationFrame(newAppSpinner())
-	if frame == "" {
+	frames := (&Model{spinner: newAppSpinner()}).statusFrames()
+	if frames.spin == "" {
 		t.Fatal("the animation frame is empty, and every row contains the empty string, so the " +
 			"loading case below would assert nothing")
 	}
 	delegate := projectDelegate{
 		pipelineStatus: &psCache,
 		favorites:      map[int]bool{},
-		frame:          frame,
+		frames:         frames,
 	}
 	m := list.New(items, delegate, 60, 10)
 
@@ -1724,7 +1724,7 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 		{"success", pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "success"}}, iconSuccess},
 		{"failed", pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "failed"}}, iconFailed},
 		{"empty", pipelineState{empty: true}, iconNoPipeline},
-		{"loading", pipelineState{loading: true}, frame},
+		{"loading", pipelineState{loading: true}, frames.spin},
 		{"error", pipelineState{err: fmt.Errorf("oops")}, iconUnknown},
 	}
 
@@ -1747,12 +1747,12 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 		d := projectDelegate{
 			pipelineStatus: &emptyCache,
 			favorites:      map[int]bool{},
-			frame:          frame,
+			frames:         frames,
 		}
 		out := render(d)
 
 		// Then: no status icon renders
-		for _, icon := range []string{iconSuccess, iconFailed, iconNoPipeline, frame, iconUnknown} {
+		for _, icon := range []string{iconSuccess, iconFailed, iconNoPipeline, frames.spin, iconUnknown} {
 			if strings.Contains(out, icon) {
 				t.Fatalf("expected no icon, but found %q in output %q", icon, out)
 			}

@@ -51,8 +51,16 @@ func TestIcons_MeasureTheSameWidthInEveryTerminal(t *testing.T) {
 	}
 
 	// And: every animation frame, which a row draws in the same column as a status icon
-	for i, frame := range appSpinner.Frames {
-		assertCellWidth(t, fmt.Sprintf("animation frame %d", i), strings.TrimSpace(frame), 1)
+	for name, animation := range map[string][]string{
+		"spinner frame": appSpinner.Frames,
+		"pulse frame":   appPulse.Frames,
+	} {
+		if len(animation) == 0 {
+			t.Errorf("the %s set is empty, so this loop measures nothing", name)
+		}
+		for i, frame := range animation {
+			assertCellWidth(t, fmt.Sprintf("%s %d", name, i), strings.TrimSpace(frame), 1)
+		}
 	}
 }
 

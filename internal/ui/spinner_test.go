@@ -355,6 +355,38 @@ func glyphChanges(prefixes []string) int {
 	return changes
 }
 
+// TestStatusGlyph_MovesOnlyWhileTheAnimationKeepsTicking: the glyph and the tick chain agree on
+// which statuses move.
+// Given a pipeline in one status, when a tick is driven through Update and a row asks for that
+// status's glyph, then a glyph mid-animation comes back only while the chain keeps redrawing it.
+// Why it matters: the chain stops for a status it does not recognise, so a glyph that moves for one
+// the chain has dropped holds a single frame for good and reads as a request that died.
+//
+// Only one direction is a defect. The chain is model-wide, so it runs on for a finished pipeline
+// beside a running one, and a still glyph there is correct.
+func TestStatusGlyph_MovesOnlyWhileTheAnimationKeepsTicking(t *testing.T) {
+	frames := (&Model{spinner: newAppSpinner()}).statusFrames()
+	for _, status := range []string{
+		"running", "pending", "created", "preparing", "waiting_for_resource", "scheduled",
+		"success", "failed", "canceled", "skipped", "manual", "blocked",
+		"RUNNING", " running", " pending",
+	} {
+		// Given: a pipelines panel over a pipeline in this status
+		m := pipelineStatusModel(status)
+
+		// When: a tick is driven through Update, and a row asks for that status's glyph
+		_, cmd := m.Update(tickFrom(m.spinner.Tick))
+		icon := frames.icon(status)
+
+		// Then: the glyph is mid-animation only while the chain keeps redrawing it
+		moving := icon == frames.spin || icon == frames.pulse
+		if moving && tickFrom(cmd) == nil {
+			t.Errorf("status %q draws %q, a frame of an animation the chain has already stopped, "+
+				"so it holds that one frame for good", status, icon)
+		}
+	}
+}
+
 // TestPipelineRow_AnimatesARunningPipeline: the pipelines panel animates its own rows.
 // Given a pipelines panel listing a running pipeline, when four animation frames are driven through
 // Update, then the panel renders four frames and the row's glyph moves between them.

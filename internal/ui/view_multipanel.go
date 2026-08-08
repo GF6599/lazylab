@@ -334,8 +334,9 @@ func renderArtifactsContent(m *Model, width int) string {
 		if bridges, _ := m.pipelineView.bridges.Get(pipeline.ID); len(bridges) > 0 {
 			writeDetailDivider(b, width)
 			writeDetailSection(b, "Child Pipelines", width)
+			frames := m.statusFrames()
 			for _, bridge := range bridges {
-				icon := pipelineStatusIcon(bridge.Status)
+				icon := frames.icon(bridge.Status)
 				line := fmt.Sprintf("  %s %s", icon, bridge.Name)
 				if bridge.DownstreamPipeline != nil {
 					line += fmt.Sprintf(" -> #%d (%s)", bridge.DownstreamPipeline.ID, bridge.DownstreamPipeline.Status)

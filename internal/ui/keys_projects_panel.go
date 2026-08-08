@@ -154,7 +154,7 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 	}
 
 	m.pipelineView.initForProject(project)
-	m.pipelineView.pipelineList = newPipelineListModel()
+	m.pipelineView.pipelineList = newPipelineListModel(m.statusFrames())
 	m.pipelineView.stageTable = newStageTable(m.stageTableWidth())
 	m.pipelineView.logViewport = m.newLogViewport()
 	// The sub-components above are freshly built at zero size; re-apply the
@@ -169,8 +169,8 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 // newPipelineListModel returns a freshly-initialized bubbles list for the
 // pipeline column. Dimensions are zero — the layout pass sets the real size
 // before the first render.
-func newPipelineListModel() list.Model {
-	pl := newBareList(nil, pipelineDelegate{}, 0, 0)
+func newPipelineListModel(frames statusFrames) list.Model {
+	pl := newBareList(nil, pipelineDelegate{frames: frames}, 0, 0)
 	pl.Styles.Title = titleStyle
 	return pl
 }
