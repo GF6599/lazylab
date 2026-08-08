@@ -163,6 +163,55 @@ func stageTableSelectedHint(m *Model, width int) string {
 	return explorerHintStyle.Render(clampLine(" "+clean, width))
 }
 
+// needsAnimation reports whether anything on screen should be moving. Update keeps the
+// spinner tick chain alive only while this holds, so a state that animates but is not
+// named here freezes on its first frame.
+func (m *Model) needsAnimation() bool {
+	return m.isLoading() || m.hasLivePipeline()
+}
+
+// hasLivePipeline reports whether a pipeline on screen is still working. This is
+// deliberately separate from isLoading: a running pipeline is the state the user watches
+// longest, and it is precisely the state in which no fetch is in flight. Both sources are
+// read because the two panels draw from different ones, and either can be on screen alone.
+func (m *Model) hasLivePipeline() bool {
+	if m.mode != modePipelines && m.mode != modeMultiPanel {
+		return false
+	}
+	for _, pipeline := range m.pipelineView.pipelines {
+		if isLivePipelineStatus(pipeline.Status) {
+			return true
+		}
+	}
+	if m.pipelineStatus == nil {
+		return false
+	}
+	live := false
+	m.pipelineStatus.Range(func(_ int, state pipelineState) bool {
+		if state.hasInfo && isLivePipelineStatus(state.info.Status) {
+			live = true
+		}
+		return !live
+	})
+	return live
+}
+
+// livePipelineStatuses are the statuses GitLab still advances on its own. Terminal
+// statuses are absent, and so are manual and blocked: those wait for a person, so
+// animating them would spin against nothing until somebody acts.
+var livePipelineStatuses = map[string]bool{
+	"created":              true,
+	"waiting_for_resource": true,
+	"preparing":            true,
+	"pending":              true,
+	"running":              true,
+	"scheduled":            true,
+}
+
+func isLivePipelineStatus(status string) bool {
+	return livePipelineStatuses[strings.ToLower(status)]
+}
+
 // isLoading returns true if anything is currently loading that should animate the spinner.
 func (m *Model) isLoading() bool {
 	// Project list loading

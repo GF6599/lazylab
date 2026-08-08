@@ -444,6 +444,17 @@ func continuePipelineTickCmd(m *Model) tea.Cmd {
 // so callers can unconditionally batch the result without risking a duplicate
 // chain. Call this after every transition that may enter a refreshable mode
 // from a state where the chain might have died.
+// ensureSpinnerTickCmd starts the spinner animation when something needs animating and
+// no tick is in flight. Without it the first idle moment ends the animation for the rest
+// of the session, because a spinner tick is only ever produced by the tick before it.
+func ensureSpinnerTickCmd(m *Model) tea.Cmd {
+	if !m.needsAnimation() || m.spinnerTickAlive {
+		return nil
+	}
+	m.spinnerTickAlive = true
+	return m.spinner.Tick
+}
+
 func ensurePipelineTickCmd(m *Model) tea.Cmd {
 	if !modeWantsPipelineTick(m.mode) {
 		return nil
