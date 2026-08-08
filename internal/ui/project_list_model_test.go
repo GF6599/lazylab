@@ -1666,6 +1666,10 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 	items := []list.Item{proj}
 	psCache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
 	frame := animationFrame(newAppSpinner())
+	if frame == "" {
+		t.Fatal("the animation frame is empty, and every row contains the empty string, so the " +
+			"loading case below would assert nothing")
+	}
 	delegate := projectDelegate{
 		pipelineStatus: &psCache,
 		favorites:      map[int]bool{},
