@@ -128,20 +128,19 @@ func (i projectItem) FilterValue() string {
 // pipelineStatus and favorites maps so that status icons update in-place
 // without rebuilding the delegate on every tick.
 //
-// frame is a copy because it has to be: the list hands out no way to reach the delegate
-// it holds, so Update pushes each animation frame in through SetDelegate. Build one with
-// [Model.rowDelegate], or the row draws no animation until the next frame arrives.
+// Build one with [Model.rowDelegate], or the row draws no animation until the next frame
+// arrives.
 type projectDelegate struct {
 	pipelineStatus *LRUCache[int, pipelineState]
 	favorites      map[int]bool
-	frame          string
+	frames         statusFrames
 }
 
 func (m *Model) rowDelegate() projectDelegate {
 	return projectDelegate{
 		pipelineStatus: m.pipelineStatus,
 		favorites:      m.favorites,
-		frame:          animationFrame(m.spinner),
+		frames:         m.statusFrames(),
 	}
 }
 
@@ -164,11 +163,11 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	if state, ok := d.pipelineStatus.Peek(proj.project.ID); ok {
 		switch {
 		case state.hasInfo:
-			statusIcon = pipelineStatusIcon(state.info.Status) + " "
+			statusIcon = d.frames.icon(state.info.Status) + " "
 		case state.empty:
 			statusIcon = iconNoPipeline + " "
 		case state.loading:
-			statusIcon = d.frame + " "
+			statusIcon = d.frames.loadingIcon() + " "
 		case state.err != nil:
 			statusIcon = iconUnknown + " "
 		}
@@ -194,8 +193,15 @@ func (i pipelineItem) FilterValue() string {
 	return fmt.Sprintf("%d %s %s", i.summary.ID, i.summary.Ref, i.summary.Status)
 }
 
-// pipelineDelegate renders pipeline items in the list
-type pipelineDelegate struct{}
+// pipelineDelegate renders pipeline items in the list. Build one with [Model.pipelineRowDelegate],
+// for the reason [projectDelegate] gives.
+type pipelineDelegate struct {
+	frames statusFrames
+}
+
+func (m *Model) pipelineRowDelegate() pipelineDelegate {
+	return pipelineDelegate{frames: m.statusFrames()}
+}
 
 func (d pipelineDelegate) Height() int { return 1 }
 
@@ -214,7 +220,7 @@ func (d pipelineDelegate) Render(w io.Writer, m list.Model, index int, item list
 
 	// The marked label takes one colour, so drop the per-status colour on the
 	// current row and keep it elsewhere for at-a-glance status.
-	icon := pipelineStatusIcon(pItem.summary.Status)
+	icon := d.frames.icon(pItem.summary.Status)
 	if !isSelected {
 		icon = pipelineStatusStyle(pItem.summary.Status).Render(icon)
 	}
@@ -362,6 +368,12 @@ type Model struct {
 	// something does. The flag also stops a second chain from starting, which would
 	// otherwise spin the frames at a multiple of the intended rate.
 	spinnerTickAlive bool
+
+	// animationTick lets a second animation run at a fraction of the spinner's rate off the one
+	// chain. A second spinner would need a second chain, a second flag, and a second restart
+	// path for the sake of a slower glyph.
+	animationTick int
+
 	// Bubble components
 	keys        keyMap
 	help        help.Model
@@ -636,14 +648,65 @@ func newSearchInput() textinput.Model {
 }
 
 // Named rather than set inline so the icon width contract can measure the frames the UI
-// actually draws.
-var appSpinner = spinner.Dot
+// actually draws. appPulse lights one to three dots against appSpinner's seven, so a queued
+// pipeline reads as dimmer than a running one without taking a colour of its own.
+var (
+	appSpinner = spinner.Dot
+	appPulse   = spinner.Jump
+)
+
+const pulseDivisor = 3
 
 func newAppSpinner() spinner.Model {
 	s := spinner.New()
 	s.Spinner = appSpinner
 	s.Style = lipgloss.NewStyle().Foreground(colorActive)
 	return s
+}
+
+// A delegate holds a copy of these because the list hands out no way to reach the delegate it
+// holds, so Update pushes the frames in through SetDelegate.
+type statusFrames struct {
+	spin  string
+	pulse string
+}
+
+func (m *Model) statusFrames() statusFrames {
+	frames := appPulse.Frames
+	return statusFrames{
+		spin:  animationFrame(m.spinner),
+		pulse: strings.TrimSpace(frames[(m.animationTick/pulseDivisor)%len(frames)]),
+	}
+}
+
+// Waiting is not working, so a status GitLab has not started yet takes the slower pulse.
+//
+// A moving frame is returned only for a status isLivePipelineStatus also claims, because that is
+// what keeps the tick chain alive. Normalise a status any differently here and a row draws a frame
+// of an animation nothing is redrawing, which holds one frame for good.
+//
+// The zero value falls back to the fixed glyph throughout: a delegate reaching a render with no
+// frames should draw a still row rather than an empty column that tears the pane.
+func (f statusFrames) icon(status string) string {
+	switch {
+	case f.spin == "" || f.pulse == "":
+		return pipelineStatusIcon(status)
+	case !isLivePipelineStatus(status):
+		return pipelineStatusIcon(status)
+	case strings.EqualFold(status, "running"):
+		return f.spin
+	default:
+		return f.pulse
+	}
+}
+
+// loadingIcon falls back for the reason [statusFrames.icon] gives, to the glyph for work that has
+// not started, since a fetch that has not answered has told the row nothing yet.
+func (f statusFrames) loadingIcon() string {
+	if f.spin == "" {
+		return iconPending
+	}
+	return f.spin
 }
 
 // animationFrame is for a caller drawing the frame inside a span it already owns: a styled
@@ -830,6 +893,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
 		if spinnerCmd != nil {
 			m.spinnerTickAlive = true
+			m.animationTick++
 		}
 	}
 	updated, cmd := m.routeMsg(msg)
@@ -838,6 +902,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The spinner only answers a tick, so a command here means the frame just moved.
 		// This sits after routing to reach whichever list a handler left behind.
 		next.projectList.SetDelegate((&next).rowDelegate())
+		next.pipelineView.pipelineList.SetDelegate((&next).pipelineRowDelegate())
 	}
 	return next, tea.Batch(cmd, spinnerCmd, ensureSpinnerTickCmd(&next))
 }

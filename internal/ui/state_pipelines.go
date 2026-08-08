@@ -25,7 +25,7 @@ import (
 // loadProjectPipelines later overwrite this with project-scoped state.
 func newPipelineViewState() pipelineViewState {
 	return pipelineViewState{
-		pipelineList:  newPipelineListModel(),
+		pipelineList:  newPipelineListModel(statusFrames{}),
 		stageTable:    newStageTable(minSidebarWidth),
 		page:          1,
 		totalPages:    1,
@@ -52,9 +52,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 	t := newStageTable(max(stagesInner, 56))
 
 	// Initialize pipeline list
-	delegate := pipelineDelegate{}
-	pipelineList := newBareList(nil, delegate, 0, 0)
-	pipelineList.Styles.Title = titleStyle
+	pipelineList := newPipelineListModel(m.statusFrames())
 
 	// Initialize log viewport with proper dimensions
 	logVp := viewport.New(pipelineLogContentWidth(m.width), pipelineLogContentHeight(m.height))

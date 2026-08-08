@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -1653,6 +1654,38 @@ func TestRenderPipelineLogPaneWrapsLongLines(t *testing.T) {
 	}
 }
 
+// TestProjectDelegate_RowKeepsItsStatusColumnWithNoFrames: a row drawn before any animation frame
+// reaches it is as wide as one drawn after.
+// Given a delegate holding no frames, when a row renders with its status fetch in flight and again
+// with the status known, then both draw the same number of cells before the project name.
+// Why it matters: the pane is drawn to an exact cell count, so a row that leaves the status column
+// empty pulls its name a cell left and the column stops lining up down the list.
+func TestProjectDelegate_RowKeepsItsStatusColumnWithNoFrames(t *testing.T) {
+	// Given: a delegate holding no animation frames
+	proj := projectItem{project: gitlab.ProjectNode{ID: 1, PathWithNamespace: "team/app"}}
+	psCache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
+	d := projectDelegate{pipelineStatus: &psCache, favorites: map[int]bool{}}
+	lm := list.New([]list.Item{proj}, d, 60, 10)
+
+	render := func(state pipelineState) string {
+		psCache.Set(1, state)
+		var buf strings.Builder
+		d.Render(&buf, lm, 0, proj)
+		before, _, _ := strings.Cut(ansi.Strip(buf.String()), "team/app")
+		return before
+	}
+
+	// When: the row renders with the fetch in flight, and again with the status known
+	waiting := render(pipelineState{loading: true})
+	known := render(pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "success"}})
+
+	// Then: both draw the same number of cells before the name
+	if got, want := lipgloss.Width(waiting), lipgloss.Width(known); got != want {
+		t.Errorf("the waiting row draws %d cells before the name against %d once the status is "+
+			"known (%q against %q), so the status column collapses on that row", got, want, waiting, known)
+	}
+}
+
 // TestProjectDelegate_PipelineStatusIcons: the project row renders the icon for each pipeline state and
 // none without state.
 // Given a list delegate over a shared status cache, when each state (success, failed, empty, loading,
@@ -1665,15 +1698,15 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 	proj := projectItem{project: gitlab.ProjectNode{ID: 1, PathWithNamespace: "team/app"}}
 	items := []list.Item{proj}
 	psCache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
-	frame := animationFrame(newAppSpinner())
-	if frame == "" {
+	frames := (&Model{spinner: newAppSpinner()}).statusFrames()
+	if frames.spin == "" {
 		t.Fatal("the animation frame is empty, and every row contains the empty string, so the " +
 			"loading case below would assert nothing")
 	}
 	delegate := projectDelegate{
 		pipelineStatus: &psCache,
 		favorites:      map[int]bool{},
-		frame:          frame,
+		frames:         frames,
 	}
 	m := list.New(items, delegate, 60, 10)
 
@@ -1691,7 +1724,7 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 		{"success", pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "success"}}, iconSuccess},
 		{"failed", pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "failed"}}, iconFailed},
 		{"empty", pipelineState{empty: true}, iconNoPipeline},
-		{"loading", pipelineState{loading: true}, frame},
+		{"loading", pipelineState{loading: true}, frames.spin},
 		{"error", pipelineState{err: fmt.Errorf("oops")}, iconUnknown},
 	}
 
@@ -1714,12 +1747,12 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 		d := projectDelegate{
 			pipelineStatus: &emptyCache,
 			favorites:      map[int]bool{},
-			frame:          frame,
+			frames:         frames,
 		}
 		out := render(d)
 
 		// Then: no status icon renders
-		for _, icon := range []string{iconSuccess, iconFailed, iconNoPipeline, frame, iconUnknown} {
+		for _, icon := range []string{iconSuccess, iconFailed, iconNoPipeline, frames.spin, iconUnknown} {
 			if strings.Contains(out, icon) {
 				t.Fatalf("expected no icon, but found %q in output %q", icon, out)
 			}

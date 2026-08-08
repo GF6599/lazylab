@@ -51,8 +51,35 @@ func TestIcons_MeasureTheSameWidthInEveryTerminal(t *testing.T) {
 	}
 
 	// And: every animation frame, which a row draws in the same column as a status icon
-	for i, frame := range appSpinner.Frames {
-		assertCellWidth(t, fmt.Sprintf("animation frame %d", i), strings.TrimSpace(frame), 1)
+	for name, animation := range map[string][]string{
+		"spinner frame": appSpinner.Frames,
+		"pulse frame":   appPulse.Frames,
+	} {
+		if len(animation) == 0 {
+			t.Errorf("the %s set is empty, so this loop measures nothing", name)
+		}
+		for i, frame := range animation {
+			assertCellWidth(t, fmt.Sprintf("%s %d", name, i), strings.TrimSpace(frame), 1)
+		}
+	}
+}
+
+// TestPipelineStatusIcon_DrawsEveryStatusItKeepsAnimating: no status the UI animates draws as
+// unknown. Given every status GitLab still advances, when each is mapped to a glyph, then none
+// falls through to the unknown icon.
+// Why it matters: the animated set and the glyph map are written apart, so they drift apart, and
+// the result is a "?" moving on screen for the whole life of the pipeline.
+func TestPipelineStatusIcon_DrawsEveryStatusItKeepsAnimating(t *testing.T) {
+	// Given: a status the UI keeps animating
+	for status := range livePipelineStatuses {
+		// When: a row asks for its glyph
+		icon := pipelineStatusIcon(status)
+
+		// Then: it is a glyph for that status
+		if icon == iconUnknown {
+			t.Errorf("status %q animates but draws %q, the glyph for a status the UI does not recognise",
+				status, iconUnknown)
+		}
 	}
 }
 
