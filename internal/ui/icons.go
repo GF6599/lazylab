@@ -66,7 +66,7 @@ func pipelineStatusIcon(status string) string {
 		return iconFailed
 	case "running":
 		return iconRunning
-	case "pending", "created", "waiting_for_resource", "scheduled":
+	case "pending", "created", "waiting_for_resource", "scheduled", "preparing":
 		return iconPending
 	case "canceled":
 		return iconCanceled
