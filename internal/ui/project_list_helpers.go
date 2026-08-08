@@ -167,7 +167,23 @@ func stageTableSelectedHint(m *Model, width int) string {
 // spinner tick chain alive only while this holds, so a state that animates but is not
 // named here freezes on its first frame.
 func (m *Model) needsAnimation() bool {
-	return m.isLoading() || m.hasLivePipeline()
+	return m.isLoading() || m.hasLivePipeline() || m.hasLoadingStatusRow()
+}
+
+// A pipeline status fetch is per project and sets no model-wide loading flag, so the row
+// it animates is the only thing that knows it is running.
+func (m *Model) hasLoadingStatusRow() bool {
+	if m.pipelineStatus == nil {
+		return false
+	}
+	waiting := false
+	m.pipelineStatus.Range(func(_ int, state pipelineState) bool {
+		if state.loading {
+			waiting = true
+		}
+		return !waiting
+	})
+	return waiting
 }
 
 // hasLivePipeline reports whether a pipeline on screen is still working. This is

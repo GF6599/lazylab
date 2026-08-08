@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -26,7 +28,6 @@ var iconCells = map[string]struct {
 	"iconBlocked":       {iconBlocked, 1},
 	"iconUnknown":       {iconUnknown, 1},
 	"iconNoPipeline":    {iconNoPipeline, 1},
-	"iconLoading":       {iconLoading, 1},
 	"iconClock":         {iconClock, 1},
 	"iconTreeCollapsed": {iconTreeCollapsed, 1},
 	"iconTreeExpanded":  {iconTreeExpanded, 1},
@@ -44,28 +45,39 @@ var iconCells = map[string]struct {
 // Why it matters: a pane is drawn to an exact cell count, so a glyph one cell wider than Go measured
 // pushes its row past the border and tears the frame around it.
 func TestIcons_MeasureTheSameWidthInEveryTerminal(t *testing.T) {
+	// Given: one icon from the set
 	for name, want := range iconCells {
-		// Given: one icon from the set
-		// Then: no rune in it is one a terminal may widen on its own
-		for _, r := range want.glyph {
-			if runewidth.IsAmbiguousWidth(r) {
-				t.Errorf("%s (%q, U+%04X) is East Asian Ambiguous: a terminal set to draw "+
-					"ambiguous glyphs wide gives it 2 cells while the layout budgets %d",
-					name, want.glyph, r, want.cells)
-			}
-		}
+		assertCellWidth(t, name, want.glyph, want.cells)
+	}
 
-		// And: it occupies the cells the layout budgets, by every measure the UI relies on
-		for measure, got := range map[string]int{
-			"ansi":      ansi.StringWidth(want.glyph),
-			"lipgloss":  lipgloss.Width(want.glyph),
-			"runewidth": runewidth.StringWidth(want.glyph),
-			"uniseg":    uniseg.StringWidth(want.glyph),
-		} {
-			if got != want.cells {
-				t.Errorf("%s (%q): %s measures %d cells, the layout budgets %d",
-					name, want.glyph, measure, got, want.cells)
-			}
+	// And: every animation frame, which a row draws in the same column as a status icon
+	for i, frame := range appSpinner.Frames {
+		assertCellWidth(t, fmt.Sprintf("animation frame %d", i), strings.TrimSpace(frame), 1)
+	}
+}
+
+func assertCellWidth(t *testing.T, name, glyph string, cells int) {
+	t.Helper()
+
+	// Then: no rune in it is one a terminal may widen on its own
+	for _, r := range glyph {
+		if runewidth.IsAmbiguousWidth(r) {
+			t.Errorf("%s (%q, U+%04X) is East Asian Ambiguous: a terminal set to draw "+
+				"ambiguous glyphs wide gives it 2 cells while the layout budgets %d",
+				name, glyph, r, cells)
+		}
+	}
+
+	// And: it occupies the cells the layout budgets, by every measure the UI relies on
+	for measure, got := range map[string]int{
+		"ansi":      ansi.StringWidth(glyph),
+		"lipgloss":  lipgloss.Width(glyph),
+		"runewidth": runewidth.StringWidth(glyph),
+		"uniseg":    uniseg.StringWidth(glyph),
+	} {
+		if got != cells {
+			t.Errorf("%s (%q): %s measures %d cells, the layout budgets %d",
+				name, glyph, measure, got, cells)
 		}
 	}
 }
