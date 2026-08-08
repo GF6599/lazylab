@@ -5,9 +5,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
@@ -301,4 +303,119 @@ func TestProjectRow_KeepsTheRowStylingWhileItAnimates(t *testing.T) {
 func projectRowsAfterOneTick(m Model) string {
 	updated, _ := m.Update(tickFrom(m.spinner.Tick))
 	return updated.(Model).projectList.View()
+}
+
+// animatedProjectsModel leaves the status cache as the only thing on screen that could animate, so
+// a test over it cannot pass on some other state's animation.
+func animatedProjectsModel(t *testing.T, statuses ...string) Model {
+	t.Helper()
+	m := newMultiPanelModel(PanelProjects)
+	m.spinner = newAppSpinner()
+	m.ctx = context.Background()
+	m.client = &mockService{}
+	m.pipelineView.pipelines = nil
+
+	projects := make([]gitlab.ProjectNode, len(statuses))
+	items := make([]list.Item, len(statuses))
+	for i, status := range statuses {
+		projects[i] = gitlab.ProjectNode{ID: i + 1, PathWithNamespace: "team/" + status}
+		items[i] = projectItem{project: projects[i]}
+		m.pipelineStatus.Set(i+1, pipelineState{
+			hasInfo: true,
+			info:    gitlab.PipelineSummary{ID: 10 + i, Status: status},
+		})
+	}
+	m.allProjects = projects
+	m.projectList.SetItems(items)
+	return m
+}
+
+// The marker and the favourite star hold still between frames, so a change in what a row drew
+// before its project name is the status glyph moving.
+func rowPrefixes(panels []string, path string) []string {
+	prefixes := make([]string, len(panels))
+	for i, panel := range panels {
+		for _, line := range strings.Split(ansi.Strip(panel), "\n") {
+			if before, _, found := strings.Cut(line, path); found {
+				prefixes[i] = before
+				break
+			}
+		}
+	}
+	return prefixes
+}
+
+func glyphChanges(prefixes []string) int {
+	changes := 0
+	for i := 1; i < len(prefixes); i++ {
+		if prefixes[i] != prefixes[i-1] {
+			changes++
+		}
+	}
+	return changes
+}
+
+// TestPipelineRow_AnimatesARunningPipeline: the pipelines panel animates its own rows.
+// Given a pipelines panel listing a running pipeline, when four animation frames are driven through
+// Update, then the panel renders four frames and the row's glyph moves between them.
+// Why it matters: each list holds its own copy of the delegate, so frames pushed to the project list
+// alone leave every pipeline row frozen while the pipeline it names is running.
+func TestPipelineRow_AnimatesARunningPipeline(t *testing.T) {
+	// Given: a pipelines panel listing a running pipeline
+	m := runningPipelineModel()
+	items := []list.Item{pipelineItem{summary: m.pipelineView.pipelines[0]}}
+	m.pipelineView.pipelineList = newBareList(items, pipelineDelegate{}, 60, 10)
+
+	// When: four animation frames are driven through Update
+	rows := animationFrames(m, 4, func(m Model) string { return m.pipelineView.pipelineList.View() })
+
+	// Then: the animation ran for every frame and the row actually moved
+	if len(rows) < 4 {
+		t.Fatalf("the animation stopped after %d frames: %q", len(rows), rows)
+	}
+	if distinctFrames(rows) < 2 {
+		t.Errorf("the pipeline row drew the same glyph on every frame:\n%s", rows[0])
+	}
+}
+
+// TestProjectRow_SpinsARunningPipelineAndPulsesAQueuedOne: the glyph tells working apart from waiting.
+// Given project rows for a running, a pending and a successful pipeline, when twelve animation frames
+// are driven through Update, then the running row's glyph moves, the pending row's moves fewer times,
+// and the successful row's does not move at all.
+// Why it matters: a queued pipeline has no runner on it, so drawing it at the pace of a running one
+// tells the user work has started when none has.
+func TestProjectRow_SpinsARunningPipelineAndPulsesAQueuedOne(t *testing.T) {
+	// Given: one project row per status, with the status cache the only reason to animate
+	m := animatedProjectsModel(t, "running", "pending", "success")
+
+	// When: twelve animation frames are driven through Update
+	panels := projectRowFrames(m, 12)
+	if len(panels) < 12 {
+		t.Fatalf("the animation stopped after %d frames, so no row can be watched over the window", len(panels))
+	}
+	running := rowPrefixes(panels, "team/running")
+	pending := rowPrefixes(panels, "team/pending")
+	success := rowPrefixes(panels, "team/success")
+
+	// And: the rows are on screen, so a glyph that holds still below means something
+	if !strings.Contains(success[0], iconSuccess) {
+		t.Fatalf("the successful row drew %q, not its own glyph, so these rows are not on screen "+
+			"and a still glyph proves nothing", success[0])
+	}
+
+	// Then: the running row moves, the queued row moves more slowly, and the finished row not at all
+	if glyphChanges(running) == 0 {
+		t.Error("the running row never changed glyph, so a running pipeline reads as a finished one")
+	}
+	if glyphChanges(pending) == 0 {
+		t.Error("the pending row never changed glyph, so a queued pipeline reads as a finished one")
+	}
+	if glyphChanges(pending) >= glyphChanges(running) {
+		t.Errorf("the pending row changed %d times against the running row's %d, so a queued pipeline "+
+			"reads as one a runner has already picked up",
+			glyphChanges(pending), glyphChanges(running))
+	}
+	if got := glyphChanges(success); got != 0 {
+		t.Errorf("the successful row changed glyph %d times, so a finished pipeline reads as still working", got)
+	}
 }

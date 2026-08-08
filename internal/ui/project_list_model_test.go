@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -1650,6 +1651,38 @@ func TestRenderPipelineLogPaneWrapsLongLines(t *testing.T) {
 		if strings.Contains(line, "\t") || strings.Contains(line, "\r") {
 			t.Fatalf("line %q should not contain tabs or carriage returns", line)
 		}
+	}
+}
+
+// TestProjectDelegate_RowKeepsItsStatusColumnWithNoFrames: a row drawn before any animation frame
+// reaches it is as wide as one drawn after.
+// Given a delegate holding no frames, when a row renders with its status fetch in flight and again
+// with the status known, then both draw the same number of cells before the project name.
+// Why it matters: the pane is drawn to an exact cell count, so a row that leaves the status column
+// empty pulls its name a cell left and the column stops lining up down the list.
+func TestProjectDelegate_RowKeepsItsStatusColumnWithNoFrames(t *testing.T) {
+	// Given: a delegate holding no animation frames
+	proj := projectItem{project: gitlab.ProjectNode{ID: 1, PathWithNamespace: "team/app"}}
+	psCache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
+	d := projectDelegate{pipelineStatus: &psCache, favorites: map[int]bool{}}
+	lm := list.New([]list.Item{proj}, d, 60, 10)
+
+	render := func(state pipelineState) string {
+		psCache.Set(1, state)
+		var buf strings.Builder
+		d.Render(&buf, lm, 0, proj)
+		before, _, _ := strings.Cut(ansi.Strip(buf.String()), "team/app")
+		return before
+	}
+
+	// When: the row renders with the fetch in flight, and again with the status known
+	waiting := render(pipelineState{loading: true})
+	known := render(pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "success"}})
+
+	// Then: both draw the same number of cells before the name
+	if got, want := lipgloss.Width(waiting), lipgloss.Width(known); got != want {
+		t.Errorf("the waiting row draws %d cells before the name against %d once the status is "+
+			"known (%q against %q), so the status column collapses on that row", got, want, waiting, known)
 	}
 }
 
