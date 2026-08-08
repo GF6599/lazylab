@@ -212,6 +212,8 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 	}
 }
 
+var errStatusFetchIncomplete = errors.New("pipeline status fetch did not complete")
+
 // batchFetchPipelineStatusCmd fetches the latest pipeline status for multiple
 // projects concurrently. All goroutines share a single context with the given
 // timeout, so a slow API server won't block indefinitely.
@@ -220,7 +222,7 @@ func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
 // tripping GitLab's rate limiter (429), which would otherwise provoke retry
 // backoff storms. The launch loop acquires a slot before each goroutine and
 // bails out early if the context is cancelled before it can acquire one,
-// returning whatever results were already collected. The result channel is
+// reporting anything it never reached as a failure. The result channel is
 // buffered to len(projects) so no worker blocks on send.
 //
 // ErrNoPipelines is mapped to empty=true rather than treated as an error, so
@@ -232,7 +234,13 @@ func batchFetchPipelineStatusCmd(parentCtx context.Context, client gitlab.Servic
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
 
-		results := make(map[int]pipelineStatusResult)
+		// Seeded so a batch that ends early still reports on every project it was given. The
+		// caller marks a project as loading before this runs and only a reply clears that, so
+		// one left out keeps the flag, is skipped by every later refresh, and never recovers.
+		results := make(map[int]pipelineStatusResult, len(projects))
+		for _, project := range projects {
+			results[project.ID] = pipelineStatusResult{err: errStatusFetchIncomplete}
+		}
 
 		type fetchResult struct {
 			projectID int

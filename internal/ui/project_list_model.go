@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -126,9 +127,22 @@ func (i projectItem) FilterValue() string {
 // project rendering. It holds references (not copies) to the shared
 // pipelineStatus and favorites maps so that status icons update in-place
 // without rebuilding the delegate on every tick.
+//
+// frame is a copy because it has to be: the list hands out no way to reach the delegate
+// it holds, so Update pushes each animation frame in through SetDelegate. Build one with
+// [Model.rowDelegate], or the row draws no animation until the next frame arrives.
 type projectDelegate struct {
 	pipelineStatus *LRUCache[int, pipelineState]
 	favorites      map[int]bool
+	frame          string
+}
+
+func (m *Model) rowDelegate() projectDelegate {
+	return projectDelegate{
+		pipelineStatus: m.pipelineStatus,
+		favorites:      m.favorites,
+		frame:          animationFrame(m.spinner),
+	}
 }
 
 func (d projectDelegate) Height() int { return 1 }
@@ -154,7 +168,7 @@ func (d projectDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		case state.empty:
 			statusIcon = iconNoPipeline + " "
 		case state.loading:
-			statusIcon = iconLoading + " "
+			statusIcon = d.frame + " "
 		case state.err != nil:
 			statusIcon = iconUnknown + " "
 		}
@@ -579,7 +593,6 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 		help:                  newAppHelp(),
 		spinner:               newAppSpinner(),
 		paginator:             newAppPaginator(opts.ProjectsPerPage),
-		projectList:           newProjectListModel(&pipelineStatus, favorites),
 		pipelineView:          newPipelineViewState(),
 		favorites:             favorites,
 		projectTab:            projectTabFavorites,
@@ -587,6 +600,7 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 		commitCache:           NewAsyncCache[int, []gitlab.CommitSummary](),
 		batchInFlight:         &atomic.Bool{},
 	}
+	m.projectList = newProjectListModel(m.rowDelegate())
 	m = m.attachPersistentStores()
 	return m
 }
@@ -621,11 +635,24 @@ func newSearchInput() textinput.Model {
 	return input
 }
 
+// Named rather than set inline so the icon width contract can measure the frames the UI
+// actually draws.
+var appSpinner = spinner.Dot
+
 func newAppSpinner() spinner.Model {
 	s := spinner.New()
-	s.Spinner = spinner.Dot
+	s.Spinner = appSpinner
 	s.Style = lipgloss.NewStyle().Foreground(colorActive)
 	return s
+}
+
+// animationFrame is for a caller drawing the frame inside a span it already owns: a styled
+// frame closes with a reset that clears every attribute, stripping the colour from the rest
+// of that span. The frames carry a trailing space, dropped here so one measures a single
+// cell like every other icon a row draws.
+func animationFrame(s spinner.Model) string {
+	s.Style = lipgloss.Style{}
+	return strings.TrimSpace(s.View())
 }
 
 func newAppHelp() help.Model {
@@ -646,8 +673,7 @@ func newAppPaginator(perPage int) paginator.Model {
 	return p
 }
 
-func newProjectListModel(pipelineStatus *LRUCache[int, pipelineState], favorites map[int]bool) list.Model {
-	delegate := projectDelegate{pipelineStatus: pipelineStatus, favorites: favorites}
+func newProjectListModel(delegate projectDelegate) list.Model {
 	pl := newBareList(nil, delegate, 0, 0)
 	pl.Styles.Title = titleStyle
 	return pl
@@ -808,6 +834,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	updated, cmd := m.routeMsg(msg)
 	next := updated.(Model)
+	if spinnerCmd != nil {
+		// The spinner only answers a tick, so a command here means the frame just moved.
+		// This sits after routing to reach whichever list a handler left behind.
+		next.projectList.SetDelegate((&next).rowDelegate())
+	}
 	return next, tea.Batch(cmd, spinnerCmd, ensureSpinnerTickCmd(&next))
 }
 
@@ -900,10 +931,7 @@ func (m Model) handleFavoritesLoaded(msg favoritesLoadedMsg) (tea.Model, tea.Cmd
 	for _, id := range m.favOrder {
 		m.favorites[id] = true
 	}
-	m.projectList.SetDelegate(projectDelegate{
-		pipelineStatus: m.pipelineStatus,
-		favorites:      m.favorites,
-	})
+	m.projectList.SetDelegate((&m).rowDelegate())
 	m.invalidateVisibleCache()
 	m.ensureSelectionBounds()
 	m.updateProjectList()

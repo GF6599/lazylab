@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -334,6 +335,46 @@ func TestHandleBatchPipelineStatusClearsStaleFlags(t *testing.T) {
 	state3, _ := got.pipelineStatus.Get(3)
 	if !state3.hasInfo || state3.err != nil || state3.empty || state3.info.ID != 42 {
 		t.Fatalf("expected info state to clear stale error/empty flags, got %#v", state3)
+	}
+}
+
+// TestBatchPipelineStatus_ReportsOnEveryProjectWhenItRunsOutOfTime: a batch that gives up still
+// accounts for the projects it never reached.
+// Given three projects whose status fetches never answer, when the batch runs out of time, then the
+// reply carries an entry for each of the three and each names an error.
+// Why it matters: a project left out of the reply keeps the loading flag that queued it, every
+// later refresh skips it as already in flight, and its row animates forever while never showing
+// a status again.
+func TestBatchPipelineStatus_ReportsOnEveryProjectWhenItRunsOutOfTime(t *testing.T) {
+	// Given: three projects whose status fetches never answer
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	client := &mockService{
+		LatestPipelineFn: func(ctx context.Context, _ int, _ string) (gitlab.PipelineSummary, error) {
+			<-release
+			return gitlab.PipelineSummary{}, ctx.Err()
+		},
+	}
+	projects := []gitlab.ProjectNode{{ID: 1}, {ID: 2}, {ID: 3}}
+
+	// When: the batch runs out of time
+	raw := batchFetchPipelineStatusCmd(context.Background(), client, 20*time.Millisecond, projects, &atomic.Bool{})()
+	msg, ok := raw.(batchPipelineStatusMsg)
+	if !ok {
+		t.Fatalf("expected a batch status message, got %T", raw)
+	}
+
+	// Then: every project is accounted for, and as a failure rather than a result
+	for _, project := range projects {
+		result, reported := msg.results[project.ID]
+		if !reported {
+			t.Errorf("project %d is missing from the reply, so it stays marked loading and no "+
+				"later refresh retries it", project.ID)
+			continue
+		}
+		if result.err == nil {
+			t.Errorf("project %d is reported as fetched, but its status never arrived", project.ID)
+		}
 	}
 }
 
@@ -1624,9 +1665,15 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 	proj := projectItem{project: gitlab.ProjectNode{ID: 1, PathWithNamespace: "team/app"}}
 	items := []list.Item{proj}
 	psCache := NewLRUCache[int, pipelineState](maxPipelineStatusCacheSize)
+	frame := animationFrame(newAppSpinner())
+	if frame == "" {
+		t.Fatal("the animation frame is empty, and every row contains the empty string, so the " +
+			"loading case below would assert nothing")
+	}
 	delegate := projectDelegate{
 		pipelineStatus: &psCache,
 		favorites:      map[int]bool{},
+		frame:          frame,
 	}
 	m := list.New(items, delegate, 60, 10)
 
@@ -1644,7 +1691,7 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 		{"success", pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "success"}}, iconSuccess},
 		{"failed", pipelineState{hasInfo: true, info: gitlab.PipelineSummary{Status: "failed"}}, iconFailed},
 		{"empty", pipelineState{empty: true}, iconNoPipeline},
-		{"loading", pipelineState{loading: true}, iconLoading},
+		{"loading", pipelineState{loading: true}, frame},
 		{"error", pipelineState{err: fmt.Errorf("oops")}, iconUnknown},
 	}
 
@@ -1667,11 +1714,12 @@ func TestProjectDelegate_PipelineStatusIcons(t *testing.T) {
 		d := projectDelegate{
 			pipelineStatus: &emptyCache,
 			favorites:      map[int]bool{},
+			frame:          frame,
 		}
 		out := render(d)
 
 		// Then: no status icon renders
-		for _, icon := range []string{iconSuccess, iconFailed, iconNoPipeline, iconLoading, iconUnknown} {
+		for _, icon := range []string{iconSuccess, iconFailed, iconNoPipeline, frame, iconUnknown} {
 			if strings.Contains(out, icon) {
 				t.Fatalf("expected no icon, but found %q in output %q", icon, out)
 			}

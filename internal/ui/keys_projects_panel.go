@@ -91,10 +91,7 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.favOrder = append(m.favOrder, project.ID)
 				m.status = fmt.Sprintf("Favorited %s", project.PathWithNamespace)
 			}
-			m.projectList.SetDelegate(projectDelegate{
-				pipelineStatus: m.pipelineStatus,
-				favorites:      m.favorites,
-			})
+			m.projectList.SetDelegate((&m).rowDelegate())
 			m.invalidateVisibleCache()
 			m.ensureSelectionBounds()
 			m.updateProjectList()

@@ -365,7 +365,8 @@ func (m *Model) updateProjectList() {
 	}
 	m.projectList.SetItems(items)
 
-	// Note: No need to call SetDelegate() - delegate holds pointer to shared pipelineStatus cache
+	// SetItems keeps the delegate, so the shared status cache and the animation frame
+	// already in it both survive.
 
 	// Sync selection with list cursor
 	if m.selected >= 0 && m.selected < len(items) {
