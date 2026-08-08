@@ -159,8 +159,8 @@ func (m Model) cancelJobAction() (tea.Model, tea.Cmd) {
 		m.status = "No job selected"
 		return m, nil
 	}
-	if !strings.EqualFold(job.Status, "running") && !strings.EqualFold(job.Status, "pending") {
-		m.status = "Job is not running or pending"
+	if !isCancelableStatus(job.Status) {
+		m.status = "This job has nothing left to cancel"
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Canceling job %s (#%d)...", job.Name, job.ID)
