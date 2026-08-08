@@ -64,6 +64,32 @@ func TestIcons_MeasureTheSameWidthInEveryTerminal(t *testing.T) {
 	}
 }
 
+// documentedPipelineStatuses is every value GitLab lists for a pipeline's status field, at
+// https://docs.gitlab.com/api/pipelines/.
+var documentedPipelineStatuses = []string{
+	"created", "waiting_for_resource", "preparing", "waiting_for_callback", "pending",
+	"running", "success", "failed", "canceling", "canceled", "skipped", "manual", "scheduled",
+}
+
+// TestPipelineStatusIcon_DrawsEveryStatusGitLabSends: no status the API can return draws as
+// unknown. Given every status GitLab documents, when each is mapped to a glyph, then none falls
+// through to the unknown icon.
+// Why it matters: the unknown glyph is for a status this app has never heard of, so spending it
+// on one GitLab documents leaves the user reading "?" for a state the API named precisely.
+func TestPipelineStatusIcon_DrawsEveryStatusGitLabSends(t *testing.T) {
+	// Given: a status GitLab documents
+	for _, status := range documentedPipelineStatuses {
+		// When: a row asks for its glyph
+		icon := pipelineStatusIcon(status)
+
+		// Then: it is a glyph for that status
+		if icon == iconUnknown {
+			t.Errorf("status %q draws %q, the glyph reserved for a status this app does not know",
+				status, iconUnknown)
+		}
+	}
+}
+
 // TestPipelineStatusIcon_DrawsEveryStatusItKeepsAnimating: no status the UI animates draws as
 // unknown. Given every status GitLab still advances, when each is mapped to a glyph, then none
 // falls through to the unknown icon.

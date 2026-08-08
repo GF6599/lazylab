@@ -186,6 +186,10 @@ func TestSpinner_AnimatesEveryStatusThatStillMoves(t *testing.T) {
 		{"pending", true},
 		{"running", true},
 		{"scheduled", true},
+		{"waiting_for_callback", true},
+		// GitLab moves a cancelling pipeline to canceled on its own, and this is the state
+		// the user watches immediately after asking for the cancel.
+		{"canceling", true},
 		{"success", false},
 		{"failed", false},
 		{"canceled", false},
