@@ -219,9 +219,11 @@ var livePipelineStatuses = map[string]bool{
 	"created":              true,
 	"waiting_for_resource": true,
 	"preparing":            true,
+	"waiting_for_callback": true,
 	"pending":              true,
 	"running":              true,
 	"scheduled":            true,
+	"canceling":            true,
 }
 
 func isLivePipelineStatus(status string) bool {
