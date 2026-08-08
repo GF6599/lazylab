@@ -172,7 +172,8 @@ func (m *Model) needsAnimation() bool {
 
 // hasLivePipeline reports whether a pipeline on screen is still working. This is
 // deliberately separate from isLoading: a running pipeline is the state the user watches
-// longest, and it is precisely the state in which no fetch is in flight.
+// longest, and it is precisely the state in which no fetch is in flight. Both sources are
+// read because the two panels draw from different ones, and either can be on screen alone.
 func (m *Model) hasLivePipeline() bool {
 	if m.mode != modePipelines && m.mode != modeMultiPanel {
 		return false
@@ -182,11 +183,33 @@ func (m *Model) hasLivePipeline() bool {
 			return true
 		}
 	}
-	return false
+	if m.pipelineStatus == nil {
+		return false
+	}
+	live := false
+	m.pipelineStatus.Range(func(_ int, state pipelineState) bool {
+		if state.hasInfo && isLivePipelineStatus(state.info.Status) {
+			live = true
+		}
+		return !live
+	})
+	return live
+}
+
+// livePipelineStatuses are the statuses GitLab still advances on its own. Terminal
+// statuses are absent, and so are manual and blocked: those wait for a person, so
+// animating them would spin against nothing until somebody acts.
+var livePipelineStatuses = map[string]bool{
+	"created":              true,
+	"waiting_for_resource": true,
+	"preparing":            true,
+	"pending":              true,
+	"running":              true,
+	"scheduled":            true,
 }
 
 func isLivePipelineStatus(status string) bool {
-	return strings.EqualFold(status, "running") || strings.EqualFold(status, "pending")
+	return livePipelineStatuses[strings.ToLower(status)]
 }
 
 // isLoading returns true if anything is currently loading that should animate the spinner.
