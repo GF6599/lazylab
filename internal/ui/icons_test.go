@@ -56,6 +56,25 @@ func TestIcons_MeasureTheSameWidthInEveryTerminal(t *testing.T) {
 	}
 }
 
+// TestPipelineStatusIcon_DrawsEveryStatusItKeepsAnimating: no status the UI animates draws as
+// unknown. Given every status GitLab still advances, when each is mapped to a glyph, then none
+// falls through to the unknown icon.
+// Why it matters: the animated set and the glyph map are written apart, so they drift apart, and
+// the result is a "?" moving on screen for the whole life of the pipeline.
+func TestPipelineStatusIcon_DrawsEveryStatusItKeepsAnimating(t *testing.T) {
+	// Given: a status the UI keeps animating
+	for status := range livePipelineStatuses {
+		// When: a row asks for its glyph
+		icon := pipelineStatusIcon(status)
+
+		// Then: it is a glyph for that status
+		if icon == iconUnknown {
+			t.Errorf("status %q animates but draws %q, the glyph for a status the UI does not recognise",
+				status, iconUnknown)
+		}
+	}
+}
+
 func assertCellWidth(t *testing.T, name, glyph string, cells int) {
 	t.Helper()
 
