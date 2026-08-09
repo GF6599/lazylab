@@ -98,3 +98,53 @@ func timeLine(pane string) string {
 	}
 	return ""
 }
+
+// TestFormatElapsed_ReadsAsAStopwatchAtEveryScale: elapsed time is drawn at a scale a reader can
+// use.
+// Given a start and a later moment, when the gap is formatted, then it reads as a stopwatch at
+// seconds, minutes and hours, and a clock that disagrees never produces a negative time.
+// Why it matters: this is drawn against a job the user is waiting on, so a gap the wrong side of
+// zero reads as a fault in the app rather than in the two clocks it sits between.
+func TestFormatElapsed_ReadsAsAStopwatchAtEveryScale(t *testing.T) {
+	start := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name string
+		now  time.Time
+		want string
+	}{
+		{"the moment it starts", start, "0s"},
+		{"under a minute", start.Add(9 * time.Second), "9s"},
+		{"a minute and change", start.Add(83 * time.Second), "1m 23s"},
+		{"exactly an hour", start.Add(time.Hour), "1h 0m"},
+		{"hours and minutes", start.Add(2*time.Hour + 7*time.Minute + 30*time.Second), "2h 7m"},
+		// Given: a clock behind the server's, which is the only way now precedes start
+		{"a clock running behind", start.Add(-3 * time.Second), "0s"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// When: the gap is formatted
+			got := formatElapsed(start, tc.now)
+
+			// Then: it reads as a stopwatch
+			if got != tc.want {
+				t.Errorf("formatElapsed(start, start%+v) = %q, want %q",
+					tc.now.Sub(start), got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFormatElapsed_SaysNothingWithoutAStart: a job GitLab has not started shows no time at all.
+// Given a zero start time, when it is formatted, then the result is empty.
+// Why it matters: a queued job has no start, and counting from the zero time would draw a figure
+// in the tens of thousands of hours beside it.
+func TestFormatElapsed_SaysNothingWithoutAStart(t *testing.T) {
+	// Given: a job GitLab has not started, so its start time is the zero value
+	// When: it is formatted
+	got := formatElapsed(time.Time{}, time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC))
+
+	// Then: nothing is drawn
+	if got != "" {
+		t.Errorf("a job with no start time drew %q, want no time at all", got)
+	}
+}
