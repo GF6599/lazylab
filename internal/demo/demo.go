@@ -5,6 +5,7 @@ package demo
 
 import (
 	"context"
+	"time"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -88,6 +89,18 @@ func (d *DemoService) LatestPipeline(_ context.Context, projectID int, _ string)
 
 // ListPipelines filters the demo pipelines for projectID by opts.Ref and
 // opts.Status (when set), then paginates the result (PerPage defaults to 20).
+// The canned pipelines carry no start time, so one is synthesised here, or the demo would be the
+// only place a running pipeline shows no elapsed time.
+func (d *DemoService) GetPipeline(_ context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error) {
+	for _, p := range demoPipelines(projectID) {
+		if p.ID == pipelineID {
+			p.StartedAt = p.UpdatedAt.Add(-90 * time.Second)
+			return p, nil
+		}
+	}
+	return gitlab.PipelineSummary{}, gitlab.ErrNoPipelines
+}
+
 func (d *DemoService) ListPipelines(_ context.Context, projectID int, opts gitlab.PipelineListOptions) (gitlab.PipelinePage, error) {
 	all := demoPipelines(projectID)
 	// Apply CLI-driven filters in demo too so `pipeline list --ref X

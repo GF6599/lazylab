@@ -170,6 +170,9 @@ type PipelineSummary struct {
 	SHA       string
 	WebURL    string
 	UpdatedAt time.Time
+	// StartedAt is the moment the run began, and it is zero unless the summary came from
+	// GetPipeline. The pipelines list is built from a lighter type that does not carry it.
+	StartedAt time.Time
 	Stages    []PipelineStage
 	Source    string
 	Duration  float64

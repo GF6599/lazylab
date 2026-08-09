@@ -18,6 +18,7 @@ type mockService struct {
 	GetJobTraceFn                   func(ctx context.Context, projectID, jobID int) (string, error)
 	RetryPipelineFn                 func(ctx context.Context, projectID, pipelineID int, ref string) (gitlab.PipelineSummary, error)
 	RetryJobFn                      func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
+	GetPipelineFn                   func(ctx context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error)
 	CancelPipelineFn                func(ctx context.Context, projectID, pipelineID int) error
 	CancelJobFn                     func(ctx context.Context, projectID, jobID int) error
 	PlayJobFn                       func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
@@ -105,6 +106,13 @@ func (m *mockService) RetryJob(ctx context.Context, projectID, jobID int) (gitla
 		return m.RetryJobFn(ctx, projectID, jobID)
 	}
 	return gitlab.PipelineJob{}, nil
+}
+
+func (m *mockService) GetPipeline(ctx context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error) {
+	if m.GetPipelineFn != nil {
+		return m.GetPipelineFn(ctx, projectID, pipelineID)
+	}
+	return gitlab.PipelineSummary{}, nil
 }
 
 func (m *mockService) CancelPipeline(ctx context.Context, projectID, pipelineID int) error {

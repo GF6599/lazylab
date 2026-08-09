@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 )
 
 // TestPipelineSummary_NilPipeline: a nil *gl.Pipeline maps to the zero PipelineSummary.
@@ -310,5 +311,59 @@ func TestListPipelineBridges_WithDownstream(t *testing.T) {
 	// And: the bridge without a downstream stays nil.
 	if bridges[1].DownstreamPipeline != nil {
 		t.Error("expected nil DownstreamPipeline for bridge[1]")
+	}
+}
+
+// TestGetPipeline_CarriesTheStartTime: the single-pipeline fetch brings back the moment a run
+// began.
+// Given a server answering with one pipeline that started at a known time, when GetPipeline runs,
+// then the summary carries that start time and the pipeline's own identity.
+// Why it matters: the pipelines list is built from a lighter type that carries no start time at
+// all, so this call is the only source for how long a run has been going.
+func TestGetPipeline_CarriesTheStartTime(t *testing.T) {
+	// Given: a server answering with one pipeline that started at a known time
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/projects/1/pipelines/100" || r.Method != "GET" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":100,"status":"running","ref":"main",
+			"started_at":"2026-08-09T12:00:00Z","created_at":"2026-08-09T11:59:00Z"}`))
+	}))
+
+	// When: the pipeline is fetched
+	summary, err := client.GetPipeline(context.Background(), 1, 100)
+	if err != nil {
+		t.Fatalf("GetPipeline: %v", err)
+	}
+
+	// Then: it carries the start time, and the pipeline it describes
+	want := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	if !summary.StartedAt.Equal(want) {
+		t.Errorf("StartedAt = %v, want %v", summary.StartedAt, want)
+	}
+	if summary.ID != 100 || summary.Status != "running" {
+		t.Errorf("got pipeline %d in status %q, want 100 running", summary.ID, summary.Status)
+	}
+}
+
+// TestGetPipeline_ReportsAFailedFetch: a fetch that fails says so rather than returning a blank
+// pipeline.
+// Given a server answering 500, when GetPipeline runs, then it returns an error.
+// Why it matters: this runs on the refresh path, and a blank summary returned as success would
+// reset the start time on screen to nothing every time the call failed.
+func TestGetPipeline_ReportsAFailedFetch(t *testing.T) {
+	// Given: a server that fails the fetch
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	// When: the pipeline is fetched
+	_, err := client.GetPipeline(context.Background(), 1, 100)
+
+	// Then: the failure is reported
+	if err == nil {
+		t.Error("a failed fetch returned no error, so a blank pipeline would read as success")
 	}
 }
