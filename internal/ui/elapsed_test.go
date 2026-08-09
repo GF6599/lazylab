@@ -167,6 +167,28 @@ func pipelineDetailModel(pipelineStatus string, started time.Time) Model {
 	return m
 }
 
+// TestPipelineDetail_ShowsHowLongTheRunHasBeenGoing: the pane reports the whole run, not only the
+// job inside it.
+// Given a running pipeline that started four minutes ago and a job that started forty-five seconds
+// ago, when the detail pane is drawn, then it reports both times.
+// Why it matters: a job that has just started inside a run that has been going for an hour reads
+// as fast progress, and the run's own time is the only thing that says otherwise.
+func TestPipelineDetail_ShowsHowLongTheRunHasBeenGoing(t *testing.T) {
+	// Given: a run four minutes old carrying a job forty-five seconds old
+	m := pipelineDetailModel("running", time.Now().Add(-4*time.Minute))
+
+	// When: the detail pane is drawn
+	pane := ansi.Strip(renderPipelineLogContent(m, 80, 24))
+
+	// Then: it reports the job's time and the run's time
+	if !strings.Contains(pane, "45s") {
+		t.Errorf("the pane does not report the job's own time:\n%s", pane)
+	}
+	if !strings.Contains(pane, "4m") {
+		t.Errorf("the pane does not report how long the run has been going:\n%s", pane)
+	}
+}
+
 // TestPipelineStart_IsFetchedOnlyWhileTheRunIsGoing: the extra fetch follows whether the run can
 // still change.
 // Given a pipelines panel over a pipeline in one status and no start time known, when a refresh is
@@ -214,6 +236,31 @@ func TestPipelineStart_IsNotFetchedTwice(t *testing.T) {
 	}
 }
 
+// TestPipelineDetail_ReportsTheFinalTimeOnceTheRunStops: a finished run reports a time that holds
+// still.
+// Given a run that finished, when the detail pane is drawn twice a moment apart, then both draws
+// report the same time for the run.
+// Why it matters: the list endpoint carries no finish time, so counting to the present moment is
+// the obvious thing to do and it leaves a finished run climbing for as long as it is on screen.
+func TestPipelineDetail_ReportsTheFinalTimeOnceTheRunStops(t *testing.T) {
+	// Given: a run that started ten minutes ago and finished eight minutes ago
+	started := time.Now().Add(-10 * time.Minute)
+	m := pipelineDetailModel("success", started)
+	m.pipelineView.pipelines[0].UpdatedAt = started.Add(2 * time.Minute)
+
+	// When: the detail pane is drawn twice, a moment apart
+	first := pipelineLine(ansi.Strip(renderPipelineLogContent(m, 80, 24)))
+	second := pipelineLine(ansi.Strip(renderPipelineLogContent(m, 80, 24)))
+
+	// Then: it holds still, and it is the time the run took
+	if !strings.Contains(first, "2m 0s") {
+		t.Errorf("the run reports %q, want the 2m 0s it actually took", first)
+	}
+	if first != second {
+		t.Errorf("the run's time moved after it finished: %q then %q", first, second)
+	}
+}
+
 // TestPipelineStart_IsAskedForAgainOnceTheRunBegins: a run accepted but not yet begun is asked
 // about again.
 // Given a run selected while GitLab has still not started it, when the fetch answers with no start
@@ -243,4 +290,13 @@ func TestPipelineStart_IsAskedForAgainOnceTheRunBegins(t *testing.T) {
 	if m.queuePipelineStartRefresh() == nil {
 		t.Error("the empty answer was kept, so this run never gets a clock for the whole of its life")
 	}
+}
+
+func pipelineLine(pane string) string {
+	for _, line := range strings.Split(pane, "\n") {
+		if strings.Contains(line, "Pipeline:") {
+			return strings.TrimRight(line, " ")
+		}
+	}
+	return ""
 }
