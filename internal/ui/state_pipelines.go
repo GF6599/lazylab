@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -25,18 +26,19 @@ import (
 // loadProjectPipelines later overwrite this with project-scoped state.
 func newPipelineViewState() pipelineViewState {
 	return pipelineViewState{
-		pipelineList:  newPipelineListModel(statusFrames{}),
-		stageTable:    newStageTable(minSidebarWidth),
-		page:          1,
-		totalPages:    1,
-		perPage:       pipelinePerPage,
-		stages:        NewAsyncCache[int, []gitlab.PipelineStage](),
-		jobs:          NewAsyncCache[int, []gitlab.PipelineJob](),
-		logs:          NewAsyncCache[int, string](),
-		bridges:       NewAsyncCache[int, []gitlab.PipelineBridge](),
-		childJobs:     NewAsyncCache[int, []gitlab.PipelineJob](),
-		logAutoFollow: true,
-		focus:         pipelineFocusPipelines,
+		pipelineList:   newPipelineListModel(statusFrames{}),
+		stageTable:     newStageTable(minSidebarWidth),
+		page:           1,
+		totalPages:     1,
+		perPage:        pipelinePerPage,
+		stages:         NewAsyncCache[int, []gitlab.PipelineStage](),
+		jobs:           NewAsyncCache[int, []gitlab.PipelineJob](),
+		logs:           NewAsyncCache[int, string](),
+		bridges:        NewAsyncCache[int, []gitlab.PipelineBridge](),
+		pipelineStarts: NewAsyncCache[int, time.Time](),
+		childJobs:      NewAsyncCache[int, []gitlab.PipelineJob](),
+		logAutoFollow:  true,
+		focus:          pipelineFocusPipelines,
 	}
 }
 
@@ -58,21 +60,22 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 	logVp := viewport.New(pipelineLogContentWidth(m.width), pipelineLogContentHeight(m.height))
 
 	m.pipelineView = pipelineViewState{
-		project:       project,
-		pipelineList:  pipelineList,
-		loading:       true,
-		page:          1,
-		totalPages:    1,
-		perPage:       pipelinePerPage,
-		stages:        NewAsyncCache[int, []gitlab.PipelineStage](),
-		stageTable:    t,
-		jobs:          NewAsyncCache[int, []gitlab.PipelineJob](),
-		logs:          NewAsyncCache[int, string](),
-		logViewport:   logVp,
-		logAutoFollow: true,
-		focus:         pipelineFocusPipelines,
-		bridges:       NewAsyncCache[int, []gitlab.PipelineBridge](),
-		childJobs:     NewAsyncCache[int, []gitlab.PipelineJob](),
+		project:        project,
+		pipelineList:   pipelineList,
+		loading:        true,
+		page:           1,
+		totalPages:     1,
+		perPage:        pipelinePerPage,
+		stages:         NewAsyncCache[int, []gitlab.PipelineStage](),
+		stageTable:     t,
+		jobs:           NewAsyncCache[int, []gitlab.PipelineJob](),
+		logs:           NewAsyncCache[int, string](),
+		logViewport:    logVp,
+		logAutoFollow:  true,
+		focus:          pipelineFocusPipelines,
+		bridges:        NewAsyncCache[int, []gitlab.PipelineBridge](),
+		pipelineStarts: NewAsyncCache[int, time.Time](),
+		childJobs:      NewAsyncCache[int, []gitlab.PipelineJob](),
 	}
 	m.status = fmt.Sprintf("Pipelines for %s", project.PathWithNamespace)
 	return m, fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, m.pipelineView.page, m.pipelineView.perPage)
@@ -395,6 +398,9 @@ func (m *Model) queuePipelineSubRefresh() tea.Cmd {
 	if cmd := m.queueBridgesRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	if cmd := m.queuePipelineStartRefresh(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if cmd := m.queueExpandedChildJobsRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -402,6 +408,24 @@ func (m *Model) queuePipelineSubRefresh() tea.Cmd {
 		return nil
 	}
 	return tea.Batch(cmds...)
+}
+
+// A start time cannot move once a run has begun, so it is fetched once and never again, and never
+// at all for a run that has already finished.
+func (m *Model) queuePipelineStartRefresh() tea.Cmd {
+	pipelineID, ok := m.shouldFetchPipelineData(m.pipelineView.pipelineStarts.LoadingMap())
+	if !ok {
+		return nil
+	}
+	pipeline := m.selectedPipeline()
+	if pipeline == nil || !isLivePipelineStatus(pipeline.Status) {
+		return nil
+	}
+	if _, cached := m.pipelineView.pipelineStarts.Get(pipelineID); cached {
+		return nil
+	}
+	m.pipelineView.pipelineStarts.SetLoading(pipelineID)
+	return fetchPipelineStartCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.pipelineView.project.ID, pipelineID)
 }
 
 // queuePipelineStagesRefresh re-fetches stages unconditionally (ignores cache).

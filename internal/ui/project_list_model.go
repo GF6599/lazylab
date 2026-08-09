@@ -496,34 +496,36 @@ type explorerState struct {
 // matrixExpanded which is preserved across refreshes so bridge expand/collapse
 // state survives auto-refresh ticks.
 type pipelineViewState struct {
-	project              gitlab.ProjectNode
-	pipelines            []gitlab.PipelineSummary
-	pipelineList         list.Model // Bubbles list for pipeline display
-	selected             int
-	loading              bool
-	err                  error
-	page                 int
-	totalPages           int
-	perPage              int
-	stages               AsyncCache[int, []gitlab.PipelineStage]
-	stageSelected        int
-	stageTable           table.Model          // Table for displaying stages
-	jobRows              []gitlab.PipelineJob // Maps table cursor index → job
-	stageJobRows         []stageJobRow        // Rich row model with matrix grouping
-	matrixExpanded       map[string]bool      // Expand/collapse state per matrix group key
-	jobs                 AsyncCache[int, []gitlab.PipelineJob]
-	logs                 AsyncCache[int, string]
-	logPreview           previewState
-	logViewport          viewport.Model
-	logJobID             int
-	pendingLogJobID      int
-	logAutoFollow        bool
-	focus                pipelineFocus
-	retryConfirm         retryConfirmState
-	retrying             bool
-	retryErr             error
-	pendingSelectID      int
-	bridges              AsyncCache[int, []gitlab.PipelineBridge]
+	project         gitlab.ProjectNode
+	pipelines       []gitlab.PipelineSummary
+	pipelineList    list.Model // Bubbles list for pipeline display
+	selected        int
+	loading         bool
+	err             error
+	page            int
+	totalPages      int
+	perPage         int
+	stages          AsyncCache[int, []gitlab.PipelineStage]
+	stageSelected   int
+	stageTable      table.Model          // Table for displaying stages
+	jobRows         []gitlab.PipelineJob // Maps table cursor index → job
+	stageJobRows    []stageJobRow        // Rich row model with matrix grouping
+	matrixExpanded  map[string]bool      // Expand/collapse state per matrix group key
+	jobs            AsyncCache[int, []gitlab.PipelineJob]
+	logs            AsyncCache[int, string]
+	logPreview      previewState
+	logViewport     viewport.Model
+	logJobID        int
+	pendingLogJobID int
+	logAutoFollow   bool
+	focus           pipelineFocus
+	retryConfirm    retryConfirmState
+	retrying        bool
+	retryErr        error
+	pendingSelectID int
+	bridges         AsyncCache[int, []gitlab.PipelineBridge]
+	// Fetched on its own, because no list endpoint carries a start time.
+	pipelineStarts       AsyncCache[int, time.Time]
 	childJobs            AsyncCache[int, []gitlab.PipelineJob]
 	testReport           *gitlab.TestReport
 	testReportLoading    bool
@@ -1054,6 +1056,8 @@ func (m Model) routeAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePipelineStatus(msg)
 	case pipelinesLoadedMsg:
 		return m.handlePipelinesLoaded(msg)
+	case pipelineStartLoadedMsg:
+		return m.handlePipelineStartLoaded(msg)
 	case pipelineStagesLoadedMsg:
 		return m.handlePipelineStagesLoaded(msg)
 	case pipelineJobsLoadedMsg:

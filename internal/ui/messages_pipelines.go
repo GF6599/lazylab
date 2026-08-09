@@ -142,6 +142,25 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 	return m, tea.Batch(cmds...)
 }
 
+func (m Model) handlePipelineStartLoaded(msg pipelineStartLoadedMsg) (tea.Model, tea.Cmd) {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.pipelineView.pipelineStarts.SetErr(msg.pipelineID, msg.err)
+		return m, nil
+	}
+	if msg.startedAt.IsZero() {
+		// GitLab has accepted this run but not begun it, so there is no start time to hold yet.
+		// Dropping the entry rather than caching the zero is what lets the next refresh ask
+		// again, since a cached answer is never asked for twice.
+		m.pipelineView.pipelineStarts.Delete(msg.pipelineID)
+		return m, nil
+	}
+	m.pipelineView.pipelineStarts.Set(msg.pipelineID, msg.startedAt)
+	return m, nil
+}
+
 func (m Model) handlePipelineStagesLoaded(msg pipelineStagesLoadedMsg) (tea.Model, tea.Cmd) {
 	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil

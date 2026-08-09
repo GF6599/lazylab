@@ -14,6 +14,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
@@ -210,9 +211,8 @@ func renderPipelineLogContent(m Model, width, height int) string {
 		if job.FailureReason != "" {
 			writeDetailKV(b, "Failure", job.FailureReason, width)
 		}
-		if job.Duration > 0 {
-			writeDetailKV(b, "Duration", fmt.Sprintf("%.1fs", job.Duration), width)
-		}
+		writeDetailKV(b, "Elapsed", jobElapsed(*job, time.Now()), width)
+		writeDetailKV(b, "Pipeline", m.pipelineElapsed(time.Now()), width)
 		writeDetailDivider(b, width)
 	}
 

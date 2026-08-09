@@ -20,6 +20,7 @@ import (
 type PipelineService interface {
 	LatestPipeline(ctx context.Context, projectID int, ref string) (PipelineSummary, error)
 	ListPipelines(ctx context.Context, projectID int, opts PipelineListOptions) (PipelinePage, error)
+	GetPipeline(ctx context.Context, projectID, pipelineID int) (PipelineSummary, error)
 	PipelineStages(ctx context.Context, projectID, pipelineID int) ([]PipelineStage, error)
 	ListPipelineJobs(ctx context.Context, projectID, pipelineID int) ([]PipelineJob, error)
 	GetJobTrace(ctx context.Context, projectID, jobID int) (string, error)
@@ -297,6 +298,15 @@ func (c *Client) collectPipelineStages(ctx context.Context, projectID, pipelineI
 	return stages, nil
 }
 
+// GetPipeline returns one pipeline in full, including the start time no list endpoint carries.
+func (c *Client) GetPipeline(ctx context.Context, projectID, pipelineID int) (PipelineSummary, error) {
+	pipeline, _, err := c.api.Pipelines.GetPipeline(projectID, int64(pipelineID), gl.WithContext(ctx))
+	if err != nil {
+		return PipelineSummary{}, fmt.Errorf("get pipeline: %w", err)
+	}
+	return pipelineSummary(pipeline), nil
+}
+
 // pipelineSummaryFromInfo converts a client-go PipelineInfo (the lighter
 // payload returned by the list endpoints) to our domain type, nil-safe.
 // PipelineInfo lacks Duration, Coverage, and User — those fields are only
@@ -337,6 +347,7 @@ func pipelineSummary(pipeline *gl.Pipeline) PipelineSummary {
 		Source:   string(pipeline.Source),
 		Duration: float64(pipeline.Duration),
 	}
+	summary.StartedAt = derefTime(pipeline.StartedAt)
 	if cov, err := strconv.ParseFloat(pipeline.Coverage, 64); err == nil {
 		summary.Coverage = cov
 	}
