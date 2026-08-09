@@ -112,6 +112,7 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 		PrevPage:   meta.PrevPage,
 		NextPage:   meta.NextPage,
 		TotalPages: meta.TotalPages,
+		TotalItems: meta.TotalItems,
 	}, nil
 }
 
