@@ -49,7 +49,7 @@ func longJobPipelineModel(jobCount int) Model {
 		},
 	}
 	m.updateStageTable()
-	return m
+	return withPanelLists(m)
 }
 
 func currentRowOnScreen(t table.Model) bool {
