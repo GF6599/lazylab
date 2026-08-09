@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -146,5 +147,100 @@ func TestFormatElapsed_SaysNothingWithoutAStart(t *testing.T) {
 	// Then: nothing is drawn
 	if got != "" {
 		t.Errorf("a job with no start time drew %q, want no time at all", got)
+	}
+}
+
+// pipelineDetailModel puts one pipeline and one job on screen, so the detail pane can report both
+// the job's own time and the run it belongs to.
+func pipelineDetailModel(pipelineStatus string, started time.Time) Model {
+	m := jobDetailModel(gitlab.PipelineJob{
+		ID: 1, Name: "compile", Stage: "build", Status: "running",
+		StartedAt: time.Now().Add(-45 * time.Second),
+	})
+	m.ctx = context.Background()
+	m.client = &mockService{}
+	m.pipelineView.pipelines[0].Status = pipelineStatus
+	m.pipelineView.pipelineStarts = NewAsyncCache[int, time.Time]()
+	if !started.IsZero() {
+		m.pipelineView.pipelineStarts.Set(10, started)
+	}
+	return m
+}
+
+// TestPipelineStart_IsFetchedOnlyWhileTheRunIsGoing: the extra fetch follows whether the run can
+// still change.
+// Given a pipelines panel over a pipeline in one status and no start time known, when a refresh is
+// queued, then a fetch is queued only for a run still in flight.
+// Why it matters: this call is on the five second refresh, so a finished pipeline left on screen
+// would fetch its unchanging start time for as long as the user looks at it.
+func TestPipelineStart_IsFetchedOnlyWhileTheRunIsGoing(t *testing.T) {
+	for _, tc := range []struct {
+		status  string
+		fetches bool
+	}{
+		{"running", true},
+		{"pending", true},
+		{"created", true},
+		{"success", false},
+		{"failed", false},
+		{"canceled", false},
+	} {
+		// Given: a pipeline in this status with no start time known
+		m := pipelineDetailModel(tc.status, time.Time{})
+
+		// When: a refresh is queued
+		cmd := m.queuePipelineStartRefresh()
+
+		// Then: the fetch happens only for a run still in flight
+		if got := cmd != nil; got != tc.fetches {
+			t.Errorf("status %q: queued a start fetch = %v, want %v", tc.status, got, tc.fetches)
+		}
+	}
+}
+
+// TestPipelineStart_IsNotFetchedTwice: a start time already known is not fetched again.
+// Given a running pipeline whose start time is already cached, when a refresh is queued, then no
+// fetch is queued.
+// Why it matters: a start time does not move once a run has begun, so re-fetching it every five
+// seconds spends a request on an answer that cannot change.
+func TestPipelineStart_IsNotFetchedTwice(t *testing.T) {
+	// Given: a running pipeline whose start time is already known
+	m := pipelineDetailModel("running", time.Now().Add(-4*time.Minute))
+
+	// When: a refresh is queued
+	// Then: nothing is fetched
+	if cmd := m.queuePipelineStartRefresh(); cmd != nil {
+		t.Error("a start time already known was fetched again, once per refresh for the whole run")
+	}
+}
+
+// TestPipelineStart_IsAskedForAgainOnceTheRunBegins: a run accepted but not yet begun is asked
+// about again.
+// Given a run selected while GitLab has still not started it, when the fetch answers with no start
+// time and the run then begins, then the next refresh asks again.
+// Why it matters: the seconds after a retry are spent in created, which is exactly when a user
+// selects the new run. Keeping the empty answer would leave that run with no clock for its whole
+// life, and it is the run they are most likely watching.
+func TestPipelineStart_IsAskedForAgainOnceTheRunBegins(t *testing.T) {
+	// Given: a run selected while GitLab has accepted but not started it
+	m := pipelineDetailModel("created", time.Time{})
+	m.client = &mockService{
+		GetPipelineFn: func(_ context.Context, _, _ int) (gitlab.PipelineSummary, error) {
+			return gitlab.PipelineSummary{ID: 10, Status: "created"}, nil
+		},
+	}
+	cmd := m.queuePipelineStartRefresh()
+	if cmd == nil {
+		t.Fatal("no fetch was queued for a run with no start time, so this proves nothing")
+	}
+
+	// When: the fetch answers with no start time, and the run then begins
+	updated, _ := m.Update(cmd())
+	m = updated.(Model)
+	m.pipelineView.pipelines[0].Status = "running"
+
+	// Then: the next refresh asks again
+	if m.queuePipelineStartRefresh() == nil {
+		t.Error("the empty answer was kept, so this run never gets a clock for the whole of its life")
 	}
 }

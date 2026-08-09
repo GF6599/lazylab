@@ -73,6 +73,13 @@ type pipelinesLoadedMsg struct {
 	err        error
 }
 
+type pipelineStartLoadedMsg struct {
+	projectID  int
+	pipelineID int
+	startedAt  time.Time
+	err        error
+}
+
 type pipelineStagesLoadedMsg struct {
 	projectID  int
 	pipelineID int
@@ -355,6 +362,17 @@ func fetchPipelineStagesCmd(parentCtx context.Context, client gitlab.Service, ti
 		defer cancel()
 		stages, err := client.PipelineStages(ctx, projectID, pipelineID)
 		return pipelineStagesLoadedMsg{projectID: projectID, pipelineID: pipelineID, stages: stages, err: err}
+	}
+}
+
+func fetchPipelineStartCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID, pipelineID int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		summary, err := client.GetPipeline(ctx, projectID, pipelineID)
+		return pipelineStartLoadedMsg{
+			projectID: projectID, pipelineID: pipelineID, startedAt: summary.StartedAt, err: err,
+		}
 	}
 }
 
