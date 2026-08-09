@@ -451,6 +451,29 @@ func (m *Model) copyCloneCommand() tea.Cmd {
 	return writeClipboardCmd(cmd, "Copied clone command to clipboard")
 }
 
+// syncPanelSizes re-pushes the panel dimensions when anything the layout reads has moved. The
+// focused panel takes most of the sidebar height, and a list or a table holds its own height until
+// something hands it a new one, so a panel that grows keeps drawing the old number of rows.
+//
+// This is a gate rather than a plain call because the sizing repopulates the detail cache, which is
+// real rendering work and must not run on every animation frame. A caller that has rebuilt a
+// sub-component at zero size has to call updateViewportSizes itself, because the key it would
+// compare against has not moved.
+func (m *Model) syncPanelSizes() {
+	key := layoutKey{
+		mode:              m.mode,
+		explorerProjectID: m.explorer.project.ID,
+		width:             m.width,
+		height:            m.height,
+		focus:             m.focus,
+	}
+	if key == m.lastLayoutKey {
+		return
+	}
+	m.lastLayoutKey = key
+	m.updateViewportSizes()
+}
+
 // updateViewportSizes propagates the latest layout dimensions into every
 // sub-component that caches its own size (lists, tables, viewports). View
 // renderers must be pure, so all dimensional state is pushed from here.

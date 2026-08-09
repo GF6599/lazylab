@@ -428,6 +428,18 @@ type Model struct {
 	// cached indefinitely (commits rarely change fast enough to matter during a
 	// single session). Unlike pipeline status, there is no periodic refresh.
 	commitCache AsyncCache[int, []gitlab.CommitSummary]
+
+	lastLayoutKey layoutKey
+}
+
+// layoutKey holds every input the panel sizing reads. The sizing is a pure function of these, so an
+// unchanged key means what is on screen is already the right size.
+type layoutKey struct {
+	mode              Mode
+	explorerProjectID int
+	width             int
+	height            int
+	focus             FocusState
 }
 
 // searchState implements debounced search: keystrokes update pendingQuery
@@ -900,6 +912,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	updated, cmd := m.routeMsg(msg)
 	next := updated.(Model)
+	// Sits after routing because a handler can move the focus, the screen mode or the terminal
+	// size, and every one of those changes what each panel is given room for.
+	(&next).syncPanelSizes()
 	if spinnerCmd != nil {
 		// The spinner only answers a tick, so a command here means the frame just moved.
 		// This sits after routing to reach whichever list a handler left behind.
@@ -932,7 +947,6 @@ func (m Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.height = msg.Height
 	m.help.Width = msg.Width
 	m.refreshPreviewHighlight()
-	m.updateViewportSizes()
 	return m, nil
 }
 
