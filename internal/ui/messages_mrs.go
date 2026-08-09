@@ -107,12 +107,16 @@ func (m Model) handleMRDiscussionResolved(msg mrDiscussionResolvedMsg) (tea.Mode
 		return m, nil
 	}
 	if msg.err != nil {
-		// Revert optimistic update on failure
+		// The two guards differ on purpose. The user can move to another merge request while
+		// this request is in flight, so the revert follows the answer and the redraw follows
+		// the screen.
 		m.optimisticToggleResolved(msg.mrIID, msg.discussionID, !msg.resolved)
-		if discussions, ok := m.mrView.discussions.Get(msg.mrIID); ok {
-			diffs, _ := m.mrView.diffs.Get(msg.mrIID)
-			content := renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
-			m.setMRViewportContent(content)
+		if mr := m.mrView.selectedMR(); mr != nil && mr.IID == msg.mrIID {
+			if discussions, ok := m.mrView.discussions.Get(msg.mrIID); ok {
+				diffs, _ := m.mrView.diffs.Get(msg.mrIID)
+				content := renderMRCommentsText(discussions, m.mrViewportWidth(), m.mrView.selectedDiscussion, diffs, m.opts.DiffContextLines)
+				m.setMRViewportContent(content)
+			}
 		}
 		m.status = fmt.Sprintf("Failed to resolve discussion: %v", redacting.Redact(msg.err.Error()))
 		return m, nil
