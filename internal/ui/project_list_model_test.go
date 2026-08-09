@@ -618,7 +618,10 @@ func retryScenarioModel(svc gitlab.Service, active PanelID) Model {
 	m.client = svc
 	items := []list.Item{pipelineItem{summary: m.pipelineView.pipelines[0]}}
 	m.pipelineView.pipelineList = newBareList(items, pipelineDelegate{}, 40, 10)
-	return m
+	// Settle the layout the way a launch does, so a key press answers with its own command alone
+	// rather than with the panel sizing a first resize always brings.
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	return sized.(Model)
 }
 
 // TestRetryConfirmFlow_RetriesSelectedPipeline: R renders the confirm modal and

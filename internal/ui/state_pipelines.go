@@ -65,7 +65,6 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		loading:        true,
 		page:           1,
 		totalPages:     1,
-		perPage:        pipelinePerPage,
 		stages:         NewAsyncCache[int, []gitlab.PipelineStage](),
 		stageTable:     t,
 		jobs:           NewAsyncCache[int, []gitlab.PipelineJob](),
@@ -78,7 +77,7 @@ func (m Model) openPipelineView(project gitlab.ProjectNode) (tea.Model, tea.Cmd)
 		childJobs:      NewAsyncCache[int, []gitlab.PipelineJob](),
 	}
 	m.status = fmt.Sprintf("Pipelines for %s", project.PathWithNamespace)
-	return m, fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, m.pipelineView.page, m.pipelineView.perPage)
+	return m, fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, m.pipelineView.page, (&m).pipelineFetchSize())
 }
 
 // clearRetryConfirm resets the retry confirmation modal fields only,

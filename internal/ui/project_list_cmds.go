@@ -137,6 +137,12 @@ type pipelineSelectionTickMsg struct {
 	pipelineID int
 }
 
+// pageSizeTickMsg carries the pane sizes its timer was armed for.
+type pageSizeTickMsg struct {
+	pipelines int
+	mrs       int
+}
+
 type favoritesLoadedMsg struct {
 	favOrder []int
 	err      error
@@ -512,6 +518,12 @@ func selectionDebounceTickCmd(projectID int, timestamp time.Time) tea.Cmd {
 func pipelineSelectionTickCmd(pipelineID int) tea.Cmd {
 	return tea.Tick(pipelineDebounceDelay, func(time.Time) tea.Msg {
 		return pipelineSelectionTickMsg{pipelineID: pipelineID}
+	})
+}
+
+func pageSizeTickCmd(pipelines, mrs int) tea.Cmd {
+	return tea.Tick(pipelineDebounceDelay, func(time.Time) tea.Msg {
+		return pageSizeTickMsg{pipelines: pipelines, mrs: mrs}
 	})
 }
 

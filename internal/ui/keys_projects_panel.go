@@ -163,7 +163,7 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 	// because the multi-panel pane sizes the list from state, not in View.
 	m.updateViewportSizes()
 
-	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, 1, pipelinePerPage)
+	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, 1, m.pipelineFetchSize())
 }
 
 // newPipelineListModel returns a freshly-initialized bubbles list for the
@@ -282,7 +282,7 @@ func (m *Model) loadSelectedProjectData(project gitlab.ProjectNode) tea.Cmd {
 			diffs:       NewAsyncCache[int, []gitlab.MRDiffFile](),
 			mrViewport:  mrVp,
 		}
-		cmds = append(cmds, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage))
+		cmds = append(cmds, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, m.mrFetchSize()))
 	}
 	if len(cmds) == 0 {
 		return nil

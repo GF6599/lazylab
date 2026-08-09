@@ -53,10 +53,14 @@ const (
 	pipelineRefreshInterval = 5 * time.Second
 	pipelineDebounceDelay   = 300 * time.Millisecond
 	searchDebounceDelay     = 150 * time.Millisecond
-	pipelinePerPage         = 25
-	defaultProjectsPerPage  = 30
-	pipelineAllRefsRef      = "__all__"
-	pipelineAllRefsLabel    = "all refs"
+	// pipelinePerPage is the page size to use before there is a pane to measure.
+	pipelinePerPage        = 25
+	defaultProjectsPerPage = 30
+	// maxAPIPerPage is the largest page GitLab serves. It caps a request rather than the pane, so a
+	// pane taller than this still draws every row it is given.
+	maxAPIPerPage        = 100
+	pipelineAllRefsRef   = "__all__"
+	pipelineAllRefsLabel = "all refs"
 
 	// Cache limits to prevent unbounded memory growth
 	maxLogCacheEntries         = 10        // Keep last 10 job logs
@@ -920,7 +924,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next := updated.(Model)
 	// Sits after routing because a handler can move the focus, the screen mode or the terminal
 	// size, and every one of those changes what each panel is given room for.
-	(&next).syncPanelSizes()
+	layoutCmd := (&next).syncPanelSizes()
 	if spinnerCmd != nil {
 		// The spinner only answers a tick, so a command here means the frame just moved.
 		// This sits after routing to reach whichever list a handler left behind.
@@ -928,7 +932,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next.pipelineView.pipelineList.SetDelegate((&next).pipelineRowDelegate())
 		(&next).refreshStageTableFrames()
 	}
-	return next, tea.Batch(cmd, spinnerCmd, ensureSpinnerTickCmd(&next))
+	return next, tea.Batch(cmd, layoutCmd, spinnerCmd, ensureSpinnerTickCmd(&next))
 }
 
 func (m Model) routeMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1096,6 +1100,8 @@ func (m Model) routeAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSearchDebounceTickMsg(msg)
 	case pipelineSelectionTickMsg:
 		return m.handlePipelineSelectionDebounce(msg)
+	case pageSizeTickMsg:
+		return m.handlePageSizeSettled(msg)
 	case mrsLoadedMsg:
 		return m.handleMRsLoaded(msg)
 	case mrDiscussionsLoadedMsg:

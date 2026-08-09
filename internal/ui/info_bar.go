@@ -136,7 +136,7 @@ func panelFooter(panel PanelID, m *Model) string {
 			return ""
 		}
 		return formatPosition(
-			collectionPosition(m.mrView.page, mrPerPage, m.mrView.selected),
+			collectionPosition(m.mrView.page, m.mrView.perPage, m.mrView.selected),
 			knownTotal(m.mrView.totalItems, len(m.mrView.mrs)),
 		)
 	default:

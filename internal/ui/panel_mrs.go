@@ -48,8 +48,8 @@ func mrSnippetStyles() diffutil.SnippetStyles {
 	}
 }
 
-// mrPerPage matches GitLab's web UI default of 25 MRs per page, keeping the
-// TUI's pagination aligned with what users see in the browser.
+// mrPerPage is the page size to use before there is a pane to measure. It matches GitLab's web UI
+// default of 25 MRs per page.
 const mrPerPage = 25
 
 // mrTab filters the MR list by state. Maps to GitLab API state parameters.
@@ -91,6 +91,8 @@ type mrViewState struct {
 	prevPage   int
 	nextPage   int
 	totalPages int
+	// perPage is the size of the page currently on screen, which follows the pane that draws it.
+	perPage int
 	// Zero means unknown, not empty.
 	totalItems int
 

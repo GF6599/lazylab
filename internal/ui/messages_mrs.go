@@ -193,7 +193,7 @@ func (m Model) handleMRCreated(msg mrCreatedMsg) (tea.Model, tea.Cmd) {
 	m.mrView.loading = true
 	m.mrView.selected = 0
 	m.mrView.tab = mrTabOpen
-	return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, "opened", 1, mrPerPage)
+	return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, "opened", 1, (&m).mrFetchSize())
 }
 
 func (m Model) handleBranchesLoaded(msg branchesLoadedMsg) (tea.Model, tea.Cmd) {

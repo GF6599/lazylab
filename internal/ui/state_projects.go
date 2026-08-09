@@ -374,6 +374,32 @@ func (m Model) displayPerPage() int {
 	return m.apiPerPage()
 }
 
+func (m Model) pipelinePageSize() int {
+	return fetchablePageSize(m.panePageSize(PanelPipelines), pipelinePerPage)
+}
+
+func (m Model) mrPageSize() int {
+	return fetchablePageSize(m.panePageSize(PanelMRs), mrPerPage)
+}
+
+// fetchablePageSize leaves the last rows of a pane taller than the ceiling blank, because GitLab
+// answers a larger request with a page of the ceiling size anyway.
+func fetchablePageSize(room, fallback int) int {
+	if room <= 0 {
+		return fallback
+	}
+	return min(room, maxAPIPerPage)
+}
+
+// pageHolding exists because resizing a pane moves every page boundary, so the page number the user
+// was on names a different set of rows afterwards, and only the position survives the change.
+func pageHolding(position, perPage int) int {
+	if position < 1 || perPage < 1 {
+		return 1
+	}
+	return (position-1)/perPage + 1
+}
+
 // displayTotalPages counts the pages the collection fills at the current pane height. It falls back
 // to what has loaded so far while the collection total is still unknown, so paging never offers a
 // page there is nothing behind.
@@ -536,7 +562,7 @@ func (m *Model) copyCloneCommand() tea.Cmd {
 // real rendering work and must not run on every animation frame. A caller that has rebuilt a
 // sub-component at zero size has to call updateViewportSizes itself, because the key it would
 // compare against has not moved.
-func (m *Model) syncPanelSizes() {
+func (m *Model) syncPanelSizes() tea.Cmd {
 	key := layoutKey{
 		mode:              m.mode,
 		explorerProjectID: m.explorer.project.ID,
@@ -545,10 +571,11 @@ func (m *Model) syncPanelSizes() {
 		focus:             m.focus,
 	}
 	if key == m.lastLayoutKey {
-		return
+		return nil
 	}
 	m.lastLayoutKey = key
 	m.updateViewportSizes()
+	return m.queuePageSizeRefetch()
 }
 
 // updateViewportSizes propagates the latest layout dimensions into every
