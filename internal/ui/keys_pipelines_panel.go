@@ -20,12 +20,7 @@ func (m Model) handlePipelinesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		newIdx := m.pipelineView.pipelineList.Index()
 		m.pipelineView.selected = newIdx
 		if newIdx != prevIdx {
-			m.pipelineView.stageSelected = 0
-			moveTableCursor(&m.pipelineView.stageTable, 0)
-			m.resetPipelineLogPreview()
-			stagesCmd := m.queuePipelineStagesForSelection()
-			jobsCmd := m.queuePipelineJobsForSelection()
-			return m, tea.Batch(cmd, stagesCmd, jobsCmd)
+			return m, tea.Batch(cmd, m.onPipelineSelectionChanged())
 		}
 		return m, cmd
 	case key.Matches(msg, m.keys.Enter):
@@ -61,12 +56,7 @@ func (m Model) handlePipelinesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pipelineView.selected = newIdx
-		m.pipelineView.stageSelected = 0
-		if key.Matches(msg, m.keys.HalfDown) || key.Matches(msg, m.keys.HalfUp) {
-			moveTableCursor(&m.pipelineView.stageTable, 0)
-		}
-		m.resetPipelineLogPreview()
-		return m, tea.Batch(m.queuePipelineStagesForSelection(), m.queuePipelineJobsForSelection())
+		return m, m.onPipelineSelectionChanged()
 	case key.Matches(msg, m.keys.Refresh):
 		return m.reloadPipelineView()
 	case key.Matches(msg, m.keys.Retry):

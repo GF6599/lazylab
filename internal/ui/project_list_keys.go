@@ -312,7 +312,7 @@ func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pipelineView.selected = newIdx
-		return m, m.selectPipelineAndLoadStages()
+		return m, m.onPipelineSelectionChanged()
 	}
 	newIdx, handled := bigStepIdx(key, m.pipelineView.stageSelected, len(m.pipelineView.jobRows), m.height)
 	if !handled || newIdx == m.pipelineView.stageSelected {
@@ -324,15 +324,23 @@ func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
 	return m, m.queuePipelineLogPreview()
 }
 
-// selectPipelineAndLoadStages resets stage selection and triggers stage + job
-// loading for the currently selected pipeline. Used after changing the pipeline
-// selection via half-page scroll or jump-to-end.
-func (m *Model) selectPipelineAndLoadStages() tea.Cmd {
+// onPipelineSelectionChanged is the single place that answers what moving the pipeline selection
+// costs. Every navigation key routes through it, because the selection lives in three places that
+// have to agree: the index each action reads, the list cursor the panel draws, and the stage table
+// below. A key that updates one of them and not the others highlights one pipeline while acting on
+// another.
+func (m *Model) onPipelineSelectionChanged() tea.Cmd {
+	m.pipelineView.pipelineList.Select(m.pipelineView.selected)
 	m.pipelineView.stageSelected = 0
 	moveTableCursor(&m.pipelineView.stageTable, 0)
 	m.resetPipelineLogPreview()
-	cmd := m.queuePipelineStagesForSelection()
-	return tea.Batch(cmd, m.queuePipelineJobsForSelection())
+	return tea.Batch(
+		m.queuePipelineStagesForSelection(),
+		m.queuePipelineJobsForSelection(),
+		// The detail pane draws the run's elapsed time from this one, so it belongs with the
+		// stages and the jobs rather than waiting for the next refresh to notice.
+		m.queuePipelineStartRefresh(),
+	)
 }
 
 // handlePipelineItemNavigation handles single-item j/k navigation in the
@@ -345,7 +353,7 @@ func (m Model) handlePipelineItemNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		newIdx := m.pipelineView.pipelineList.Index()
 		m.pipelineView.selected = newIdx
 		if newIdx != prevIdx {
-			return m, tea.Batch(cmd, m.selectPipelineAndLoadStages())
+			return m, tea.Batch(cmd, m.onPipelineSelectionChanged())
 		}
 		return m, cmd
 	}
