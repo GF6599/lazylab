@@ -41,3 +41,22 @@ func jobElapsed(job gitlab.PipelineJob, now time.Time) string {
 	}
 	return formatElapsed(job.StartedAt, now)
 }
+
+func (m Model) pipelineElapsed(now time.Time) string {
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return ""
+	}
+	started, ok := m.pipelineView.pipelineStarts.Get(pipeline.ID)
+	if !ok {
+		return ""
+	}
+	// A finished run is measured to the last moment it changed, which is when it stopped. The
+	// list endpoint carries no finish time, and counting to the present instead would leave a
+	// run that ended hours ago still climbing on screen.
+	end := now
+	if !isLivePipelineStatus(pipeline.Status) {
+		end = pipeline.UpdatedAt
+	}
+	return formatElapsed(started, end)
+}

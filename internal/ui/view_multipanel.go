@@ -212,6 +212,7 @@ func renderPipelineLogContent(m Model, width, height int) string {
 			writeDetailKV(b, "Failure", job.FailureReason, width)
 		}
 		writeDetailKV(b, "Elapsed", jobElapsed(*job, time.Now()), width)
+		writeDetailKV(b, "Pipeline", m.pipelineElapsed(time.Now()), width)
 		writeDetailDivider(b, width)
 	}
 
