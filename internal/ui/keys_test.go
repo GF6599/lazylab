@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -52,4 +53,53 @@ func hasBindingWithHelpKey(bindings []key.Binding, helpKey string) bool {
 		}
 	}
 	return false
+}
+
+// TestCancelPipeline_ReachesAPipelineGitLabHasNotStartedYet: cancel acts on any pipeline still in
+// flight, not only one already running.
+// Given a pipelines panel over a pipeline in one status, when cancel is requested, then the request
+// reaches GitLab for a pipeline still in flight and is withheld for one that is finished or already
+// cancelling.
+// Why it matters: the seconds between creating a pipeline and its first job starting are when a user
+// cancels a run they did not mean to start, and refusing there sends them to the web UI to do the
+// thing the app just declined to do.
+func TestCancelPipeline_ReachesAPipelineGitLabHasNotStartedYet(t *testing.T) {
+	for _, tc := range []struct {
+		status  string
+		cancels bool
+	}{
+		{"created", true},
+		{"waiting_for_resource", true},
+		{"preparing", true},
+		{"waiting_for_callback", true},
+		{"pending", true},
+		{"running", true},
+		{"scheduled", true},
+		{"canceling", false},
+		{"success", false},
+		{"failed", false},
+		{"canceled", false},
+		{"skipped", false},
+		{"manual", false},
+	} {
+		// Given: a pipelines panel over a pipeline in this status
+		var asked bool
+		m := pipelineStatusModel(tc.status)
+		m.client = &mockService{CancelPipelineFn: func(context.Context, int, int) error {
+			asked = true
+			return nil
+		}}
+
+		// When: cancel is requested and whatever it returns is run
+		updated, cmd := m.cancelPipelineAction()
+		if cmd != nil {
+			cmd()
+		}
+
+		// Then: the request reaches GitLab only for a pipeline still in flight
+		if asked != tc.cancels {
+			t.Errorf("status %q: the cancel reached GitLab = %v, want %v (the app said %q)",
+				tc.status, asked, tc.cancels, updated.(Model).status)
+		}
+	}
 }

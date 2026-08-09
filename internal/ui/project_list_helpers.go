@@ -219,13 +219,37 @@ var livePipelineStatuses = map[string]bool{
 	"created":              true,
 	"waiting_for_resource": true,
 	"preparing":            true,
+	"waiting_for_callback": true,
+	"pending":              true,
+	"running":              true,
+	"scheduled":            true,
+	"canceling":            true,
+}
+
+func isLivePipelineStatus(status string) bool {
+	return livePipelineStatuses[strings.ToLower(status)]
+}
+
+// cancelableStatuses covers a job as well as a pipeline. GitLab answers a cancel with 200
+// whatever state the target is in, so this gate is the only thing stopping the app from
+// reporting a cancel that changed nothing.
+//
+// This is deliberately not isLivePipelineStatus. That one answers whether GitLab still advances
+// a status by itself, and canceling is both still advancing and already past the point a second
+// cancel would do anything. Reading one set for both questions lets a change made for the
+// animation decide what a user is allowed to cancel.
+var cancelableStatuses = map[string]bool{
+	"created":              true,
+	"waiting_for_resource": true,
+	"preparing":            true,
+	"waiting_for_callback": true,
 	"pending":              true,
 	"running":              true,
 	"scheduled":            true,
 }
 
-func isLivePipelineStatus(status string) bool {
-	return livePipelineStatuses[strings.ToLower(status)]
+func isCancelableStatus(status string) bool {
+	return cancelableStatuses[strings.ToLower(status)]
 }
 
 // isLoading returns true if anything is currently loading that should animate the spinner.

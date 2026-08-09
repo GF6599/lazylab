@@ -66,9 +66,11 @@ func pipelineStatusIcon(status string) string {
 		return iconFailed
 	case "running":
 		return iconRunning
-	case "pending", "created", "waiting_for_resource", "scheduled", "preparing":
+	case "pending", "created", "waiting_for_resource", "scheduled", "preparing", "waiting_for_callback":
 		return iconPending
-	case "canceled":
+	// A cancel in progress ends up where a finished one already is, so it borrows that
+	// glyph for the case where nothing is animating the row.
+	case "canceled", "canceling":
 		return iconCanceled
 	case "skipped":
 		return iconSkipped

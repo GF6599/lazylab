@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -186,6 +187,10 @@ func TestSpinner_AnimatesEveryStatusThatStillMoves(t *testing.T) {
 		{"pending", true},
 		{"running", true},
 		{"scheduled", true},
+		{"waiting_for_callback", true},
+		// GitLab moves a cancelling pipeline to canceled on its own, and this is the state
+		// the user watches immediately after asking for the cancel.
+		{"canceling", true},
 		{"success", false},
 		{"failed", false},
 		{"canceled", false},
@@ -449,5 +454,104 @@ func TestProjectRow_SpinsARunningPipelineAndPulsesAQueuedOne(t *testing.T) {
 	}
 	if got := glyphChanges(success); got != 0 {
 		t.Errorf("the successful row changed glyph %d times, so a finished pipeline reads as still working", got)
+	}
+}
+
+// The finished job beside the running one is what tells a row that holds still apart from a
+// table nothing is redrawing at all.
+func animatedStageTableModel() Model {
+	stagesCache := NewAsyncCache[int, []gitlab.PipelineStage]()
+	stagesCache.Set(10, []gitlab.PipelineStage{{Name: "test", Status: "running"}})
+	jobsCache := NewAsyncCache[int, []gitlab.PipelineJob]()
+	jobsCache.Set(10, []gitlab.PipelineJob{
+		{ID: 1, Name: "unit", Stage: "test", Status: "running"},
+		{ID: 2, Name: "lint", Stage: "test", Status: "success"},
+	})
+
+	m := Model{
+		mode:    modeMultiPanel,
+		width:   120,
+		height:  40,
+		focus:   FocusState{Active: PanelStages},
+		keys:    newKeyMap(),
+		ctx:     context.Background(),
+		client:  &mockService{},
+		spinner: newAppSpinner(),
+		pipelineView: pipelineViewState{
+			project:     gitlab.ProjectNode{ID: 1},
+			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main", Status: "running"}},
+			selected:    0,
+			stages:      stagesCache,
+			jobs:        jobsCache,
+			stageTable:  newStageTable(56),
+			logs:        NewAsyncCache[int, string](),
+			bridges:     NewAsyncCache[int, []gitlab.PipelineBridge](),
+			logViewport: viewport.New(60, 20),
+		},
+	}
+	m.updateStageTable()
+	return m
+}
+
+// Only the glyph changes between frames, because the job name, its stage and its status text
+// all hold still, so comparing whole lines is enough.
+func rowLines(views []string, want string) []string {
+	lines := make([]string, len(views))
+	for i, view := range views {
+		for _, line := range strings.Split(ansi.Strip(view), "\n") {
+			if strings.Contains(line, want) {
+				lines[i] = line
+				break
+			}
+		}
+	}
+	return lines
+}
+
+// TestStageTable_AnimatesARunningJob: the stage table moves while a job it lists runs.
+// Given a stage table holding a running job and a finished one, when four animation frames are
+// driven through Update, then the running row's glyph moves, the finished row's holds still, and
+// the cursor stays on the row it started on.
+// Why it matters: this is the panel a user watches after retrying a job, and it is the one drawn
+// from a rendered snapshot rather than a live delegate, so it holds one frame while every other
+// panel moves.
+func TestStageTable_AnimatesARunningJob(t *testing.T) {
+	// Given: a stage table holding a running job and a finished one, with the cursor moved off
+	// the first row, which is where a reset would land and so would prove nothing
+	m := animatedStageTableModel()
+	moveTableCursor(&m.pipelineView.stageTable, 1)
+	cursor := m.pipelineView.stageTable.Cursor()
+	if cursor == 0 {
+		t.Fatal("the cursor did not move off the first row, so a reset below would be invisible")
+	}
+
+	// When: four animation frames are driven through Update
+	var last Model
+	views := animationFrames(m, 4, func(m Model) string {
+		last = m
+		return m.pipelineView.stageTable.View()
+	})
+	if len(views) < 4 {
+		t.Fatalf("the animation stopped after %d frames, so no row can be watched", len(views))
+	}
+	running, finished := rowLines(views, "unit"), rowLines(views, "lint")
+
+	// And: both rows are on screen, so a row that holds still below means something
+	if running[0] == "" || finished[0] == "" {
+		t.Fatalf("a row is missing from the table, so this proves nothing\nrunning: %q\nfinished: %q",
+			running[0], finished[0])
+	}
+
+	// Then: the running row moves, the finished row does not, and the cursor has not shifted
+	if glyphChanges(running) == 0 {
+		t.Errorf("the running job's row never changed, so a running job reads as a finished one:\n%s",
+			running[0])
+	}
+	if got := glyphChanges(finished); got != 0 {
+		t.Errorf("the finished job's row changed %d times, so a finished job reads as still working", got)
+	}
+	if got := last.pipelineView.stageTable.Cursor(); got != cursor {
+		t.Errorf("the cursor moved from row %d to row %d while the table animated, so the "+
+			"selection drifts under the user", cursor, got)
 	}
 }

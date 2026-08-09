@@ -5,7 +5,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -118,8 +117,8 @@ func (m Model) cancelPipelineAction() (tea.Model, tea.Cmd) {
 		m.status = msgNoPipeline
 		return m, nil
 	}
-	if !strings.EqualFold(pipeline.Status, "running") && !strings.EqualFold(pipeline.Status, "pending") {
-		m.status = "Pipeline is not running or pending"
+	if !isCancelableStatus(pipeline.Status) {
+		m.status = "This pipeline has nothing left to cancel"
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Canceling pipeline #%d...", pipeline.ID)

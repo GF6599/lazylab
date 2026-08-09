@@ -903,6 +903,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This sits after routing to reach whichever list a handler left behind.
 		next.projectList.SetDelegate((&next).rowDelegate())
 		next.pipelineView.pipelineList.SetDelegate((&next).pipelineRowDelegate())
+		(&next).refreshStageTableFrames()
 	}
 	return next, tea.Batch(cmd, spinnerCmd, ensureSpinnerTickCmd(&next))
 }
