@@ -309,7 +309,7 @@ func newMatrixPipelineModel() Model {
 		table.WithHeight(10),
 	)
 
-	return Model{
+	return withPanelLists(Model{
 		mode:   modeMultiPanel,
 		width:  120,
 		height: 40,
@@ -326,7 +326,7 @@ func newMatrixPipelineModel() Model {
 			bridges:     NewAsyncCache[int, []gitlab.PipelineBridge](),
 			logViewport: viewport.New(60, 20),
 		},
-	}
+	})
 }
 
 // TestUpdateStageTable_MatrixAlwaysExpanded: the stage table renders matrix groups expanded, with tree
@@ -1300,7 +1300,7 @@ func newBridgePipelineModel() Model {
 		table.WithHeight(10),
 	)
 
-	return Model{
+	return withPanelLists(Model{
 		mode:   modeMultiPanel,
 		width:  120,
 		height: 40,
@@ -1318,5 +1318,5 @@ func newBridgePipelineModel() Model {
 			childJobs:   NewAsyncCache[int, []gitlab.PipelineJob](),
 			logViewport: viewport.New(60, 20),
 		},
-	}
+	})
 }

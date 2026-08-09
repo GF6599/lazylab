@@ -490,7 +490,7 @@ func animatedStageTableModel() Model {
 		},
 	}
 	m.updateStageTable()
-	return m
+	return withPanelLists(m)
 }
 
 // Only the glyph changes between frames, because the job name, its stage and its status text

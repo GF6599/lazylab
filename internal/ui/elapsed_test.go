@@ -15,23 +15,19 @@ import (
 func jobDetailModel(job gitlab.PipelineJob) Model {
 	jobsCache := NewAsyncCache[int, []gitlab.PipelineJob]()
 	jobsCache.Set(10, []gitlab.PipelineJob{job})
-	return Model{
-		mode:   modeMultiPanel,
-		width:  120,
-		height: 40,
-		focus:  FocusState{Active: PanelStages},
-		pipelineView: pipelineViewState{
-			project:     gitlab.ProjectNode{ID: 1},
-			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main", Status: "running"}},
-			selected:    0,
-			logJobID:    job.ID,
-			jobs:        jobsCache,
-			stages:      NewAsyncCache[int, []gitlab.PipelineStage](),
-			logs:        NewAsyncCache[int, string](),
-			bridges:     NewAsyncCache[int, []gitlab.PipelineBridge](),
-			logViewport: viewport.New(60, 20),
-		},
-	}
+	pipelineView := newPipelineViewState()
+	pipelineView.project = gitlab.ProjectNode{ID: 1}
+	pipelineView.pipelines = []gitlab.PipelineSummary{{ID: 10, Ref: "main", Status: "running"}}
+	pipelineView.logJobID = job.ID
+	pipelineView.jobs = jobsCache
+	pipelineView.logViewport = viewport.New(60, 20)
+	return withPanelLists(Model{
+		mode:         modeMultiPanel,
+		width:        120,
+		height:       40,
+		focus:        FocusState{Active: PanelStages},
+		pipelineView: pipelineView,
+	})
 }
 
 // TestJobDetail_ShowsHowLongARunningJobHasBeenGoing: a running job reports the time it has taken
