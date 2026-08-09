@@ -131,6 +131,11 @@ type searchDebounceTickMsg struct {
 	timestamp time.Time
 }
 
+// pipelineSelectionTickMsg carries the row its timer was armed for.
+type pipelineSelectionTickMsg struct {
+	pipelineID int
+}
+
 type favoritesLoadedMsg struct {
 	favOrder []int
 	err      error
@@ -499,6 +504,12 @@ func ensurePipelineTickCmd(m *Model) tea.Cmd {
 func selectionDebounceTickCmd(projectID int, timestamp time.Time) tea.Cmd {
 	return tea.Tick(pipelineDebounceDelay, func(time.Time) tea.Msg {
 		return selectionDebounceTickMsg{projectID: projectID, timestamp: timestamp}
+	})
+}
+
+func pipelineSelectionTickCmd(pipelineID int) tea.Cmd {
+	return tea.Tick(pipelineDebounceDelay, func(time.Time) tea.Msg {
+		return pipelineSelectionTickMsg{pipelineID: pipelineID}
 	})
 }
 

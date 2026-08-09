@@ -142,6 +142,19 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 	return m, tea.Batch(cmds...)
 }
 
+// handlePipelineSelectionDebounce fetches the detail of the pipeline the user settled on.
+//
+// A timer cannot be cancelled once armed, so every keystroke in a burst delivers one and the row it
+// names has to still be the selected row for its fetch to be worth sending. That row is named by
+// pipeline ID rather than by position, so the test holds even when a refresh reorders the list.
+func (m Model) handlePipelineSelectionDebounce(msg pipelineSelectionTickMsg) (tea.Model, tea.Cmd) {
+	pipeline := m.selectedPipeline()
+	if pipeline == nil || pipeline.ID != msg.pipelineID {
+		return m, nil
+	}
+	return m, (&m).loadPipelineSelectionData()
+}
+
 func (m Model) handlePipelineStartLoaded(msg pipelineStartLoadedMsg) (tea.Model, tea.Cmd) {
 	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
 		return m, nil
