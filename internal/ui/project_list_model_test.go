@@ -1166,6 +1166,13 @@ func newMultiPanelModel(active PanelID) Model {
 	ti.Prompt = "/ "
 	ti.Blur()
 
+	// A hand written copy of this state drifts silently, and reports the drift as a nil map panic
+	// inside whichever test next touches the field it missed.
+	pipelineView := newPipelineViewState()
+	pipelineView.project = projects[0]
+	pipelineView.pipelines = []gitlab.PipelineSummary{{ID: 10, Ref: "main"}}
+	pipelineView.logViewport = viewport.New(60, 20)
+
 	return Model{
 		mode:           modeMultiPanel,
 		width:          120,
@@ -1181,17 +1188,9 @@ func newMultiPanelModel(active PanelID) Model {
 		focus:          FocusState{Active: active},
 		search:         searchState{input: ti},
 		keys:           newKeyMap(),
-		pipelineView: pipelineViewState{
-			project:     projects[0],
-			pipelines:   []gitlab.PipelineSummary{{ID: 10, Ref: "main"}},
-			stages:      NewAsyncCache[int, []gitlab.PipelineStage](),
-			jobs:        NewAsyncCache[int, []gitlab.PipelineJob](),
-			logs:        NewAsyncCache[int, string](),
-			bridges:     NewAsyncCache[int, []gitlab.PipelineBridge](),
-			logViewport: viewport.New(60, 20),
-		},
-		mrView:      mrViewState{project: projects[0]},
-		commitCache: NewAsyncCache[int, []gitlab.CommitSummary](),
+		pipelineView:   pipelineView,
+		mrView:         mrViewState{project: projects[0]},
+		commitCache:    NewAsyncCache[int, []gitlab.CommitSummary](),
 	}
 }
 
