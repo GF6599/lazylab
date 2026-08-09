@@ -329,11 +329,23 @@ func (m Model) handlePipelineNavigation(key string) (tea.Model, tea.Cmd) {
 // have to agree: the index each action reads, the list cursor the panel draws, and the stage table
 // below. A key that updates one of them and not the others highlights one pipeline while acting on
 // another.
+//
+// The screen moves now and the fetch waits, because redrawing a row is free while each row costs
+// three requests and a held key crosses tens of rows a second.
 func (m *Model) onPipelineSelectionChanged() tea.Cmd {
 	m.pipelineView.pipelineList.Select(m.pipelineView.selected)
 	m.pipelineView.stageSelected = 0
 	moveTableCursor(&m.pipelineView.stageTable, 0)
 	m.resetPipelineLogPreview()
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		return nil
+	}
+	return pipelineSelectionTickCmd(pipeline.ID)
+}
+
+// loadPipelineSelectionData fetches everything the panel draws for one pipeline.
+func (m *Model) loadPipelineSelectionData() tea.Cmd {
 	return tea.Batch(
 		m.queuePipelineStagesForSelection(),
 		m.queuePipelineJobsForSelection(),

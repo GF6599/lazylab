@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -72,7 +74,7 @@ func keyMsgFor(key string) tea.KeyMsg {
 
 // TestPipelinePanel_AsksForTheStartTimeOfTheRunItLandsOn: a jump loads everything the pane draws.
 // Given a panel whose last pipeline is still running and no start time known, when a jump lands on
-// it, then the start time is requested alongside the stages and the jobs.
+// it and the user pauses, then the start time is requested alongside the stages and the jobs.
 // Why it matters: the detail pane draws the run's elapsed time from that fetch, and a jump that
 // queues the stages and the jobs but not the start leaves the pane half filled until the next
 // refresh answers seconds later.
@@ -85,16 +87,83 @@ func TestPipelinePanel_AsksForTheStartTimeOfTheRunItLandsOn(t *testing.T) {
 		return gitlab.PipelineSummary{}, nil
 	}}
 
-	// When: a jump lands on the running pipeline and the queued work runs
-	updated, cmd := m.handlePipelinesPanelKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
-	if after := updated.(Model); after.selectedPipeline().Status != "running" {
+	// When: a jump lands on the running pipeline
+	updated, _ := m.handlePipelinesPanelKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	after := updated.(Model)
+	if after.selectedPipeline().Status != "running" {
 		t.Fatalf("the jump did not land on the running pipeline: %+v", after.selectedPipeline())
 	}
+
+	// And: the user pauses, so the timer the jump armed fires and the queued work runs
+	_, cmd := after.Update(armedTick(t, after))
 	runBatch(cmd)
 
 	// Then: the start time was requested
 	if !asked {
 		t.Error("the jump did not ask for the start time of the run it landed on")
+	}
+}
+
+// A nil tick is the first press, which has no earlier keystroke to have armed one.
+func fireTimer(m Model, tick *pipelineSelectionTickMsg) Model {
+	if tick == nil {
+		return m
+	}
+	updated, cmd := m.Update(*tick)
+	runBatch(cmd)
+	return updated.(Model)
+}
+
+// Firing this is what a pause in navigation looks like to the model.
+func armedTick(t *testing.T, m Model) pipelineSelectionTickMsg {
+	t.Helper()
+	pipeline := m.selectedPipeline()
+	if pipeline == nil {
+		t.Fatal("no row is selected, so no timer names a row to fetch")
+	}
+	return pipelineSelectionTickMsg{pipelineID: pipeline.ID}
+}
+
+// TestPipelinePanel_AsksAboutTheRunTheUserStopsOnNotEveryRunPassed: scrolling costs one round of
+// requests, not one per row.
+// Given a panel of runs with the cursor on the first, when the user holds the key down across eight
+// rows and every timer the burst armed then fires, then GitLab is asked about the eighth run alone.
+// Why it matters: each row costs three requests, so a held key sends hundreds within seconds, and
+// GitLab answers the rest with a refusal that the panel shows the user as a failure to load.
+func TestPipelinePanel_AsksAboutTheRunTheUserStopsOnNotEveryRunPassed(t *testing.T) {
+	// Given: a panel of runs, and a client that records which run each request names
+	m := pipelineNavModel(12)
+	var asked []string
+	m.client = &mockService{
+		PipelineStagesFn: func(_ context.Context, _, pipelineID int) ([]gitlab.PipelineStage, error) {
+			asked = append(asked, fmt.Sprintf("stages:%d", pipelineID))
+			return nil, nil
+		},
+		ListPipelineJobsFn: func(_ context.Context, _, pipelineID int) ([]gitlab.PipelineJob, error) {
+			asked = append(asked, fmt.Sprintf("jobs:%d", pipelineID))
+			return nil, nil
+		},
+	}
+
+	// When: the user holds the key down across eight rows, each press arming a timer that lands
+	// while the presses after it are still arriving
+	model := Model(m)
+	var armed *pipelineSelectionTickMsg
+	for i := 0; i < 8; i++ {
+		updated, _ := model.handlePipelinesPanelKey(keyMsgFor("j"))
+		model = fireTimer(updated.(Model), armed)
+		tick := armedTick(t, model)
+		armed = &tick
+	}
+
+	// And: the user stops moving, so the last timer lands with no press after it
+	fireTimer(model, armed)
+
+	// Then: GitLab was asked about the run the burst ended on, and about no other
+	want := []string{"jobs:108", "stages:108"}
+	slices.Sort(asked)
+	if !slices.Equal(asked, want) {
+		t.Errorf("asked GitLab for %v, want %v", asked, want)
 	}
 }
 

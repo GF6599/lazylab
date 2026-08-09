@@ -1074,6 +1074,8 @@ func (m Model) routeAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSelectionDebounce(msg)
 	case searchDebounceTickMsg:
 		return m.handleSearchDebounceTickMsg(msg)
+	case pipelineSelectionTickMsg:
+		return m.handlePipelineSelectionDebounce(msg)
 	case mrsLoadedMsg:
 		return m.handleMRsLoaded(msg)
 	case mrDiscussionsLoadedMsg:
