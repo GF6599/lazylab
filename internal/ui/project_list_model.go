@@ -54,6 +54,7 @@ const (
 	pipelineDebounceDelay   = 300 * time.Millisecond
 	searchDebounceDelay     = 150 * time.Millisecond
 	pipelinePerPage         = 25
+	defaultProjectsPerPage  = 30
 	pipelineAllRefsRef      = "__all__"
 	pipelineAllRefsLabel    = "all refs"
 
@@ -329,20 +330,22 @@ func renderListItem(w io.Writer, mk rowMarker, line string, indent, width int, i
 // must not replace these maps after construction — only mutate them in place
 // or call SetDelegate with the new map.
 type Model struct {
-	ctx               context.Context // Parent context for cancellation
-	client            gitlab.Service
-	opts              Options
-	allProjects       []gitlab.ProjectNode
-	selected          int
-	page              int
-	totalPages        int
-	width             int
-	height            int
-	loading           bool
-	err               error
-	status            string
-	search            searchState
-	pagesLoaded       int
+	ctx         context.Context // Parent context for cancellation
+	client      gitlab.Service
+	opts        Options
+	allProjects []gitlab.ProjectNode
+	selected    int
+	page        int
+	totalPages  int
+	width       int
+	height      int
+	loading     bool
+	err         error
+	status      string
+	search      searchState
+	pagesLoaded int
+	// Zero means unknown, not empty.
+	totalProjects     int
 	pagesReady        map[int]bool
 	backgroundLoading bool
 	cache             *projectCache
@@ -391,10 +394,11 @@ type Model struct {
 	// slice on every View call. Invalidated by search query changes, page
 	// navigation, tab switches, and project list reloads. The cache key is
 	// the triple (query, page, tab); a mismatch triggers recomputation.
-	visibleCache      []gitlab.ProjectNode
-	visibleCacheQuery string
-	visibleCachePage  int
-	visibleCacheTab   projectTab
+	visibleCache        []gitlab.ProjectNode
+	visibleCacheQuery   string
+	visibleCachePage    int
+	visibleCachePerPage int
+	visibleCacheTab     projectTab
 
 	// Selection debounce — delays all eager data loading (pipelines, commits,
 	// MRs) until the user pauses navigation for pipelineDebounceDelay (300ms).
@@ -535,7 +539,9 @@ type pipelineViewState struct {
 	retrying        bool
 	retryErr        error
 	pendingSelectID int
-	bridges         AsyncCache[int, []gitlab.PipelineBridge]
+	// Zero means unknown, not empty.
+	totalItems int
+	bridges    AsyncCache[int, []gitlab.PipelineBridge]
 	// Fetched on its own, because no list endpoint carries a start time.
 	pipelineStarts       AsyncCache[int, time.Time]
 	childJobs            AsyncCache[int, []gitlab.PipelineJob]

@@ -68,6 +68,7 @@ func (m Model) handlePipelinesLoaded(msg pipelinesLoadedMsg) (tea.Model, tea.Cmd
 	if msg.totalPages > 0 {
 		m.pipelineView.totalPages = msg.totalPages
 	}
+	m.pipelineView.totalItems = msg.totalItems
 	if m.pipelineView.totalPages > 0 && m.pipelineView.page > m.pipelineView.totalPages {
 		m.pipelineView.page = m.pipelineView.totalPages
 		m.pipelineView.loading = true

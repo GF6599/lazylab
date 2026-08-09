@@ -244,13 +244,16 @@ func (m *Model) visibleProjects() []gitlab.ProjectNode {
 		return filtered
 	}
 
-	if m.page == m.visibleCachePage && m.visibleCache != nil && m.visibleCacheQuery == "" && m.visibleCacheTab == projectTabAll {
+	perPage := m.displayPerPage()
+	if m.page == m.visibleCachePage && m.visibleCachePerPage == perPage && m.visibleCache != nil &&
+		m.visibleCacheQuery == "" && m.visibleCacheTab == projectTabAll {
 		return m.visibleCache
 	}
 
 	pageData := m.pageSlice(m.page)
 	m.visibleCache = pageData
 	m.visibleCachePage = m.page
+	m.visibleCachePerPage = perPage
 	m.visibleCacheQuery = ""
 	m.visibleCacheTab = projectTabAll
 	return pageData
@@ -263,6 +266,7 @@ func (m *Model) invalidateVisibleCache() {
 	m.visibleCache = nil
 	m.visibleCacheQuery = ""
 	m.visibleCachePage = -1
+	m.visibleCachePerPage = 0
 	m.visibleCacheTab = projectTabAll
 }
 
@@ -340,20 +344,73 @@ func (m *Model) invalidateDetailCache() {
 	m.detailCache = detailCacheState{}
 }
 
+// panePageSize reports the rows a panel can draw, which is what one page has to hold for the panel
+// to have no blank space under its last row. Zero means there is no pane to measure.
+func (m Model) panePageSize(panel PanelID) int {
+	if m.mode != modeMultiPanel {
+		return 0
+	}
+	layout := computeLayout(m.width, m.height, m.focus)
+	if !layout.OK {
+		return 0
+	}
+	return max(0, layout.PanelHeights[panel])
+}
+
+// apiPerPage is the page size projects are fetched in, which decides where a fetched page lands in
+// allProjects. It is deliberately separate from how many one screen shows.
+func (m Model) apiPerPage() int {
+	if m.opts.ProjectsPerPage > 0 {
+		return m.opts.ProjectsPerPage
+	}
+	return defaultProjectsPerPage
+}
+
+// displayPerPage is how many projects one page shows, which follows the pane.
+func (m Model) displayPerPage() int {
+	if n := m.panePageSize(PanelProjects); n > 0 {
+		return n
+	}
+	return m.apiPerPage()
+}
+
+// displayTotalPages counts the pages the collection fills at the current pane height. It falls back
+// to what has loaded so far while the collection total is still unknown, so paging never offers a
+// page there is nothing behind.
+func (m Model) displayTotalPages() int {
+	perPage := m.displayPerPage()
+	total := m.totalProjects
+	if total <= 0 {
+		total = m.loadedProjectCount()
+	}
+	if perPage <= 0 || total <= 0 {
+		return 1
+	}
+	return max(1, (total+perPage-1)/perPage)
+}
+
+// loadedProjectCount reports how many leading projects are real. A page still in flight leaves
+// zero value placeholders in allProjects rather than a shorter slice, so the length of that slice
+// overstates what there is to show until every page has landed.
+func (m Model) loadedProjectCount() int {
+	ready := 0
+	for m.pagesReady[ready+1] {
+		ready++
+	}
+	return min(ready*m.apiPerPage(), len(m.allProjects))
+}
+
 func (m Model) pageSlice(page int) []gitlab.ProjectNode {
 	if page <= 0 {
 		page = 1
 	}
-	if len(m.allProjects) == 0 || !m.pagesReady[page] {
+	loaded := m.loadedProjectCount()
+	perPage := m.displayPerPage()
+	start := (page - 1) * perPage
+	if loaded == 0 || start >= loaded {
 		return nil
 	}
-	start := (page - 1) * m.opts.ProjectsPerPage
-	if start >= len(m.allProjects) {
-		return nil
-	}
-	end := start + m.opts.ProjectsPerPage
-	end = min(end, len(m.allProjects))
-	return m.allProjects[start:end]
+	return m.allProjects[start:min(start+perPage, loaded)]
 }
 
 // updateProjectList syncs the bubbles list component with the current visible projects
@@ -384,11 +441,7 @@ func (m *Model) appendPage(page gitlab.ProjectPage) {
 
 	// Insert projects at the correct offset so pageSlice works regardless of
 	// the order in which pages arrive (important for lazy pagination).
-	perPage := m.opts.ProjectsPerPage
-	if perPage <= 0 {
-		perPage = 30
-	}
-	insertAt := (page.Page - 1) * perPage
+	insertAt := (page.Page - 1) * m.apiPerPage()
 	needed := insertAt + len(page.Projects)
 	if needed > len(m.allProjects) {
 		// Grow the slice with zero-value placeholders
@@ -413,25 +466,49 @@ func (m *Model) movePage(delta int) tea.Cmd {
 	if m.projectTab == projectTabFavorites {
 		return nil
 	}
-	target := m.page + delta
-	target = max(target, 1)
-	if m.totalPages > 0 && target > m.totalPages {
-		target = m.totalPages
+	target := max(m.page+delta, 1)
+	if total := m.displayTotalPages(); target > total {
+		target = total
 	}
 	if target == m.page {
 		return nil
 	}
 	m.page = target
 	m.paginator.Page = m.page - 1 // Paginator is 0-indexed
-	if !m.pagesReady[m.page] {
+	m.invalidateVisibleCache()
+	if missing, ok := m.firstMissingFetchPage(target); ok {
 		m.backgroundLoading = true
-		m.status = fmt.Sprintf("Loading page %d...", m.page)
-		return fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, m.page, true)
+		m.status = fmt.Sprintf("Loading page %d...", target)
+		return fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.apiPerPage(), missing, true)
 	}
-	m.status = fmt.Sprintf("Viewing page %d", m.page)
+	m.status = fmt.Sprintf("Viewing page %d", target)
 	m.ensureSelectionBounds()
 	m.updateProjectList()
 	return nil
+}
+
+// firstMissingFetchPage reports the first fetched page a screen needs and does not have. A screen
+// and a fetch hold different numbers of projects, so one screen can span several fetched pages and
+// the two page numbers do not correspond.
+func (m Model) firstMissingFetchPage(displayPage int) (int, bool) {
+	perScreen, perFetch := m.displayPerPage(), m.apiPerPage()
+	if perScreen <= 0 || perFetch <= 0 {
+		return 0, false
+	}
+	start := (displayPage - 1) * perScreen
+	end := start + perScreen
+	if m.totalProjects > 0 {
+		end = min(end, m.totalProjects)
+	}
+	if end <= start {
+		return 0, false
+	}
+	for p := start/perFetch + 1; p <= (end-1)/perFetch+1; p++ {
+		if !m.pagesReady[p] {
+			return p, true
+		}
+	}
+	return 0, false
 }
 
 // copyCloneCommand returns a Cmd that copies "git clone <ssh-url>" for the
@@ -515,9 +592,12 @@ func (m *Model) applyMultiPanelLayout(layout layoutResult) {
 	sidebarWidth := layout.SidebarWidth
 	detailWidth, detailHeight := layout.DetailWidth, layout.DetailHeight
 
-	// Projects list
+	// Projects list. One page holds as many projects as the pane draws, so a pane that changed
+	// size is showing a different page, and its rows have to be rebuilt rather than only resized.
 	projHeight := max(1, layout.PanelHeights[PanelProjects])
 	m.projectList.SetSize(sidebarWidth, projHeight)
+	m.ensureSelectionBounds()
+	m.updateProjectList()
 
 	// Pipelines list
 	pipelinesHeight := max(1, layout.PanelHeights[PanelPipelines])

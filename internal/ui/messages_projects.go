@@ -34,10 +34,8 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	m.allProjects = msg.projects
 	m.invalidateVisibleCache()
 	totalProjects := len(msg.projects)
-	perPage := m.opts.ProjectsPerPage
-	if perPage <= 0 {
-		perPage = 30
-	}
+	m.totalProjects = totalProjects
+	perPage := m.apiPerPage()
 	m.totalPages = (totalProjects + perPage - 1) / perPage
 	if m.totalPages <= 0 {
 		m.totalPages = 1
@@ -126,6 +124,7 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	if m.totalPages <= 0 {
 		m.totalPages = m.page
 	}
+	m.totalProjects = msg.page.TotalItems
 	m.allProjects = slices.Clone(msg.page.Projects)
 	m.invalidateVisibleCache()
 	m.pagesReady = map[int]bool{m.page: true}

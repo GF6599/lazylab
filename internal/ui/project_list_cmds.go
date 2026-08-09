@@ -70,6 +70,7 @@ type pipelinesLoadedMsg struct {
 	prevPage   int
 	nextPage   int
 	totalPages int
+	totalItems int
 	err        error
 }
 
@@ -357,6 +358,7 @@ func fetchPipelinesCmd(parentCtx context.Context, client gitlab.Service, timeout
 			prevPage:   pipelinePage.PrevPage,
 			nextPage:   pipelinePage.NextPage,
 			totalPages: pipelinePage.TotalPages,
+			totalItems: pipelinePage.TotalItems,
 		}
 	}
 }
@@ -529,6 +531,7 @@ type mrsLoadedMsg struct {
 	prevPage   int
 	nextPage   int
 	totalPages int
+	totalItems int
 	err        error
 }
 
@@ -570,6 +573,7 @@ func fetchMRsCmd(parentCtx context.Context, client gitlab.Service, timeout time.
 			prevPage:   mrPage.PrevPage,
 			nextPage:   mrPage.NextPage,
 			totalPages: mrPage.TotalPages,
+			totalItems: mrPage.TotalItems,
 		}
 	}
 }

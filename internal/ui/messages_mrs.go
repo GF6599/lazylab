@@ -33,6 +33,7 @@ func (m Model) handleMRsLoaded(msg mrsLoadedMsg) (tea.Model, tea.Cmd) {
 	m.mrView.prevPage = msg.prevPage
 	m.mrView.nextPage = msg.nextPage
 	m.mrView.totalPages = msg.totalPages
+	m.mrView.totalItems = msg.totalItems
 
 	// Preserve selection by matching on IID
 	if prevIID != 0 {

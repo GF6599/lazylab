@@ -91,6 +91,8 @@ type mrViewState struct {
 	prevPage   int
 	nextPage   int
 	totalPages int
+	// Zero means unknown, not empty.
+	totalItems int
 
 	// Detail pane state
 	detailTab          mrDetailTab

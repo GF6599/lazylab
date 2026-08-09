@@ -112,24 +112,54 @@ func panelFooter(panel PanelID, m *Model) string {
 		if len(visible) == 0 {
 			return ""
 		}
-		return fmt.Sprintf("%d of %d", m.selected+1, len(visible))
+		return formatPosition(
+			collectionPosition(m.page, m.displayPerPage(), m.selected),
+			knownTotal(m.totalProjects, len(visible)),
+		)
 	case PanelPipelines:
 		if len(m.pipelineView.pipelines) == 0 {
 			return ""
 		}
-		return fmt.Sprintf("%d of %d", m.pipelineView.selected+1, len(m.pipelineView.pipelines))
+		return formatPosition(
+			collectionPosition(m.pipelineView.page, m.pipelineView.perPage, m.pipelineView.selected),
+			knownTotal(m.pipelineView.totalItems, len(m.pipelineView.pipelines)),
+		)
 	case PanelStages:
 		jobCount := len(m.pipelineView.jobRows)
 		if jobCount == 0 {
 			return ""
 		}
-		return fmt.Sprintf("%d of %d", m.pipelineView.stageSelected+1, jobCount)
+		// Stages are never paged, so the rows in hand are the whole set.
+		return formatPosition(m.pipelineView.stageSelected+1, jobCount)
 	case PanelMRs:
 		if len(m.mrView.mrs) == 0 {
 			return ""
 		}
-		return fmt.Sprintf("%d of %d", m.mrView.selected+1, len(m.mrView.mrs))
+		return formatPosition(
+			collectionPosition(m.mrView.page, mrPerPage, m.mrView.selected),
+			knownTotal(m.mrView.totalItems, len(m.mrView.mrs)),
+		)
 	default:
 		return ""
 	}
+}
+
+func formatPosition(at, total int) string {
+	return fmt.Sprintf("%d of %d", at, total)
+}
+
+func collectionPosition(page, perPage, selected int) int {
+	if page < 1 || perPage < 1 {
+		return selected + 1
+	}
+	return (page-1)*perPage + selected + 1
+}
+
+// knownTotal prefers the collection total, and counts what is in hand when GitLab withheld it,
+// which it does once a collection passes ten thousand items.
+func knownTotal(reported, inHand int) int {
+	if reported > 0 {
+		return reported
+	}
+	return inHand
 }
