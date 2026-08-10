@@ -618,7 +618,10 @@ func retryScenarioModel(svc gitlab.Service, active PanelID) Model {
 	m.client = svc
 	items := []list.Item{pipelineItem{summary: m.pipelineView.pipelines[0]}}
 	m.pipelineView.pipelineList = newBareList(items, pipelineDelegate{}, 40, 10)
-	return m
+	// Settle the layout the way a launch does, so a key press answers with its own command alone
+	// rather than with the panel sizing a first resize always brings.
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	return sized.(Model)
 }
 
 // TestRetryConfirmFlow_RetriesSelectedPipeline: R renders the confirm modal and
@@ -1426,26 +1429,33 @@ func TestProjectNav_TriggersAutoLoad(t *testing.T) {
 // Why it matters: without re-arming on page change the sidebar keeps describing page 1's project while the
 // cursor sits on page 2.
 func TestProjectPageChangeSchedulesAutoLoadForNewSelection(t *testing.T) {
-	// Given: one project per page with two pages ready and page 1 selected
+	// Given: a full screen of projects plus one on the page after it, both pages ready. A screen
+	// holds as many projects as the pane does, so the fetch size is set to match and the two kinds
+	// of page line up one to one.
 	m := newMultiPanelModel(PanelProjects)
-	m.opts.ProjectsPerPage = 1
+	perPage := m.displayPerPage()
+	m.opts.ProjectsPerPage = perPage
+	m.allProjects = testProjects(perPage + 1)
+	m.totalProjects = perPage + 1
 	m.pagesReady = map[int]bool{1: true, 2: true}
 	m.page = 1
 	m.selected = 0
+	m.invalidateVisibleCache()
 	m.projectList.Select(0)
 	m.updateProjectList()
+	wantID := m.allProjects[perPage].ID
 
 	// When: ] moves to page 2
 	updated, cmd := m.handleMultiPanelKey(keyMsg("]"))
 	got := updated.(Model)
 
-	// Then: project 2 is selected with a pending, debounced auto-load and follow-up commands
+	// Then: the first project of page 2 is selected, with a pending debounced auto-load
 	project, ok := got.selectedProject()
-	if !ok || project.ID != 2 {
-		t.Fatalf("expected page 2 to select project 2, got %#v ok=%v", project, ok)
+	if !ok || project.ID != wantID {
+		t.Fatalf("expected page 2 to select project %d, got %#v ok=%v", wantID, project, ok)
 	}
-	if got.selectionPending == nil || got.selectionPending.ID != 2 {
-		t.Fatalf("expected selectionPending for project 2, got %#v", got.selectionPending)
+	if got.selectionPending == nil || got.selectionPending.ID != wantID {
+		t.Fatalf("expected selectionPending for project %d, got %#v", wantID, got.selectionPending)
 	}
 	if got.selectionDebounce == nil {
 		t.Fatal("expected debounce timer for auto-load")
@@ -1462,12 +1472,15 @@ func TestProjectPageChangeSchedulesAutoLoadForNewSelection(t *testing.T) {
 // Why it matters: users who page ahead of the background loader would otherwise stare at a page that
 // renders but never loads its pipeline and MR data.
 func TestHandleProjectsLoadedBackgroundSchedulesAutoLoadForVisiblePage(t *testing.T) {
-	// Given: the user viewing page 2 before it has loaded
+	// Given: the user viewing page 2 before it has loaded. The fetch size is set to the screen size
+	// so that one fetched page fills exactly one screen.
 	m := newMultiPanelModel(PanelProjects)
-	m.opts.ProjectsPerPage = 1
+	perPage := m.displayPerPage()
+	m.opts.ProjectsPerPage = perPage
 	m.page = 2
 	m.pagesReady = map[int]bool{1: true}
-	m.allProjects = []gitlab.ProjectNode{{ID: 1, Name: "alpha", PathWithNamespace: "team/alpha"}}
+	m.allProjects = testProjects(perPage)
+	m.totalProjects = perPage + 1
 	m.invalidateVisibleCache()
 	m.updateProjectList()
 
@@ -1477,8 +1490,9 @@ func TestHandleProjectsLoadedBackgroundSchedulesAutoLoadForVisiblePage(t *testin
 		page: gitlab.ProjectPage{
 			Page:       2,
 			TotalPages: 2,
+			TotalItems: perPage + 1,
 			Projects: []gitlab.ProjectNode{
-				{ID: 2, Name: "beta", PathWithNamespace: "team/beta"},
+				{ID: 9001, Name: "beta", PathWithNamespace: "team/beta"},
 			},
 		},
 	})
@@ -1486,11 +1500,11 @@ func TestHandleProjectsLoadedBackgroundSchedulesAutoLoadForVisiblePage(t *testin
 
 	// Then: the newly visible project is selected with a pending auto-load and commands
 	project, ok := got.selectedProject()
-	if !ok || project.ID != 2 {
+	if !ok || project.ID != 9001 {
 		t.Fatalf("expected loaded background page to become visible selection, got %#v ok=%v", project, ok)
 	}
-	if got.selectionPending == nil || got.selectionPending.ID != 2 {
-		t.Fatalf("expected selectionPending for project 2, got %#v", got.selectionPending)
+	if got.selectionPending == nil || got.selectionPending.ID != 9001 {
+		t.Fatalf("expected selectionPending for project 9001, got %#v", got.selectionPending)
 	}
 	if cmd == nil {
 		t.Fatal("expected follow-up commands after background page load")

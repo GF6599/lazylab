@@ -73,6 +73,7 @@ func (c *Client) ListMergeRequests(ctx context.Context, projectID int, opts MRLi
 		PrevPage:      meta.PrevPage,
 		NextPage:      meta.NextPage,
 		TotalPages:    meta.TotalPages,
+		TotalItems:    meta.TotalItems,
 	}, nil
 }
 

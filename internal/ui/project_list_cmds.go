@@ -70,7 +70,11 @@ type pipelinesLoadedMsg struct {
 	prevPage   int
 	nextPage   int
 	totalPages int
-	err        error
+	totalItems int
+	// perPage is the size the page was fetched at. The panel counts positions against it, so it
+	// travels with the rows rather than being read off state that has since moved.
+	perPage int
+	err     error
 }
 
 type pipelineStartLoadedMsg struct {
@@ -134,6 +138,12 @@ type searchDebounceTickMsg struct {
 // pipelineSelectionTickMsg carries the row its timer was armed for.
 type pipelineSelectionTickMsg struct {
 	pipelineID int
+}
+
+// pageSizeTickMsg carries the pane sizes its timer was armed for.
+type pageSizeTickMsg struct {
+	pipelines int
+	mrs       int
 }
 
 type favoritesLoadedMsg struct {
@@ -357,6 +367,8 @@ func fetchPipelinesCmd(parentCtx context.Context, client gitlab.Service, timeout
 			prevPage:   pipelinePage.PrevPage,
 			nextPage:   pipelinePage.NextPage,
 			totalPages: pipelinePage.TotalPages,
+			totalItems: pipelinePage.TotalItems,
+			perPage:    perPage,
 		}
 	}
 }
@@ -513,6 +525,12 @@ func pipelineSelectionTickCmd(pipelineID int) tea.Cmd {
 	})
 }
 
+func pageSizeTickCmd(pipelines, mrs int) tea.Cmd {
+	return tea.Tick(pipelineDebounceDelay, func(time.Time) tea.Msg {
+		return pageSizeTickMsg{pipelines: pipelines, mrs: mrs}
+	})
+}
+
 // searchDebounceTickCmd fires a debounce tick after searchDebounceDelay using
 // tea.Tick. The timestamp/query are compared against current state to discard
 // stale ticks when the user is still typing.
@@ -529,6 +547,8 @@ type mrsLoadedMsg struct {
 	prevPage   int
 	nextPage   int
 	totalPages int
+	totalItems int
+	perPage    int
 	err        error
 }
 
@@ -570,6 +590,8 @@ func fetchMRsCmd(parentCtx context.Context, client gitlab.Service, timeout time.
 			prevPage:   mrPage.PrevPage,
 			nextPage:   mrPage.NextPage,
 			totalPages: mrPage.TotalPages,
+			totalItems: mrPage.TotalItems,
+			perPage:    perPage,
 		}
 	}
 }

@@ -118,6 +118,7 @@ type ProjectPage struct {
 	PrevPage   int
 	NextPage   int
 	TotalPages int
+	TotalItems int
 }
 
 // PipelineListOptions describe pagination + filter parameters for pipeline
@@ -142,6 +143,7 @@ type PipelinePage struct {
 	PrevPage   int
 	NextPage   int
 	TotalPages int
+	TotalItems int
 }
 
 // TreeNode represents a repository tree entry (file or directory).
@@ -257,6 +259,7 @@ type MRPage struct {
 	PrevPage      int
 	NextPage      int
 	TotalPages    int
+	TotalItems    int
 }
 
 // CreateMROptions holds the parameters for creating a new merge request.
@@ -452,6 +455,7 @@ func (c *Client) ListProjects(ctx context.Context, opts ProjectListOptions) (Pro
 		PrevPage:   meta.PrevPage,
 		NextPage:   meta.NextPage,
 		TotalPages: meta.TotalPages,
+		TotalItems: meta.TotalItems,
 	}, nil
 }
 
@@ -472,6 +476,9 @@ type pageMeta struct {
 	PrevPage   int
 	NextPage   int
 	TotalPages int
+	// TotalItems is zero when GitLab withholds the count, which it does once a
+	// collection passes ten thousand items. Zero means unknown, never empty.
+	TotalItems int
 }
 
 // extractPageMeta reads pagination headers from resp into a pageMeta. When
@@ -485,6 +492,7 @@ func extractPageMeta(resp *gl.Response, fallbackPage int) pageMeta {
 		m.PrevPage = int(resp.PreviousPage)
 		m.NextPage = int(resp.NextPage)
 		m.TotalPages = int(resp.TotalPages)
+		m.TotalItems = int(resp.TotalItems)
 	}
 	return m
 }

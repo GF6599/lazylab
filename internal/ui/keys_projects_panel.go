@@ -71,7 +71,6 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "Refreshing projects..."
 		m.backgroundLoading = false
 		m.page = 1
-		m.paginator.Page = 0
 		return m, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, 1, false)
 	case key.Matches(msg, m.keys.Favorite):
 		project, ok := m.selectedProject()
@@ -163,7 +162,7 @@ func (m *Model) loadProjectPipelines(project gitlab.ProjectNode) tea.Cmd {
 	// because the multi-panel pane sizes the list from state, not in View.
 	m.updateViewportSizes()
 
-	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, 1, pipelinePerPage)
+	return fetchPipelinesCmd(m.ctx, m.client, m.opts.PipelineTimeout, project.ID, 1, m.startPipelinePage())
 }
 
 // newPipelineListModel returns a freshly-initialized bubbles list for the
@@ -282,7 +281,7 @@ func (m *Model) loadSelectedProjectData(project gitlab.ProjectNode) tea.Cmd {
 			diffs:       NewAsyncCache[int, []gitlab.MRDiffFile](),
 			mrViewport:  mrVp,
 		}
-		cmds = append(cmds, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, mrPerPage))
+		cmds = append(cmds, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, m.startMRPage()))
 	}
 	if len(cmds) == 0 {
 		return nil

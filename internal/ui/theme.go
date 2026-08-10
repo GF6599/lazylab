@@ -8,7 +8,7 @@
 // style vars (in project_list_style.go). Since Bubble Tea calls View() on
 // every frame reading these globals, the next render picks up the new palette
 // automatically. Bubble Tea sub-components that cache their own style copies
-// (spinner, help, paginator, table) are refreshed separately by
+// (spinner, help, table) are refreshed separately by
 // Model.refreshThemeSubComponents.
 
 package ui
@@ -220,7 +220,7 @@ var currentTheme ThemeName
 // values fall back to ThemeRosePine.
 //
 // This only updates package-level globals. Bubble Tea sub-components that
-// store their own style copies (spinner, help, paginator, stage table) must
+// store their own style copies (spinner, help, stage table) must
 // be refreshed separately via Model.refreshThemeSubComponents, and
 // Model.clearGlamourRenderers should be called to drop stale glamour
 // renderers compiled against the previous theme.
