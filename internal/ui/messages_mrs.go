@@ -34,6 +34,9 @@ func (m Model) handleMRsLoaded(msg mrsLoadedMsg) (tea.Model, tea.Cmd) {
 	m.mrView.nextPage = msg.nextPage
 	m.mrView.totalPages = msg.totalPages
 	m.mrView.totalItems = msg.totalItems
+	if msg.perPage > 0 {
+		m.mrView.perPage = msg.perPage
+	}
 
 	// Preserve selection by matching on IID
 	if prevIID != 0 {
@@ -193,7 +196,7 @@ func (m Model) handleMRCreated(msg mrCreatedMsg) (tea.Model, tea.Cmd) {
 	m.mrView.loading = true
 	m.mrView.selected = 0
 	m.mrView.tab = mrTabOpen
-	return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, "opened", 1, (&m).mrFetchSize())
+	return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, msg.projectID, "opened", 1, (&m).startMRPage())
 }
 
 func (m Model) handleBranchesLoaded(msg branchesLoadedMsg) (tea.Model, tea.Cmd) {

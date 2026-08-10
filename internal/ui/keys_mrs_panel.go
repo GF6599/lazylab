@@ -73,7 +73,7 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mrView.mrs = nil
 		m.mrView.selected = 0
 		m.mrView.detailTab = mrDetailTabInfo
-		return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), 1, (&m).mrFetchSize())
+		return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), 1, (&m).startMRPage())
 	case key.Matches(msg, m.keys.CycleTabRv):
 		// Cycle MR sidebar tabs backward (Closed → Merged → Open)
 		m.mrView.tab = (m.mrView.tab + 2) % 3
@@ -81,7 +81,7 @@ func (m Model) handleMRsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mrView.mrs = nil
 		m.mrView.selected = 0
 		m.mrView.detailTab = mrDetailTabInfo
-		return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), 1, (&m).mrFetchSize())
+		return m, fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, m.mrView.project.ID, mrTabStateString(m.mrView.tab), 1, (&m).startMRPage())
 	case key.Matches(msg, m.keys.Comment):
 		return m.openMRNewCommentModal()
 	case key.Matches(msg, m.keys.CreateMR):

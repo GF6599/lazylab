@@ -71,7 +71,10 @@ type pipelinesLoadedMsg struct {
 	nextPage   int
 	totalPages int
 	totalItems int
-	err        error
+	// perPage is the size the page was fetched at. The panel counts positions against it, so it
+	// travels with the rows rather than being read off state that has since moved.
+	perPage int
+	err     error
 }
 
 type pipelineStartLoadedMsg struct {
@@ -365,6 +368,7 @@ func fetchPipelinesCmd(parentCtx context.Context, client gitlab.Service, timeout
 			nextPage:   pipelinePage.NextPage,
 			totalPages: pipelinePage.TotalPages,
 			totalItems: pipelinePage.TotalItems,
+			perPage:    perPage,
 		}
 	}
 }
@@ -544,6 +548,7 @@ type mrsLoadedMsg struct {
 	nextPage   int
 	totalPages int
 	totalItems int
+	perPage    int
 	err        error
 }
 
@@ -586,6 +591,7 @@ func fetchMRsCmd(parentCtx context.Context, client gitlab.Service, timeout time.
 			nextPage:   mrPage.NextPage,
 			totalPages: mrPage.TotalPages,
 			totalItems: mrPage.TotalItems,
+			perPage:    perPage,
 		}
 	}
 }

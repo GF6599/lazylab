@@ -148,11 +148,14 @@ func formatPosition(at, total int) string {
 	return fmt.Sprintf("%d of %d", at, total)
 }
 
+// collectionPosition counts from the start of the collection rather than the start of the page. A
+// page size of zero means no page has landed yet, when the rows in hand are all there is to count
+// against and the position within them is the whole answer.
 func collectionPosition(page, perPage, selected int) int {
-	if page < 1 || perPage < 1 {
+	if perPage < 1 {
 		return selected + 1
 	}
-	return (page-1)*perPage + selected + 1
+	return (max(page, 1)-1)*perPage + selected + 1
 }
 
 // knownTotal prefers the collection total, and counts what is in hand when GitLab withheld it,

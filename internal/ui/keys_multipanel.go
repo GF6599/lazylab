@@ -138,7 +138,7 @@ func (m *Model) onPanelFocusChanged() tea.Cmd {
 				diffs:       NewAsyncCache[int, []gitlab.MRDiffFile](),
 				mrViewport:  mrVp,
 			}
-			return fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, m.mrFetchSize())
+			return fetchMRsCmd(m.ctx, m.client, m.opts.APITimeout, project.ID, mrTabStateString(m.mrView.tab), 1, m.startMRPage())
 		}
 	}
 	return nil
