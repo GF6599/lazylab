@@ -500,7 +500,6 @@ func (m *Model) movePage(delta int) tea.Cmd {
 		return nil
 	}
 	m.page = target
-	m.paginator.Page = m.page - 1 // Paginator is 0-indexed
 	m.invalidateVisibleCache()
 	if missing, ok := m.firstMissingFetchPage(target); ok {
 		m.backgroundLoading = true

@@ -48,9 +48,6 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	m.page = 1
 	m.selected = 0
 
-	// Update paginator
-	m.paginator.SetTotalPages(m.totalPages)
-	m.paginator.Page = 0 // Paginator is 0-indexed
 	if totalProjects == 0 {
 		m.status = "Cache loaded (empty)"
 	} else {
@@ -131,9 +128,6 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 	m.pagesLoaded = len(m.pagesReady)
 	m.selected = 0
 
-	// Update paginator
-	m.paginator.SetTotalPages(m.totalPages)
-	m.paginator.Page = m.page - 1 // Paginator is 0-indexed
 	if len(m.allProjects) == 0 {
 		m.status = "No projects returned"
 	} else {

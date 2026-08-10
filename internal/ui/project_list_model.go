@@ -23,7 +23,6 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -385,7 +384,6 @@ type Model struct {
 	keys        keyMap
 	help        help.Model
 	spinner     spinner.Model
-	paginator   paginator.Model
 	projectList list.Model
 	showHelp    bool
 	favorites   map[int]bool
@@ -598,7 +596,7 @@ const (
 
 // NewModel returns a ready-to-run Bubble Tea model. It applies defaults to
 // zero-valued [Options] fields, initializes Bubble Tea sub-components (spinner,
-// help, paginator, project list), and sets up on-disk caches for projects and
+// help, project list), and sets up on-disk caches for projects and
 // favorites. Cache initialization errors are logged but non-fatal — the app
 // falls back to API-only mode.
 //
@@ -628,7 +626,6 @@ func NewModel(ctx context.Context, client gitlab.Service, opts Options) Model {
 		keys:                  newKeyMap(),
 		help:                  newAppHelp(),
 		spinner:               newAppSpinner(),
-		paginator:             newAppPaginator(opts.ProjectsPerPage),
 		pipelineView:          newPipelineViewState(),
 		favorites:             favorites,
 		projectTab:            projectTabFavorites,
@@ -751,15 +748,6 @@ func newAppHelp() help.Model {
 	return h
 }
 
-func newAppPaginator(perPage int) paginator.Model {
-	p := paginator.New()
-	p.Type = paginator.Dots
-	p.PerPage = perPage
-	p.ActiveDot = lipgloss.NewStyle().Foreground(colorActive).Render("•")
-	p.InactiveDot = lipgloss.NewStyle().Foreground(colorMuted).Render("•")
-	return p
-}
-
 func newProjectListModel(delegate projectDelegate) list.Model {
 	pl := newBareList(nil, delegate, 0, 0)
 	pl.Styles.Title = titleStyle
@@ -789,8 +777,8 @@ func (m Model) attachPersistentStores() Model {
 }
 
 // refreshThemeSubComponents re-applies theme colors to Bubble Tea sub-components
-// that store their own style copies (search input, spinner, help, paginator,
-// stage table). Called after applyTheme() on theme changes.
+// that store their own style copies (search input, spinner, help, stage
+// table). Called after applyTheme() on theme changes.
 func (m Model) refreshThemeSubComponents() Model {
 	m.search.input.TextStyle = lipgloss.NewStyle().Foreground(colorText)
 	m.search.input.PlaceholderStyle = lipgloss.NewStyle().Foreground(colorMuted)
@@ -803,9 +791,6 @@ func (m Model) refreshThemeSubComponents() Model {
 	m.help.Styles.ShortDesc = lipgloss.NewStyle().Foreground(colorMuted)
 	m.help.Styles.FullKey = lipgloss.NewStyle().Foreground(colorSubtle)
 	m.help.Styles.FullDesc = lipgloss.NewStyle().Foreground(colorMuted)
-
-	m.paginator.ActiveDot = lipgloss.NewStyle().Foreground(colorActive).Render("•")
-	m.paginator.InactiveDot = lipgloss.NewStyle().Foreground(colorMuted).Render("•")
 
 	m.pipelineView.stageTable.SetStyles(stageTableStyles())
 	return m

@@ -71,7 +71,6 @@ func (m Model) handleProjectsPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "Refreshing projects..."
 		m.backgroundLoading = false
 		m.page = 1
-		m.paginator.Page = 0
 		return m, fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.opts.ProjectsPerPage, 1, false)
 	case key.Matches(msg, m.keys.Favorite):
 		project, ok := m.selectedProject()
