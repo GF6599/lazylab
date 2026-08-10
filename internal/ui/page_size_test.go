@@ -134,6 +134,25 @@ func settledResize(m Model) pageSizeTickMsg {
 	return pageSizeTickMsg{pipelines: m.pipelinePageSize(), mrs: m.mrPageSize()}
 }
 
+// applyBatch runs a command and any command it batched, then feeds each message back the way the
+// runtime does. Unlike runBatch it keeps the answers, so a test can assert on what a fetch changed
+// once its rows arrive rather than only on what it asked for.
+func applyBatch(m Model, cmd tea.Cmd) Model {
+	if cmd == nil {
+		return m
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		updated, _ := m.Update(msg)
+		return updated.(Model)
+	}
+	for _, child := range batch {
+		m = applyBatch(m, child)
+	}
+	return m
+}
+
 // A nil tick is the first step of a drag, which has no earlier step to have armed one.
 func fireResize(m Model, tick *pageSizeTickMsg) Model {
 	if tick == nil {
@@ -234,13 +253,14 @@ func TestPipelinesPane_AsksForNoMorePagesThanGitLabServes(t *testing.T) {
 		t.Fatalf("the pane holds %d rows, which does not reach the ceiling of %d", room, maxAPIPerPage)
 	}
 	settled, cmd := after.Update(settledResize(after))
-	runBatch(cmd)
+	loaded := applyBatch(settled.(Model), cmd)
 
-	// Then: the page asked for stops at the ceiling, and the panel records that as its page size
+	// Then: the page asked for stops at the ceiling, and once those rows arrive the panel counts
+	// positions against that same size
 	if len(asked) != 1 || asked[0] != maxAPIPerPage {
 		t.Errorf("asked GitLab for pages of %v, want one of %d", asked, maxAPIPerPage)
 	}
-	if got := settled.(Model).pipelineView.perPage; got != maxAPIPerPage {
+	if got := loaded.pipelineView.perPage; got != maxAPIPerPage {
 		t.Errorf("the panel counts against pages of %d, want %d", got, maxAPIPerPage)
 	}
 }

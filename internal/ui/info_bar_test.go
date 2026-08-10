@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"context"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
@@ -54,5 +57,69 @@ func TestPanelFooter_CountsWhatIsLoadedWhenTheTotalIsUnknown(t *testing.T) {
 	want := formatPosition(2, 3)
 	if got != want {
 		t.Errorf("the footer reads %q, want %q", got, want)
+	}
+}
+
+// TestPanelFooter_DescribesTheRowsOnScreenWhileAResizeIsInFlight: the footer never runs ahead of
+// the rows.
+// Given a pipelines pane deep into a collection, when the pane settles at a new size and GitLab has
+// not answered yet, then the footer still reports the position of the row on screen.
+// Why it matters: the page number and the page size decide what the footer counts, so moving them
+// when the request goes out makes the footer describe a page nobody is looking at, which is the
+// disagreement between the two counts that this panel had in the first place.
+func TestPanelFooter_DescribesTheRowsOnScreenWhileAResizeIsInFlight(t *testing.T) {
+	// Given: a pipelines pane on page 20 of pages of 10, with the cursor on the fifth row
+	m := newMultiPanelModel(PanelPipelines)
+	m.ctx = context.Background()
+	m.client = &mockService{}
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 90})
+	after := sized.(Model)
+	after.pipelineView.page, after.pipelineView.perPage, after.pipelineView.selected = 20, 10, 4
+	after.pipelineView.totalItems = 2075
+	after.pipelineView.pipelines = make([]gitlab.PipelineSummary, 10)
+	before := panelFooter(PanelPipelines, &after)
+
+	// When: the resize settles and the request goes out, with no answer yet
+	settled, _ := after.Update(settledResize(after))
+
+	// Then: the footer still describes the rows that are drawn
+	next := settled.(Model)
+	got := panelFooter(PanelPipelines, &next)
+	if got != before {
+		t.Errorf("the footer moved to %q before the rows did, want it still reading %q", got, before)
+	}
+}
+
+// TestPanelFooter_KeepsDescribingTheRowsWhenAResizeFetchFails: a failed resize leaves the footer
+// describing what is drawn.
+// Given an MR pane whose resize request fails, when the failure comes back, then the footer still
+// reports the position of the row on screen.
+// Why it matters: merge requests have no auto-refresh to correct a wrong count later, so a footer
+// left describing a page that never arrived stays wrong until the user changes page or tab.
+func TestPanelFooter_KeepsDescribingTheRowsWhenAResizeFetchFails(t *testing.T) {
+	// Given: an MR pane on page 4 of pages of 10, with the cursor on the third row
+	m := newMultiPanelModel(PanelMRs)
+	m.ctx = context.Background()
+	m.client = &mockService{}
+	m.mrView.project = m.pipelineView.project
+	sized, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 90})
+	after := sized.(Model)
+	after.mrView.page, after.mrView.perPage, after.mrView.selected = 4, 10, 2
+	after.mrView.totalItems = 96
+	after.mrView.mrs = make([]gitlab.MergeRequestSummary, 10)
+	before := panelFooter(PanelMRs, &after)
+
+	// When: the resize settles and GitLab refuses the request
+	settled, _ := after.Update(settledResize(after))
+	failed, _ := settled.(Model).Update(mrsLoadedMsg{
+		projectID: after.mrView.project.ID,
+		err:       context.DeadlineExceeded,
+	})
+
+	// Then: the footer still describes the rows that are drawn
+	next := failed.(Model)
+	got := panelFooter(PanelMRs, &next)
+	if got != before {
+		t.Errorf("a failed resize left the footer reading %q, want %q", got, before)
 	}
 }
