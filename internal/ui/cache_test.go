@@ -73,7 +73,7 @@ func TestProjectCache_SaveAndLoad(t *testing.T) {
 	}
 
 	// When: the projects are saved and loaded back
-	if err := cache.Save(projects); err != nil {
+	if err := cache.Save(projects, len(projects)); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestProjectCache_SaveAndLoad(t *testing.T) {
 		t.Fatalf("Cache file was not created at %s", cachePath)
 	}
 
-	loaded, err := cache.Load()
+	loaded, _, err := cache.Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -105,6 +105,37 @@ func TestProjectCache_SaveAndLoad(t *testing.T) {
 	}
 }
 
+// TestProjectCache_RoundTripsTheProjectTotal: the collection total survives the save/load cycle.
+// Given two projects saved with a recorded collection total of 5, when the cache loads, then the
+// total comes back as 5 alongside the projects.
+// Why it matters: the total is how a launch tells a partial cache from a complete one. Losing it
+// would make every cached start treat the saved slice as the whole collection and stop fetching.
+func TestProjectCache_RoundTripsTheProjectTotal(t *testing.T) {
+	// Given: a cache holding 2 projects out of a 5-project collection
+	cache := &projectCache{
+		path: filepath.Join(t.TempDir(), "total_cache.json"),
+		host: "https://gitlab.example.com",
+	}
+	projects := []gitlab.ProjectNode{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}
+	if err := cache.Save(projects, 5); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// When: the cache is loaded back
+	loaded, total, err := cache.Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// Then: the projects and the recorded total both round-trip
+	if len(loaded) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(loaded))
+	}
+	if total != 5 {
+		t.Fatalf("total = %d, want 5", total)
+	}
+}
+
 // TestProjectCache_LoadNonexistent: loading a missing cache file reports errCacheNotFound.
 // Given a cache path that does not exist, when Load runs, then it fails with exactly errCacheNotFound.
 // Why it matters: startup branches on this sentinel to fall back to a quiet foreground fetch, and any
@@ -120,7 +151,7 @@ func TestProjectCache_LoadNonexistent(t *testing.T) {
 	}
 
 	// When: the cache is loaded
-	_, err := cache.Load()
+	_, _, err := cache.Load()
 
 	// Then: the not-found sentinel comes back
 	if err == nil {
@@ -146,7 +177,7 @@ func TestProjectCache_SaveEmpty(t *testing.T) {
 	}
 
 	// When: an empty project list is saved
-	if err := cache.Save([]gitlab.ProjectNode{}); err != nil {
+	if err := cache.Save([]gitlab.ProjectNode{}, 0); err != nil {
 		t.Fatalf("Save empty failed: %v", err)
 	}
 
@@ -181,10 +212,10 @@ func TestProjectCache_ConcurrentSave(t *testing.T) {
 	// When: both lists are saved concurrently
 	done := make(chan error, 2)
 	go func() {
-		done <- cache.Save(projects1)
+		done <- cache.Save(projects1, 1)
 	}()
 	go func() {
-		done <- cache.Save(projects2)
+		done <- cache.Save(projects2, 1)
 	}()
 	err1 := <-done
 	err2 := <-done
@@ -198,7 +229,7 @@ func TestProjectCache_ConcurrentSave(t *testing.T) {
 	}
 
 	// And: the file loads as exactly one of the two payloads, uncorrupted
-	loaded, err := cache.Load()
+	loaded, _, err := cache.Load()
 	if err != nil {
 		t.Fatalf("Load after concurrent saves failed: %v", err)
 	}
@@ -229,7 +260,7 @@ func TestProjectCache_InvalidJSON(t *testing.T) {
 	}
 
 	// When/Then: loading it reports an error
-	_, err := cache.Load()
+	_, _, err := cache.Load()
 	if err == nil {
 		t.Fatal("Expected error when loading invalid JSON")
 	}
@@ -261,7 +292,7 @@ func TestProjectCache_VersionMismatch(t *testing.T) {
 	}
 
 	// When/Then: loading it reports an error
-	_, err := cache.Load()
+	_, _, err := cache.Load()
 	if err == nil {
 		t.Fatal("Expected error when loading cache with wrong version")
 	}
@@ -352,7 +383,7 @@ func TestProjectCache_MigrateLegacy(t *testing.T) {
 	}
 
 	// When: the cache is loaded through the new path
-	got, err := cache.Load()
+	got, _, err := cache.Load()
 	if err != nil {
 		t.Fatalf("Load after migration: %v", err)
 	}
@@ -416,12 +447,12 @@ func TestProjectCache_TTLExpiration(t *testing.T) {
 		},
 	}
 
-	if err := cache.Save(projects); err != nil {
+	if err := cache.Save(projects, 1); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
 
 	// And: a fresh load works
-	loaded, err := cache.Load()
+	loaded, _, err := cache.Load()
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -452,7 +483,7 @@ func TestProjectCache_TTLExpiration(t *testing.T) {
 	}
 
 	// Then: loading the aged cache reports the not-found sentinel
-	_, err = cache.Load()
+	_, _, err = cache.Load()
 	if err == nil {
 		t.Fatal("Expected error for expired cache, got nil")
 	}
