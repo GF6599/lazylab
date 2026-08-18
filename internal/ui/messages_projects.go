@@ -15,8 +15,9 @@ import (
 )
 
 // handleCacheLoaded processes the on-disk project cache result. On a cache hit,
-// all pages are marked ready immediately and the pipeline refresh ticker starts.
-// On a miss (or error), it falls back to a foreground API fetch. In multi-panel
+// the cached prefix renders immediately and, when the recorded total says the
+// cache is partial, a background fetch chain loads the remaining pages. On a
+// miss (or error), it falls back to a foreground API fetch. In multi-panel
 // mode it also triggers sidebar data loading for the initially selected project.
 func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
@@ -33,25 +34,32 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	m.backgroundLoading = false
 	m.allProjects = msg.projects
 	m.invalidateVisibleCache()
-	totalProjects := len(msg.projects)
-	m.totalProjects = totalProjects
+	cached := len(msg.projects)
+	m.totalProjects = max(msg.total, cached)
 	perPage := m.apiPerPage()
-	m.totalPages = (totalProjects + perPage - 1) / perPage
+	m.totalPages = (m.totalProjects + perPage - 1) / perPage
 	if m.totalPages <= 0 {
 		m.totalPages = 1
 	}
-	m.pagesReady = make(map[int]bool, m.totalPages)
-	for p := 1; p <= m.totalPages; p++ {
+	// The cache holds a contiguous prefix, so only the pages it fully covers
+	// are ready. A short final page counts only when the prefix is the whole
+	// collection.
+	fullPages := cached / perPage
+	m.pagesReady = make(map[int]bool, fullPages+1)
+	for p := 1; p <= fullPages; p++ {
 		m.pagesReady[p] = true
 	}
-	m.pagesLoaded = m.totalPages
+	if cached == m.totalProjects && cached%perPage != 0 {
+		m.pagesReady[fullPages+1] = true
+	}
+	m.pagesLoaded = len(m.pagesReady)
 	m.page = 1
 	m.selected = 0
 
-	if totalProjects == 0 {
+	if cached == 0 {
 		m.status = "Cache loaded (empty)"
 	} else {
-		m.status = fmt.Sprintf("Loaded %d cached projects", totalProjects)
+		m.status = fmt.Sprintf("Loaded %d cached projects", cached)
 	}
 	m.ensureSelectionBounds()
 	m.updateProjectList()
@@ -62,6 +70,9 @@ func (m Model) handleCacheLoaded(msg cacheLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	if prefetchCmd := (&m).queueBatchPrefetchPipelineStatus(); prefetchCmd != nil {
 		cmds = append(cmds, prefetchCmd)
+	}
+	if fetchCmd := (&m).queueBackgroundProjectFetch(); fetchCmd != nil {
+		cmds = append(cmds, fetchCmd)
 	}
 	if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
 		cmds = append(cmds, cmd)
@@ -98,11 +109,14 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 		if batchCmd := (&m).queueBatchPrefetchPipelineStatus(); batchCmd != nil {
 			cmds = append(cmds, batchCmd)
 		}
+		if fetchCmd := (&m).queueBackgroundProjectFetch(); fetchCmd != nil {
+			cmds = append(cmds, fetchCmd)
+		}
 		if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		if m.cache != nil && len(m.allProjects) > 0 {
-			cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
+		if cmd := m.queueCacheSave(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		if len(cmds) == 0 {
 			return m, nil
@@ -145,8 +159,11 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 			cmds = append(cmds, tickCmd)
 		}
 	}
-	if m.cache != nil && len(m.allProjects) > 0 {
-		cmds = append(cmds, saveCacheCmd(m.cache, m.allProjects))
+	if fetchCmd := (&m).queueBackgroundProjectFetch(); fetchCmd != nil {
+		cmds = append(cmds, fetchCmd)
+	}
+	if cmd := m.queueCacheSave(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	if cmd := (&m).handleSelectedProjectChange(prevID, prevOK); cmd != nil {
 		cmds = append(cmds, cmd)
@@ -155,6 +172,21 @@ func (m Model) handleProjectsLoaded(msg projectsLoadedMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// queueCacheSave persists the contiguous loaded prefix with the collection
+// total. Only the prefix goes to disk because pages fetched out of order leave
+// zero-value placeholders in allProjects, and a cached placeholder would render
+// as a blank project on the next launch.
+func (m Model) queueCacheSave() tea.Cmd {
+	if m.cache == nil {
+		return nil
+	}
+	loaded := m.allProjects[:min(m.loadedProjectCount(), len(m.allProjects))]
+	if len(loaded) == 0 {
+		return nil
+	}
+	return saveCacheCmd(m.cache, loaded, m.totalProjects)
 }
 
 // handlePipelineStatus updates the cached pipeline status for a single project.

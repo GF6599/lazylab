@@ -28,7 +28,10 @@ import (
 )
 
 const (
-	cacheVersion = 1
+	// Version 2 added TotalProjects. The bump also invalidates version-1 files
+	// on purpose: they hold only the first fetched page while claiming to be
+	// the whole collection, so honoring them would keep the truncation alive.
+	cacheVersion = 2
 	cacheTTL     = 24 * time.Hour // Cache expires after 24 hours
 )
 
@@ -69,11 +72,14 @@ type projectCache struct {
 
 // cacheFile is the versioned JSON envelope written to disk. Bump cacheVersion
 // when the schema changes; Load will treat mismatched versions as cache misses.
+// TotalProjects records the collection size the server reported, which can be
+// larger than len(Projects): the cache may hold only the pages loaded so far.
 type cacheFile struct {
-	Version  int                  `json:"version"`
-	Host     string               `json:"host"`
-	CachedAt time.Time            `json:"cached_at"`
-	Projects []gitlab.ProjectNode `json:"projects"`
+	Version       int                  `json:"version"`
+	Host          string               `json:"host"`
+	CachedAt      time.Time            `json:"cached_at"`
+	TotalProjects int                  `json:"total_projects"`
+	Projects      []gitlab.ProjectNode `json:"projects"`
 }
 
 // newProjectCache initializes the cache directory and returns a handle scoped
@@ -98,46 +104,50 @@ func newProjectCache(host string) (*projectCache, error) {
 // On the first miss for a given host, Load attempts to migrate a legacy-
 // sanitized cache file (the pre-collision-fix name) into the current scheme so
 // users don't lose their cache on upgrade.
-func (c *projectCache) Load() ([]gitlab.ProjectNode, error) {
+func (c *projectCache) Load() ([]gitlab.ProjectNode, int, error) {
 	data, err := os.ReadFile(c.path)
 	if errors.Is(err, os.ErrNotExist) && c.migrateLegacy() {
 		data, err = os.ReadFile(c.path)
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, errCacheNotFound
+		return nil, 0, errCacheNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read cache: %w", err)
+		return nil, 0, fmt.Errorf("read cache: %w", err)
 	}
 	var file cacheFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("decode cache: %w", err)
+		return nil, 0, fmt.Errorf("decode cache: %w", err)
 	}
 	if file.Version != cacheVersion {
-		return nil, fmt.Errorf("cache version mismatch: %d", file.Version)
+		return nil, 0, fmt.Errorf("cache version mismatch: %d", file.Version)
 	}
 	// Check cache TTL - expire after 24 hours
 	if !file.CachedAt.IsZero() && time.Since(file.CachedAt) > cacheTTL {
-		return nil, errCacheNotFound
+		return nil, 0, errCacheNotFound
 	}
 	if len(file.Projects) == 0 {
-		return nil, errCacheNotFound
+		return nil, 0, errCacheNotFound
 	}
-	return file.Projects, nil
+	return file.Projects, file.TotalProjects, nil
 }
 
 // Save persists the project list atomically. It writes to a temp file first,
 // then renames into place so concurrent readers never see a half-written file.
 // Empty project lists are silently skipped to avoid caching error states.
-func (c *projectCache) Save(projects []gitlab.ProjectNode) error {
+// totalProjects is the server-reported collection size, clamped up to the
+// slice length so a caller passing a stale or zero total can never mark a
+// cache as smaller than what it holds.
+func (c *projectCache) Save(projects []gitlab.ProjectNode, totalProjects int) error {
 	if len(projects) == 0 {
 		return nil
 	}
 	payload := cacheFile{
-		Version:  cacheVersion,
-		Host:     c.host,
-		CachedAt: time.Now(),
-		Projects: projects,
+		Version:       cacheVersion,
+		Host:          c.host,
+		CachedAt:      time.Now(),
+		TotalProjects: max(totalProjects, len(projects)),
+		Projects:      projects,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

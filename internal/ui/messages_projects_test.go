@@ -147,6 +147,7 @@ func backgroundLoadModel(t *testing.T, total int) Model {
 	svc := &mockService{ListProjectsFn: pagedListProjects(total)}
 	m := NewModel(context.Background(), svc, Options{})
 	m.pipelineTickAlive = true
+	m.projectTab = projectTabAll
 	return m
 }
 
