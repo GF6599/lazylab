@@ -687,15 +687,20 @@ func (m *Model) evictOldLogs() {
 	jobIDs := m.pipelineView.logs.Keys()
 	slices.Sort(jobIDs)
 
-	// Keep the current job and the most recent ones, remove the oldest
+	// Keep the current job and the most recent ones, remove the oldest.
+	// Skipping the displayed log must not shrink the eviction count, so the
+	// walk continues past it until the cache is back at the limit.
 	toRemove := len(jobIDs) - maxLogCacheEntries
-	for i := range toRemove {
-		jobID := jobIDs[i]
+	for _, jobID := range jobIDs {
+		if toRemove <= 0 {
+			break
+		}
 		// Don't evict currently displayed log
 		if jobID == m.pipelineView.logJobID {
 			continue
 		}
 		m.pipelineView.logs.Delete(jobID)
+		toRemove--
 	}
 }
 
