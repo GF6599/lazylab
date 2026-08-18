@@ -103,7 +103,18 @@ func keep(seq string) bool {
 }
 
 // isSGR reports whether a CSI sequence sets graphic rendition, the one class
-// Filter admits.
+// Filter admits. The final byte alone is not enough: XTMODKEYS (CSI > 4;2 m)
+// and other private-parameter sequences also end in 'm', so any sequence
+// carrying a private marker ('<' '=' '>' '?') is rejected. SGR parameters are
+// only digits, ':' and ';', so a legitimate colour never carries one.
 func isSGR(seq string) bool {
-	return seq[len(seq)-1] == 'm'
+	if seq[len(seq)-1] != 'm' {
+		return false
+	}
+	for i := range len(seq) - 1 {
+		if seq[i] >= '<' && seq[i] <= '?' {
+			return false
+		}
+	}
+	return true
 }
