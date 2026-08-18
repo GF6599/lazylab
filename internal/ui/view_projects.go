@@ -79,8 +79,8 @@ func renderDetailPane(m *Model, width int) string {
 			// sha + 2 spaces + title + 2 spaces + (time ago) = need to fit in width
 			maxTitle := width - len(c.ShortID) - len(timeAgo) - 7 // " sha  title  (ago)"
 			title := c.Title
-			if maxTitle > 0 && len(title) > maxTitle {
-				title = title[:maxTitle-1] + "…"
+			if maxTitle > 0 {
+				title = clampLine(title, maxTitle)
 			}
 			line := fmt.Sprintf(" %s  %s  (%s)", c.ShortID, title, timeAgo)
 			b.WriteString(detailValueStyle.Render(clampLine(line, width)))
