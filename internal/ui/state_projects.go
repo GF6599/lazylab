@@ -287,7 +287,7 @@ type detailCacheState struct {
 // Update paths.
 func (m Model) renderDetailCached(width, height int) string {
 	visible := m.visibleProjects()
-	if len(visible) == 0 {
+	if len(visible) == 0 || m.selected < 0 || m.selected >= len(visible) {
 		return renderDetailPane(&m, width)
 	}
 	project := visible[m.selected]

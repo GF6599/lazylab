@@ -22,7 +22,9 @@ func renderDetailPane(m *Model, width int) string {
 	b.WriteString(detailHeaderStyle.Render(clampLine("Details", width)))
 	b.WriteString("\n\n")
 	visible := m.visibleProjects()
-	if len(visible) == 0 {
+	// View must survive a mutation path that moved the selection without
+	// re-clamping it, so the guard covers out-of-range as well as empty.
+	if len(visible) == 0 || m.selected < 0 || m.selected >= len(visible) {
 		b.WriteString(clampLine(" Select a project to see more information.", width))
 		b.WriteString("\n")
 		return lipgloss.NewStyle().Width(width).Render(b.String())
