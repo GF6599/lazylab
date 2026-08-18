@@ -415,3 +415,11 @@ func rank(status string) int {
 	}
 	return stageStatusPriority["unknown"]
 }
+
+// StatusRank reports the aggregation priority of a job or stage status, lower
+// winning when one status must stand for a group. It is the exported face of
+// stageStatusPriority so UI-side aggregation shares this table instead of
+// carrying a copy that drifts.
+func StatusRank(status string) int {
+	return rank(normalizeStageStatus(status))
+}
