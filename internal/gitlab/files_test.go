@@ -176,7 +176,7 @@ func TestListTree_FollowsEveryPage(t *testing.T) {
 	}
 
 	// And: directories still sort ahead of files across the page boundary
-	wantOrder := []string{"docs", "src", "zz-vendor", "README.md", "go.mod", "zz-tail.txt"}
+	wantOrder := []string{"docs", "src", "zz-vendor", "go.mod", "README.md", "zz-tail.txt"}
 	for i, want := range wantOrder {
 		if nodes[i].Name != want {
 			t.Errorf("node[%d].Name = %q, want %q", i, nodes[i].Name, want)

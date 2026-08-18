@@ -29,19 +29,19 @@ type RepoService interface {
 // ListTree returns the immediate children of a directory in the repository,
 // sorted directories-first then case-insensitively by name — matching the
 // convention used by file managers like yazi and ranger. Results are fetched
-// non-recursively with a single 200-item page, which is sufficient for most
-// directories and avoids expensive recursive tree walks.
+// non-recursively and follow pagination, so a directory larger than one page
+// still lists completely without an expensive recursive tree walk.
 func (c *Client) ListTree(ctx context.Context, projectID int, opts TreeListOptions) ([]TreeNode, error) {
 	treeOpts := &gl.ListTreeOptions{
-		ListOptions: gl.ListOptions{
-			PerPage: 200,
-			Page:    1,
-		},
-		Ref:       gl.Ptr(opts.Ref),
-		Path:      gl.Ptr(opts.Path),
-		Recursive: gl.Ptr(false),
+		ListOptions: gl.ListOptions{PerPage: 200},
+		Ref:         gl.Ptr(opts.Ref),
+		Path:        gl.Ptr(opts.Path),
+		Recursive:   gl.Ptr(false),
 	}
-	nodes, _, err := c.api.Repositories.ListTree(projectID, treeOpts, gl.WithContext(ctx))
+	nodes, err := paginate(ctx, func(page int) ([]*gl.TreeNode, *gl.Response, error) {
+		treeOpts.Page = int64(page)
+		return c.api.Repositories.ListTree(projectID, treeOpts, gl.WithContext(ctx))
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list tree: %w", err)
 	}
