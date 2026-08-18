@@ -159,12 +159,12 @@ func (c *Client) CancelPipeline(ctx context.Context, projectID, pipelineID int) 
 // the bridge has not triggered yet or the downstream project is inaccessible.
 func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error) {
 	opts := &gl.ListJobsOptions{
-		ListOptions: gl.ListOptions{
-			PerPage: 100,
-			Page:    1,
-		},
+		ListOptions: gl.ListOptions{PerPage: 100},
 	}
-	bridges, _, err := c.api.Jobs.ListPipelineBridges(projectID, int64(pipelineID), opts, gl.WithContext(ctx))
+	bridges, err := paginate(ctx, func(page int) ([]*gl.Bridge, *gl.Response, error) {
+		opts.Page = int64(page)
+		return c.api.Jobs.ListPipelineBridges(projectID, int64(pipelineID), opts, gl.WithContext(ctx))
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list pipeline bridges: %w", err)
 	}
