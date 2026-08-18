@@ -52,8 +52,11 @@ var (
 	// The prefix allows 1-8 alphanumeric characters (mixed case) after
 	// "gl", followed by "-" and 6+ token characters. Widened from the
 	// previous gl[a-z]{2,4}- so uppercase variants and single-char-prefix
-	// tokens don't slip through.
-	tokenPattern = regexp.MustCompile(`gl[a-zA-Z0-9]{1,8}-[a-zA-Z0-9_-]{6,}`)
+	// tokens don't slip through. The trailing group takes the dot-joined
+	// fields of the routable format (glpat-<payload>.<length>.<crc>) as
+	// whole segments rather than adding a dot to the class, so a
+	// sentence-ending full stop after a token is not swallowed.
+	tokenPattern = regexp.MustCompile(`gl[a-zA-Z0-9]{1,8}-[a-zA-Z0-9_-]{6,}(?:\.[a-zA-Z0-9_-]+)*`)
 
 	// Every pattern below separates fields with [ \t] and never \s, because \s
 	// matches a newline and consumed the rest of the message instead of the
@@ -62,8 +65,10 @@ var (
 	//
 	// Authorization takes the rest of its line on purpose, so that
 	// "Bearer <token>" redacts as one unit rather than leaving the scheme bare.
+	// bearerPattern takes dot-joined segments so a JWT (header.claims.signature)
+	// redacts whole, while a sentence-ending full stop stays out of the match.
 	authHeaderPattern = regexp.MustCompile(`[Aa]uthorization:[ \t]*\S+([ \t]+\S+)*`)
-	bearerPattern     = regexp.MustCompile(`[Bb]earer[ \t]+[a-zA-Z0-9_-]+`)
+	bearerPattern     = regexp.MustCompile(`[Bb]earer[ \t]+[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*`)
 
 	// PRIVATE-TOKEN is the header the GitLab SDK sends for a personal access
 	// token, so it is the primary path and Authorization is the OAuth one. Its
