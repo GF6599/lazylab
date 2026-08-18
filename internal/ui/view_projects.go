@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 // renderDetailPane renders project metadata (name, visibility, links),
@@ -105,7 +106,7 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 	case state.loading && !state.hasInfo:
 		b.WriteString(progressStyle.Render("  Loading latest pipeline...") + "\n")
 	case state.err != nil:
-		b.WriteString(errorStyle.Render("  Error: "+state.err.Error()) + "\n")
+		b.WriteString(errorStyle.Render("  Error: "+redacting.Redact(state.err.Error())) + "\n")
 	case state.empty:
 		b.WriteString(progressStyle.Render(fmt.Sprintf("  %s for %s.", msgNoPipelines, refLabel)) + "\n")
 	case state.hasInfo:
