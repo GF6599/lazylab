@@ -61,6 +61,10 @@ func TestFilter_DropsSequencesThatActOnTheTerminal(t *testing.T) {
 		{"privacy message", "\x1b^payload\x1b\\"},
 		{"start of string", "\x1bXpayload\x1b\\"},
 		{"device status report", "\x1b[6n"},
+		// XTMODKEYS ends in 'm' like SGR does, but its '>' marker makes it a
+		// key-reporting mode change, not a colour.
+		{"modify keys (CSI > m)", "\x1b[>4;2m"},
+		{"private-parameter final m (CSI ? m)", "\x1b[?9m"},
 		{"clear screen", "\x1b[2J"},
 		{"cursor home", "\x1b[H"},
 		{"cursor up", "\x1b[10A"},
