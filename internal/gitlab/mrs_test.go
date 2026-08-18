@@ -231,6 +231,32 @@ func TestCreateMergeRequest_Success(t *testing.T) {
 	}
 }
 
+// TestCreateMergeRequest_EmptyTargetBranchFails: a missing target branch fails before any API call.
+// Given options with no target branch, when CreateMergeRequest runs, then it returns an error
+// naming the target branch and the server never sees a request.
+// Why it matters: GitLab rejects target_branch="" with an opaque 400, so validating locally turns
+// a confusing server error into a message that names the missing field.
+func TestCreateMergeRequest_EmptyTargetBranchFails(t *testing.T) {
+	// Given: a server that must never be reached
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}))
+
+	// When: creating a merge request with no target branch
+	_, err := client.CreateMergeRequest(context.Background(), 1, CreateMROptions{
+		Title:        "Add login feature",
+		SourceBranch: "feature/login",
+	})
+
+	// Then: the call fails locally with a message naming the field
+	if err == nil {
+		t.Fatal("expected an error for an empty target branch")
+	}
+	if !strings.Contains(err.Error(), "target branch") {
+		t.Fatalf("error should name the target branch, got: %v", err)
+	}
+}
+
 // TestListBranches_Success: a branch list response flattens to branch names in order.
 // Given a canned three-branch response, when ListBranches runs with no
 // search, then it returns main, develop, and feature/login in fixture order.
