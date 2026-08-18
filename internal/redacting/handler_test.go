@@ -87,6 +87,22 @@ func TestRedact(t *testing.T) {
 			want:  "leak: [REDACTED-TOKEN]",
 		},
 		{
+			// The routable token format (default since GitLab 16.x) appends
+			// dot-separated fields after the random payload. A character class
+			// without the dot would stop at the first field boundary and print
+			// the tail.
+			name:  "routable token with dotted fields",
+			input: "error: glpat-a1b2c3d4e5f6g7h8i9j0.01.0a1b2c3d4",
+			want:  "error: [REDACTED-TOKEN]",
+		},
+		{
+			// A JWT is three dot-joined base64 segments; the signature and
+			// claims must not survive the scrub.
+			name:  "bearer JWT with dotted segments",
+			input: "token: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+			want:  "token: Bearer [REDACTED]",
+		},
+		{
 			// The header name normalises, as Authorization does.
 			name:  "PRIVATE-TOKEN header",
 			input: "PRIVATE-TOKEN: abcdefghijklmnopqrst",
