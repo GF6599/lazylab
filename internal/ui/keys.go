@@ -54,7 +54,6 @@ type keyMap struct {
 	// Pagination
 	NextPage key.Binding
 	PrevPage key.Binding
-	Jump     key.Binding
 
 	// Preview scrolling
 	ScrollUp   key.Binding
@@ -220,10 +219,6 @@ func newKeyMap() keyMap {
 			key.WithKeys("["),
 			key.WithHelp("[", "prev page"),
 		),
-		Jump: key.NewBinding(
-			key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"),
-			key.WithHelp("1-9", "jump to recent"),
-		),
 
 		// Preview scrolling
 		ScrollUp: key.NewBinding(
@@ -267,8 +262,8 @@ func newKeyMap() keyMap {
 			key.WithHelp("=", "next screen mode"),
 		),
 		JumpPanel: key.NewBinding(
-			key.WithKeys("1", "2", "3", "4", "5"),
-			key.WithHelp("1-5", "jump to panel"),
+			key.WithKeys("1", "2", "3", "4"),
+			key.WithHelp("1-4", "jump to panel"),
 		),
 	}
 }

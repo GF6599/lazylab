@@ -1148,8 +1148,9 @@ func (m Model) handleClipboardWrote(msg clipboardWroteMsg) (tea.Model, tea.Cmd) 
 
 // dispatchKey routes a key event to the appropriate handler. In modeMultiPanel
 // it walks an explicit modal-overlay stack (explorer > createMR > reply >
-// retryConfirm) before falling through to the panel router. The order encodes
-// precedence: an active overlay always shadows lower-priority handlers.
+// retryConfirm > glabPreview) before falling through to the panel router. The
+// order encodes precedence: an active overlay always shadows lower-priority
+// handlers.
 func (m Model) dispatchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeMultiPanel:
@@ -1176,7 +1177,7 @@ type modalOverlay struct {
 }
 
 // modalOverlays returns the modal stack in priority order. Building this each
-// keystroke is fine: it's a 4-element slice of closures over receiver state,
+// keystroke is fine: it's a small slice of closures over receiver state,
 // which is cheap relative to the work the handlers themselves do.
 func (m Model) modalOverlays() []modalOverlay {
 	return []modalOverlay{
