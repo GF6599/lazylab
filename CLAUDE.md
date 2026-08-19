@@ -76,10 +76,10 @@ go mod tidy
 
 The UI uses Bubble Tea's Elm-like architecture with a single `Model` that acts as a state machine with multiple modes:
 
-- **`modeMultiPanel`**: Default startup mode — a four-pane layout (projects, MRs, pipelines, explorer) with overlay-driven modals
+- **`modeMultiPanel`**: Default startup mode: a four-pane layout (projects, MRs, pipelines, explorer) with overlay-driven modals
 - **`modeProjects`**: Legacy standalone project list with search and pagination
-- **`modeExplorer`**: Legacy standalone file tree (still in the enum for message guards in `messages_explorer.go`; the explorer is now an in-panel surface plus a modal overlay)
-- **`modePipelines`**: Legacy standalone pipeline view (still in the enum for message guards in `messages_pipelines.go`; pipelines are now a panel inside `modeMultiPanel`)
+- **`modeExplorer`**: Legacy standalone file tree (still in the enum for message guards in `messages_explorer.go`, the explorer is now an in-panel surface plus a modal overlay)
+- **`modePipelines`**: Legacy standalone pipeline view (still in the enum for message guards in `messages_pipelines.go`, pipelines are now a panel inside `modeMultiPanel`)
 
 Mode transitions follow this flow:
 ```
@@ -95,7 +95,7 @@ The legacy standalone `modeExplorer` and `modePipelines` constants remain load-b
 
 All async work (API calls, file operations) happens via `tea.Cmd` functions that return messages. The Update function handles these messages and returns new state + optional commands:
 
-1. User presses key → `Update` handles `tea.KeyMsg`
+1. User presses key -> `Update` handles `tea.KeyMsg`
 2. `Update` returns a `tea.Cmd` (e.g., `fetchProjectsCmd`)
 3. Command runs async and produces a message (e.g., `projectsLoadedMsg`)
 4. `Update` receives the message and updates state
@@ -124,7 +124,7 @@ Key message types in `internal/ui/project_list_cmds.go`:
 - Stage aggregation merges job statuses with priority (failed > canceled > manual > running > success > skipped)
 
 **Configuration** (`internal/config/config.go`):
-- Precedence: defaults → config file → env vars → CLI flags
+- Precedence: defaults -> config file -> env vars -> CLI flags
 - Uses Viper for file parsing (YAML/TOML/JSON)
 - Env prefix: `GITLAB_*` (e.g., `GITLAB_TOKEN`, `GITLAB_HOST`)
 
@@ -226,24 +226,24 @@ The config system uses Viper with this exact precedence (highest to lowest):
 1. CLI flags (`--token`, `--host`, etc.)
 2. Environment variables (`GITLAB_TOKEN`, `GITLAB_HOST`)
 3. Config file (if `--config` or `LAZYLAB_CONFIG`/`GITLAB_TUI_CONFIG` env set)
-4. glab's stored credentials (token + host) when no token came from the above. `internal/glabauth` shells out to `glab config get`; it is injected into `config.Load` via `WithGlabResolver`, so the config package never imports glab and stays testable.
+4. glab's stored credentials (token + host) when no token came from the above. `internal/glabauth` shells out to `glab config get`. It is injected into `config.Load` via `WithGlabResolver`, so the config package never imports glab and stays testable.
 5. Defaults (`https://gitlab.com`, 30 projects per page, info log level)
 
 Note: a token is required, but it can come from `--token`, `GITLAB_TOKEN`, a config file, or an authenticated `glab`. The app exits with an error only when none of these supply one.
 
-### Coding Conventions from AGENTS.md
+### Coding Conventions
 
 When adding features or fixing bugs:
 
 - **File Naming**: Group UI files by concern: `state_<area>.go` for per-mode state, `view_<area>.go` for renderers, `panel_<name>.go` for panel implementations, `keys_<area>.go` for key handlers, `messages_<area>.go` for `tea.Cmd` message handlers. The original `project_list_*.go` files (model, cmds, helpers, style, view, keys) remain as the central Bubble Tea wiring.
-- **Bubble Tea Patterns**: Keep `Update` functions under ~40 lines; extract mode-specific handlers
-- **Function Size**: Keep functions under ~40 lines; extract helpers for clarity
+- **Bubble Tea Patterns**: Keep `Update` functions under ~40 lines. Extract mode-specific handlers
+- **Function Size**: Keep functions under ~40 lines. Extract helpers for clarity
 - **Comments**: Only add comments for non-obvious logic (e.g., tricky Bubble Tea layout math)
-- **Commit Style**: Use Conventional Commits (`feat:`, `fix:`, `refactor:`)
+- **Commit style**: gitmoji scope-form (`✨ ui: ...`, `🐛 gitlab: ...`), per the repo history and `~/.claude/commands/commit-with-emoji.md`.
 - **Testing**: Aim for >80% coverage on `internal/gitlab` (it hides API failure modes)
 - **Test Naming**: `Test<Component>_<Behavior>` (e.g., `TestCache_SaveAndLoad`)
 - **Caching**: Store under `<os-cache-dir>/lazylab/` (via `os.UserCacheDir`) and document paths for users
-- **Token Security**: Never log or display tokens; redact in log output
+- **Token Security**: Never log or display tokens. Redact in log output
 
 ### Testing Guidelines
 
@@ -262,7 +262,7 @@ For UI tests:
 ## Build and Development Notes
 
 - **Go Version**: Requires Go 1.24+
-- **Dependencies**: Managed via `go.mod`; run `go mod tidy` after adding deps
+- **Dependencies**: Managed via `go.mod`. Run `go mod tidy` after adding deps
 - **Cross-compilation**: `just build` creates binaries for Darwin (current arch) and Linux AMD64
-- **Cache Location**: `<os-cache-dir>/lazylab/` — `~/Library/Caches` on macOS, `~/.cache` on Linux (users can delete to force refresh)
+- **Cache Location**: `<os-cache-dir>/lazylab/`: `~/Library/Caches` on macOS, `~/.cache` on Linux (users can delete to force refresh)
 - **Logs**: Emitted to stderr in text format (safe for TUI rendering on alternate screen)
