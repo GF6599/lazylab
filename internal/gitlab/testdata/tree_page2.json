@@ -1,0 +1,16 @@
+[
+  {
+    "id": "m3n4o5",
+    "name": "zz-vendor",
+    "type": "tree",
+    "path": "zz-vendor",
+    "mode": "040000"
+  },
+  {
+    "id": "p6q7r8",
+    "name": "zz-tail.txt",
+    "type": "blob",
+    "path": "zz-tail.txt",
+    "mode": "100644"
+  }
+]

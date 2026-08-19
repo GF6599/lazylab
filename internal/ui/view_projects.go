@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/GF6599/lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 // renderDetailPane renders project metadata (name, visibility, links),
@@ -21,7 +22,9 @@ func renderDetailPane(m *Model, width int) string {
 	b.WriteString(detailHeaderStyle.Render(clampLine("Details", width)))
 	b.WriteString("\n\n")
 	visible := m.visibleProjects()
-	if len(visible) == 0 {
+	// View must survive a mutation path that moved the selection without
+	// re-clamping it, so the guard covers out-of-range as well as empty.
+	if len(visible) == 0 || m.selected < 0 || m.selected >= len(visible) {
 		b.WriteString(clampLine(" Select a project to see more information.", width))
 		b.WriteString("\n")
 		return lipgloss.NewStyle().Width(width).Render(b.String())
@@ -76,8 +79,8 @@ func renderDetailPane(m *Model, width int) string {
 			// sha + 2 spaces + title + 2 spaces + (time ago) = need to fit in width
 			maxTitle := width - len(c.ShortID) - len(timeAgo) - 7 // " sha  title  (ago)"
 			title := c.Title
-			if maxTitle > 0 && len(title) > maxTitle {
-				title = title[:maxTitle-1] + "…"
+			if maxTitle > 0 {
+				title = clampLine(title, maxTitle)
 			}
 			line := fmt.Sprintf(" %s  %s  (%s)", c.ShortID, title, timeAgo)
 			b.WriteString(detailValueStyle.Render(clampLine(line, width)))
@@ -105,7 +108,7 @@ func renderPipelineSection(m *Model, project gitlab.ProjectNode, width int) stri
 	case state.loading && !state.hasInfo:
 		b.WriteString(progressStyle.Render("  Loading latest pipeline...") + "\n")
 	case state.err != nil:
-		b.WriteString(errorStyle.Render("  Error: "+state.err.Error()) + "\n")
+		b.WriteString(errorStyle.Render("  Error: "+redacting.Redact(state.err.Error())) + "\n")
 	case state.empty:
 		b.WriteString(progressStyle.Render(fmt.Sprintf("  %s for %s.", msgNoPipelines, refLabel)) + "\n")
 	case state.hasInfo:

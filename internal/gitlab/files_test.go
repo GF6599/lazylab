@@ -135,6 +135,55 @@ func TestListTree_EmptyDirectory(t *testing.T) {
 	}
 }
 
+// TestListTree_FollowsEveryPage: a directory spanning multiple pages lists completely.
+// Given a server splitting six entries across two pages, when ListTree runs, then both pages are
+// fetched and all six entries come back with directories still sorted first.
+// Why it matters: a directory past the page size would silently lose its tail in the explorer,
+// with nothing telling the user that files are missing.
+func TestListTree_FollowsEveryPage(t *testing.T) {
+	// Given: a server answering page 1 with a next-page header and page 2 without one
+	page1, err := os.ReadFile("testdata/tree.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	page2, err := os.ReadFile("testdata/tree_page2.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") == "2" {
+			w.Header().Set("X-Page", "2")
+			w.Write(page2)
+			return
+		}
+		w.Header().Set("X-Page", "1")
+		w.Header().Set("X-Next-Page", "2")
+		w.Header().Set("X-Total-Pages", "2")
+		w.Write(page1)
+	}))
+
+	// When: listing the directory
+	nodes, err := client.ListTree(context.Background(), 1, TreeListOptions{Ref: "main"})
+	if err != nil {
+		t.Fatalf("ListTree: %v", err)
+	}
+
+	// Then: every entry from both pages is present
+	if len(nodes) != 6 {
+		t.Fatalf("expected 6 entries across two pages, got %d", len(nodes))
+	}
+
+	// And: directories still sort ahead of files across the page boundary
+	wantOrder := []string{"docs", "src", "zz-vendor", "go.mod", "README.md", "zz-tail.txt"}
+	for i, want := range wantOrder {
+		if nodes[i].Name != want {
+			t.Errorf("node[%d].Name = %q, want %q", i, nodes[i].Name, want)
+		}
+	}
+}
+
 // TestListTree_MissingRef: a 404 for an unknown ref surfaces as a wrapped not-found error.
 // Given a server answering 404, when ListTree is called for a ghost ref, then
 // the error matches IsNotFound and carries "list tree" context.

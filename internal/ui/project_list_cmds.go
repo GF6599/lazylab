@@ -12,6 +12,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -34,8 +35,11 @@ type projectsLoadedMsg struct {
 
 type cacheLoadedMsg struct {
 	projects []gitlab.ProjectNode
-	err      error
-	found    bool
+	// total is the server-reported collection size recorded at save time. It
+	// exceeds len(projects) when the cache holds only the pages loaded so far.
+	total int
+	err   error
+	found bool
 }
 
 type cacheSavedMsg struct {
@@ -214,20 +218,23 @@ func fetchProjectsCmd(parentCtx context.Context, client gitlab.Service, timeout 
 
 func loadCacheCmd(cache *projectCache) tea.Cmd {
 	return func() tea.Msg {
-		projects, err := cache.Load()
+		projects, total, err := cache.Load()
 		if err != nil {
 			if errors.Is(err, errCacheNotFound) {
 				return cacheLoadedMsg{found: false}
 			}
 			return cacheLoadedMsg{err: err}
 		}
-		return cacheLoadedMsg{projects: projects, found: true}
+		return cacheLoadedMsg{projects: projects, total: total, found: true}
 	}
 }
 
-func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode) tea.Cmd {
+// saveCacheCmd clones the slice before returning the command, because the
+// write happens on a goroutine while Update keeps growing allProjects.
+func saveCacheCmd(cache *projectCache, projects []gitlab.ProjectNode, totalProjects int) tea.Cmd {
+	projects = slices.Clone(projects)
 	return func() tea.Msg {
-		if err := cache.Save(projects); err != nil {
+		if err := cache.Save(projects, totalProjects); err != nil {
 			return cacheSavedMsg{err: err}
 		}
 		return cacheSavedMsg{}

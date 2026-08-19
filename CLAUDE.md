@@ -135,7 +135,8 @@ On first run, the app fetches page 1 of projects in the foreground, then backgro
 Subsequent launches:
 1. `Init()` tries cache load first
 2. If cache exists and valid, display instantly
-3. User can force refresh with `Ctrl+R`
+3. If the cache holds fewer projects than its recorded total, background loading resumes for the missing pages
+4. User can force refresh with `Ctrl+R`
 
 Pipeline data auto-refreshes every 5 seconds when:
 - In `modeProjects`: refreshes the selected project's latest pipeline status
@@ -149,10 +150,7 @@ The explorer maintains a stack of `dirState` representing the navigation path:
 - Going up pops from the stack
 - Preview pane shows either directory listing or file content with syntax highlighting
 
-Syntax highlighting uses:
-1. `bat`/`batcat` if installed (respects terminal width)
-2. Falls back to `glamour` for markdown
-3. Raw content if both fail
+Syntax highlighting uses `glamour` (`internal/ui/highlight.go`), with results cached in a bounded LRU keyed by path, width, and content hash. Oversized files skip highlighting and render as raw content. No external tool such as `bat` is invoked.
 
 Preview scrolling with `J`/`K` is independent of file tree selection. The `previewState.offset` tracks scroll position and is preserved across preview refreshes unless `logAutoFollow` is true (for pipeline logs).
 

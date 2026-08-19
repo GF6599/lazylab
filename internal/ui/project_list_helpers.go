@@ -304,7 +304,6 @@ func rebuildPipelineStatusStyles() {
 		"waiting_for_resource": pipelinePending,
 		"scheduled":            pipelinePending,
 		"canceled":             pipelineCanceled,
-		"canceled?":            pipelineCanceled,
 		"skipped":              pipelineSkipped,
 		"manual":               pipelinePending,
 		"blocked":              pipelinePending,

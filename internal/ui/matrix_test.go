@@ -221,6 +221,8 @@ func TestAggregateMatrixStatus(t *testing.T) {
 		{"failed wins over running", []string{"running", "failed"}, "failed"},
 		{"canceled over success", []string{"success", "canceled"}, "canceled"},
 		{"manual over success", []string{"success", "manual"}, "manual"},
+		{"preparing wins over success", []string{"success", "preparing"}, "preparing"},
+		{"waiting_for_callback wins over success", []string{"success", "waiting_for_callback"}, "waiting_for_callback"},
 		{"empty", []string{}, "unknown"},
 	}
 	for _, tt := range tests {

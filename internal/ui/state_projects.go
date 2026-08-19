@@ -287,7 +287,7 @@ type detailCacheState struct {
 // Update paths.
 func (m Model) renderDetailCached(width, height int) string {
 	visible := m.visibleProjects()
-	if len(visible) == 0 {
+	if len(visible) == 0 || m.selected < 0 || m.selected >= len(visible) {
 		return renderDetailPane(&m, width)
 	}
 	project := visible[m.selected]
@@ -502,13 +502,41 @@ func (m *Model) movePage(delta int) tea.Cmd {
 	m.page = target
 	m.invalidateVisibleCache()
 	if missing, ok := m.firstMissingFetchPage(target); ok {
-		m.backgroundLoading = true
 		m.status = fmt.Sprintf("Loading page %d...", target)
+		// An in-flight background fetch already chains toward every missing
+		// page, so a second dispatch would only duplicate requests.
+		if m.backgroundLoading {
+			return nil
+		}
+		m.backgroundLoading = true
 		return fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, m.apiPerPage(), missing, true)
 	}
 	m.status = fmt.Sprintf("Viewing page %d", target)
 	m.ensureSelectionBounds()
 	m.updateProjectList()
+	return nil
+}
+
+// queueBackgroundProjectFetch starts fetching the first project page not yet
+// loaded, walking toward the server-reported total. It returns nil when the
+// collection is complete, a fetch is already in flight, or the total is
+// unknown because GitLab withholds counts past ten thousand items, where
+// movePage still fetches pages on demand.
+func (m *Model) queueBackgroundProjectFetch() tea.Cmd {
+	if m.backgroundLoading || m.client == nil {
+		return nil
+	}
+	perPage := m.apiPerPage()
+	if perPage <= 0 || m.totalProjects <= 0 {
+		return nil
+	}
+	lastPage := (m.totalProjects + perPage - 1) / perPage
+	for page := 1; page <= lastPage; page++ {
+		if !m.pagesReady[page] {
+			m.backgroundLoading = true
+			return fetchProjectsCmd(m.ctx, m.client, m.opts.APITimeout, perPage, page, true)
+		}
+	}
 	return nil
 }
 

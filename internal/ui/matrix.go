@@ -16,7 +16,7 @@
 // API call to a different project.
 //
 // Status aggregation uses worst-case semantics: if any child job failed, the
-// group shows "failed". Priority order mirrors internal/gitlab/pipelines.go.
+// group shows "failed". Priority order comes from gitlab.StatusRank.
 
 package ui
 
@@ -227,34 +227,11 @@ func aggregateMatrixStatus(jobs []gitlab.PipelineJob) string {
 	result := normalizeJobStatus(jobs[0].Status)
 	for _, job := range jobs[1:] {
 		candidate := normalizeJobStatus(job.Status)
-		if statusRank(candidate) < statusRank(result) {
+		if gitlab.StatusRank(candidate) < gitlab.StatusRank(result) {
 			result = candidate
 		}
 	}
 	return result
-}
-
-// statusRank returns the priority rank of a job status. Lower rank = higher
-// priority (shown when aggregating). Mirrors stageStatusPriority in
-// internal/gitlab/pipelines.go.
-func statusRank(status string) int {
-	ranks := map[string]int{
-		"failed":               0,
-		"canceled":             1,
-		"manual":               2,
-		"blocked":              2,
-		"running":              3,
-		"pending":              4,
-		"waiting_for_resource": 4,
-		"scheduled":            4,
-		"created":              5,
-		"success":              6,
-		"skipped":              7,
-	}
-	if r, ok := ranks[status]; ok {
-		return r
-	}
-	return 9
 }
 
 // normalizeJobStatus lowercases and trims a job status string, guarding against

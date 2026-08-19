@@ -19,6 +19,7 @@ import (
 
 	"github.com/GF6599/lazylab/internal/diffutil"
 	"github.com/GF6599/lazylab/internal/gitlab"
+	"github.com/GF6599/lazylab/internal/redacting"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -424,7 +425,7 @@ func renderMRReplyModal(m Model, width int) string {
 	b.WriteString("\n\n")
 
 	if m.mrView.reply.err != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(m.mrView.reply.err.Error(), innerWidth)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(redacting.Redact(m.mrView.reply.err.Error()), innerWidth)))
 		b.WriteString("\n")
 	}
 	if m.mrView.reply.sending {
@@ -495,7 +496,7 @@ func renderCreateMRModal(m Model, width int) string {
 	}
 
 	if m.mrView.createMR.err != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(m.mrView.createMR.err.Error(), innerWidth)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(redacting.Redact(m.mrView.createMR.err.Error()), innerWidth)))
 		b.WriteString("\n")
 	}
 	if m.mrView.createMR.sending {
@@ -523,7 +524,7 @@ func renderBranchPicker(bp branchPickerState, width int) string {
 		b.WriteString(explorerHintStyle.Render("  Loading branches..."))
 		b.WriteString("\n")
 	} else if bp.err != nil {
-		b.WriteString(explorerErrorStyle.Render("  " + bp.err.Error()))
+		b.WriteString(explorerErrorStyle.Render("  " + redacting.Redact(bp.err.Error())))
 		b.WriteString("\n")
 	} else if len(bp.filtered) == 0 {
 		b.WriteString(explorerHintStyle.Render("  No matching branches"))

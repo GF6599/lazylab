@@ -262,9 +262,14 @@ func (c *Client) ListBranches(ctx context.Context, projectID int, search string)
 }
 
 // CreateMergeRequest creates a new merge request in the given project.
-// Title and SourceBranch are required; an empty TargetBranch lets GitLab
-// default to the project's default branch. Returns the created MR summary.
+// Title, SourceBranch, and TargetBranch are required. The API always receives
+// the target branch, and GitLab rejects an empty one with a 400, so an empty
+// TargetBranch fails here with a message that names the field instead.
+// Returns the created MR summary.
 func (c *Client) CreateMergeRequest(ctx context.Context, projectID int, opts CreateMROptions) (MergeRequestSummary, error) {
+	if opts.TargetBranch == "" {
+		return MergeRequestSummary{}, fmt.Errorf("create merge request: target branch is required")
+	}
 	apiOpts := &gl.CreateMergeRequestOptions{
 		Title:        gl.Ptr(opts.Title),
 		SourceBranch: gl.Ptr(opts.SourceBranch),

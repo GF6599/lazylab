@@ -314,6 +314,52 @@ func TestListPipelineBridges_WithDownstream(t *testing.T) {
 	}
 }
 
+// TestListPipelineBridges_FollowsEveryPage: bridges spanning multiple pages all come back.
+// Given a server splitting three bridges across two pages, when ListPipelineBridges runs, then both
+// pages are fetched and all three bridges return in ID order.
+// Why it matters: a parent pipeline fanning out to more than one page of downstream triggers would
+// silently lose the tail, and the stages panel would show a pipeline smaller than the real one.
+func TestListPipelineBridges_FollowsEveryPage(t *testing.T) {
+	// Given: a server answering page 1 with a next-page header and page 2 without one
+	page1, err := os.ReadFile("testdata/bridges.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	page2, err := os.ReadFile("testdata/bridges_page2.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") == "2" {
+			w.Header().Set("X-Page", "2")
+			w.Write(page2)
+			return
+		}
+		w.Header().Set("X-Page", "1")
+		w.Header().Set("X-Next-Page", "2")
+		w.Header().Set("X-Total-Pages", "2")
+		w.Write(page1)
+	}))
+
+	// When: listing the pipeline's bridges
+	bridges, err := client.ListPipelineBridges(context.Background(), 1, 100)
+	if err != nil {
+		t.Fatalf("ListPipelineBridges: %v", err)
+	}
+
+	// Then: both pages came back in ID order
+	if len(bridges) != 3 {
+		t.Fatalf("expected 3 bridges across two pages, got %d", len(bridges))
+	}
+	for i, wantID := range []int{2001, 2002, 2003} {
+		if bridges[i].ID != wantID {
+			t.Errorf("bridge[%d].ID = %d, want %d", i, bridges[i].ID, wantID)
+		}
+	}
+}
+
 // TestGetPipeline_CarriesTheStartTime: the single-pipeline fetch brings back the moment a run
 // began.
 // Given a server answering with one pipeline that started at a known time, when GetPipeline runs,

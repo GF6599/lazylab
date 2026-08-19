@@ -159,12 +159,12 @@ func (c *Client) CancelPipeline(ctx context.Context, projectID, pipelineID int) 
 // the bridge has not triggered yet or the downstream project is inaccessible.
 func (c *Client) ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error) {
 	opts := &gl.ListJobsOptions{
-		ListOptions: gl.ListOptions{
-			PerPage: 100,
-			Page:    1,
-		},
+		ListOptions: gl.ListOptions{PerPage: 100},
 	}
-	bridges, _, err := c.api.Jobs.ListPipelineBridges(projectID, int64(pipelineID), opts, gl.WithContext(ctx))
+	bridges, err := paginate(ctx, func(page int) ([]*gl.Bridge, *gl.Response, error) {
+		opts.Page = int64(page)
+		return c.api.Jobs.ListPipelineBridges(projectID, int64(pipelineID), opts, gl.WithContext(ctx))
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list pipeline bridges: %w", err)
 	}
@@ -414,4 +414,12 @@ func rank(status string) int {
 		return r
 	}
 	return stageStatusPriority["unknown"]
+}
+
+// StatusRank reports the aggregation priority of a job or stage status, lower
+// winning when one status must stand for a group. It is the exported face of
+// stageStatusPriority so UI-side aggregation shares this table instead of
+// carrying a copy that drifts.
+func StatusRank(status string) int {
+	return rank(normalizeStageStatus(status))
 }

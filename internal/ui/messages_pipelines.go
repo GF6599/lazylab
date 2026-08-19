@@ -211,7 +211,10 @@ func (m Model) handlePipelineJobsLoaded(msg pipelineJobsLoadedMsg) (tea.Model, t
 		return m, nil
 	}
 	if msg.err != nil {
-		if errors.Is(msg.err, gitlab.ErrNoPipelines) {
+		// No jobs is a normal state for a bridge-only parent pipeline, so it
+		// caches as a present empty entry rather than an error a later tick
+		// would refetch.
+		if errors.Is(msg.err, gitlab.ErrNoJobs) {
 			m.pipelineView.jobs.Set(msg.pipelineID, nil)
 			return m, m.queuePipelineLogPreview()
 		}
@@ -391,6 +394,10 @@ func (m Model) handleChildPipelineJobsLoaded(msg childPipelineJobsLoadedMsg) (te
 		return m, nil
 	}
 	if msg.err != nil {
+		if errors.Is(msg.err, gitlab.ErrNoJobs) {
+			m.pipelineView.childJobs.Set(msg.childPipelineID, nil)
+			return m, m.queuePipelineLogPreview()
+		}
 		m.pipelineView.childJobs.SetErr(msg.childPipelineID, msg.err)
 		return m, nil
 	}

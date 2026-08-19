@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/GF6599/lazylab/internal/redacting"
 )
 
 // pipelinePaneLayout calculates inner widths and content height for the
@@ -82,7 +84,7 @@ func renderPipelineListPane(m Model, width, height int, focused bool) string {
 		b.WriteString("\n")
 	}
 	if m.pipelineView.retryErr != nil {
-		b.WriteString(explorerErrorStyle.Render(clampLine(" Retry failed: "+m.pipelineView.retryErr.Error(), width)))
+		b.WriteString(explorerErrorStyle.Render(clampLine(" Retry failed: "+redacting.Redact(m.pipelineView.retryErr.Error()), width)))
 		b.WriteString("\n")
 	}
 	if len(m.pipelineView.pipelines) == 0 && !m.pipelineView.loading && m.pipelineView.err == nil {
