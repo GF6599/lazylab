@@ -14,8 +14,23 @@ Lazylab navigates GitLab the way `lazygit` navigates git. A multi-panel TUI with
 
 ## Install
 
+Homebrew, on macOS. Homebrew serves lazylab as a cask, and a cask does not install on Linux:
+
+```bash
+brew install --cask GF6599/tap/lazylab
+```
+
+With a Go toolchain:
+
 ```bash
 go install github.com/GF6599/lazylab/cmd/lazylab@latest
+```
+
+Or take a binary from the [releases page](https://github.com/GF6599/lazylab/releases). Each archive holds the binary for one platform, and `checksums.txt` covers every archive in the release:
+
+```bash
+tar -xzf lazylab_<version>_<os>_<arch>.tar.gz
+sudo mv lazylab /usr/local/bin/
 ```
 
 Or build from source:
@@ -25,7 +40,9 @@ git clone https://github.com/GF6599/lazylab.git
 cd lazylab && go build ./cmd/lazylab
 ```
 
-Requires Go 1.26+ and a GitLab personal access token with `api` scope, or an authenticated [`glab`](https://gitlab.com/gitlab-org/cli) (see [Configuration](#configuration)).
+Every route needs a GitLab personal access token with `api` scope, or an authenticated [`glab`](https://gitlab.com/gitlab-org/cli). See [Configuration](#configuration). The two Go routes also need Go 1.26 or later. Homebrew and the released binaries need no toolchain.
+
+Run `lazylab --version` to report which build you have.
 
 ## Usage
 

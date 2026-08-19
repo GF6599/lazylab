@@ -25,7 +25,8 @@ checksum:
   algorithm: sha256
 
 homebrew_casks:
-  - repository:
+  - name: lazylab
+    repository:
       owner: GF6599
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
@@ -33,6 +34,19 @@ homebrew_casks:
     homepage: https://github.com/GF6599/lazylab
     description: A Bubble Tea-powered terminal UI for browsing GitLab projects, pipelines, and repository files
     license: MIT
+    # The download domain differs from the homepage, which `brew audit` rejects
+    # until the release host is named here.
+    url:
+      verified: github.com/GF6599/lazylab
+    # Homebrew quarantines what a cask downloads, and macOS reports a quarantined
+    # binary that nobody notarized as damaged rather than running it. Notarizing
+    # needs a paid Apple developer account, so the cask clears the attribute.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/lazylab"]
+          end
 
 changelog:
   sort: asc

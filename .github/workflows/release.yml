@@ -4,16 +4,23 @@ on:
   push:
     tags:
       - "v*"
-  # A dispatch run compiles every target and publishes nothing, so an action or
-  # toolchain upgrade is proven here instead of on a live tag.
+  # A dispatch run renders every archive, checksum and the cask, then publishes
+  # nothing, so an action or toolchain upgrade is proven here instead of on a
+  # live tag.
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: check
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       # A tag moves, so a compromised maintainer account can repoint one and run
       # new code in a job holding contents: write and a Homebrew tap token.
@@ -26,15 +33,15 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run tests
-        run: go test ./...
-
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: "~> v2"
-          args: ${{ github.event_name == 'workflow_dispatch' && 'build --snapshot --clean' || 'release --clean' }}
+          # A dispatch run renders the archives, checksums and cask that a tag
+          # would publish. `build` would compile the binaries and render none of
+          # them, which is where a template error actually hides.
+          args: ${{ github.event_name == 'workflow_dispatch' && 'release --snapshot --clean --skip=publish' || 'release --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # goreleaser build skips the token check, so a dispatch run never
-          # needs the tap credential and never receives it.
+          # --skip=publish never reads the tap credential, so a dispatch run
+          # never needs it and never receives it.
           HOMEBREW_TAP_TOKEN: ${{ github.event_name == 'push' && secrets.HOMEBREW_TAP_TOKEN || '' }}

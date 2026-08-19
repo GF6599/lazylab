@@ -27,6 +27,14 @@ build:
 	GOOS=darwin GOARCH=$(go env GOARCH) go build -o build/lazylab-darwin-$(go env GOARCH) ./cmd/lazylab
 	GOOS=linux GOARCH=amd64 go build -o build/lazylab-linux-amd64 ./cmd/lazylab
 
+# Render a full release into dist/ and publish none of it
+[group('build')]
+release-dry-run:
+	# GITLAB_TOKEN is cleared because goreleaser reads the release host from
+	# whichever token variable it finds, and running lazylab needs that one
+	# exported. Leaving it set writes gitlab.com download URLs into the cask.
+	env -u GITLAB_TOKEN goreleaser release --snapshot --clean --skip=publish
+
 # Build a binary and record the VHS demo
 [group('run')]
 demo:
@@ -59,4 +67,4 @@ deadcode:
 # Remove build artifacts
 [group('build')]
 clean:
-	rm -rf build lazylab
+	rm -rf build dist lazylab
