@@ -52,12 +52,14 @@ install: build
 fmt:
 	go tool gofumpt -w .
 
-# Vet, staticcheck, and gofumpt diff check
+# Every static check CI runs, in the same order
 [group('dev')]
 lint:
 	go vet ./...
 	go tool staticcheck ./...
 	go tool gofumpt -l -d .
+	# Reaches vuln.go.dev, so this recipe needs a network connection.
+	go tool govulncheck ./...
 
 # Report unreachable code (informational, test-only functions are expected)
 [group('dev')]
