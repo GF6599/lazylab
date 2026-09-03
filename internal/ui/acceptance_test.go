@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -681,4 +683,270 @@ func findMsg[T tea.Msg](cmd tea.Cmd) (T, bool) {
 		}
 	}
 	return zero, false
+}
+
+// triggerSpyService wraps the demo service to record what a play or a pipeline
+// trigger actually sent, so a scenario asserts on the request that left the UI
+// rather than on the form state behind it.
+type triggerSpyService struct {
+	*demo.DemoService
+	playedJobID  int
+	playedVars   []gitlab.PipelineVariable
+	createdRef   string
+	createdVars  []gitlab.PipelineVariable
+	createCalled bool
+}
+
+func (s *triggerSpyService) PlayJob(ctx context.Context, projectID, jobID int, vars []gitlab.PipelineVariable) (gitlab.PipelineJob, error) {
+	s.playedJobID = jobID
+	s.playedVars = vars
+	return s.DemoService.PlayJob(ctx, projectID, jobID, vars)
+}
+
+func (s *triggerSpyService) CreatePipeline(ctx context.Context, projectID int, ref string, vars []gitlab.PipelineVariable) (gitlab.PipelineSummary, error) {
+	s.createCalled = true
+	s.createdRef = ref
+	s.createdVars = vars
+	return s.DemoService.CreatePipeline(ctx, projectID, ref, vars)
+}
+
+// selectPipeline drives j until the named pipeline is selected, so a scenario
+// names the run it wants instead of a key count that a change to the demo
+// fixture would silently invalidate.
+func selectPipeline(t *testing.T, m Model, pipelineID int) Model {
+	t.Helper()
+	for range len(m.pipelineView.pipelines) + 1 {
+		if p := m.selectedPipeline(); p != nil && p.ID == pipelineID {
+			return m
+		}
+		next, cmd := press(m, keyMsg("j"))
+		m = drainCmd(t, next, cmd)
+	}
+	t.Fatalf("pipeline #%d never became selected", pipelineID)
+	return m
+}
+
+func selectJobRow(t *testing.T, m Model, jobID int) Model {
+	t.Helper()
+	for range len(m.pipelineView.jobRows) + 1 {
+		if job := m.selectedPipelineJob(); job != nil && job.ID == jobID {
+			return m
+		}
+		next, cmd := press(m, keyMsg("j"))
+		m = drainCmd(t, next, cmd)
+	}
+	t.Fatalf("job #%d never became selected", jobID)
+	return m
+}
+
+// stagesPanelOverManualJob focuses the stages panel on the manual deploy job,
+// the one job in the demo fixture a play applies to.
+func stagesPanelOverManualJob(t *testing.T, svc gitlab.Service) Model {
+	t.Helper()
+	m := pipelinesPanelModelOver(t, svc)
+	m = selectPipeline(t, m, demoManualPipelineID)
+	m, cmd := press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = drainCmd(t, m, cmd)
+	if m.focus.Active != PanelStages {
+		t.Fatalf("focus = %d, want PanelStages", m.focus.Active)
+	}
+	return selectJobRow(t, m, demoManualJobID)
+}
+
+const (
+	demoManualPipelineID = 1001006
+	demoManualJobID      = 100100604
+)
+
+// TestPlayJobModal_CancelAndSubmitWithVariables: P opens the variables form, esc cancels it, and a
+// filled form plays the job carrying what was typed.
+// Given the stages panel over the demo project's manual deploy job, when P opens the modal, esc
+// cancels it, and a reopened form is filled with a key and a value and submitted with enter, then
+// the cancel sends no play and the submitted play carries the pair to the service.
+// Why it matters: a manual job whose script requires a variable stays queued when the play omits
+// it, and the status line reports a successful trigger either way, so a dropped pair reads to the
+// user as a job that started and then quietly did nothing.
+func TestPlayJobModal_CancelAndSubmitWithVariables(t *testing.T) {
+	// Given: the stages panel over the manual deploy job
+	svc := &triggerSpyService{DemoService: &demo.DemoService{}}
+	m := stagesPanelOverManualJob(t, svc)
+
+	// When: P opens the play-job modal
+	m, _ = press(m, keyMsg("P"))
+
+	// Then: the modal names the job and offers the variables editor
+	requireContains(t, m.View(), "Play job: deploy", "Variables", "enter run", "esc cancel")
+
+	// When: esc cancels it
+	m, cancelCmd := press(m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	// Then: nothing reached the service and the overlay is gone
+	if cancelCmd != nil {
+		t.Fatal("esc should return no command from the play-job modal")
+	}
+	if svc.playedJobID != 0 {
+		t.Fatalf("play reached the service after cancel, job #%d", svc.playedJobID)
+	}
+	requireNotContains(t, m.View(), "Play job: deploy")
+
+	// When: the modal is reopened and a variable is typed into it
+	m, _ = press(m, keyMsg("P"))
+	m = typeString(m, "DEPLOY_ENV")
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = typeString(m, "staging")
+
+	// And: the typed pair renders in the form
+	requireContains(t, m.View(), "DEPLOY_ENV", "staging")
+
+	// When: enter submits and the command runs against the service
+	m, submitCmd := press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if submitCmd == nil {
+		t.Fatal("expected a play command from enter")
+	}
+	m = drainCmd(t, m, submitCmd)
+
+	// Then: the play carried the typed pair to the manual job
+	if svc.playedJobID != demoManualJobID {
+		t.Errorf("played job #%d, want #%d", svc.playedJobID, demoManualJobID)
+	}
+	want := []gitlab.PipelineVariable{{Key: "DEPLOY_ENV", Value: "staging"}}
+	if !slices.Equal(svc.playedVars, want) {
+		t.Errorf("played variables = %+v, want %+v", svc.playedVars, want)
+	}
+
+	// And: the modal is closed and the status names the triggered job
+	if m.pipelineView.playJob.active {
+		t.Error("expected the play-job modal to close after the job is played")
+	}
+	if want := fmt.Sprintf("Triggered job #%d", demoManualJobID); m.status != want {
+		t.Errorf("status = %q, want %q", m.status, want)
+	}
+}
+
+// TestPlayJobModal_EmptyFormPlaysWithNoVariables: submitting an untouched form plays the job plainly.
+// Given the play-job modal freshly opened over the manual deploy job, when enter submits it
+// untouched, then the play reaches the service carrying no variables.
+// Why it matters: every manual play before this modal existed took that path, so an untouched form
+// must stay a plain play rather than start sending an empty-keyed variable GitLab rejects.
+func TestPlayJobModal_EmptyFormPlaysWithNoVariables(t *testing.T) {
+	// Given: the play-job modal open over the manual deploy job
+	svc := &triggerSpyService{DemoService: &demo.DemoService{}}
+	m := stagesPanelOverManualJob(t, svc)
+	m, _ = press(m, keyMsg("P"))
+
+	// When: enter submits the untouched form
+	m, submitCmd := press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if submitCmd == nil {
+		t.Fatal("expected a play command from enter")
+	}
+	drainCmd(t, m, submitCmd)
+
+	// Then: the job was played with no variables
+	if svc.playedJobID != demoManualJobID {
+		t.Errorf("played job #%d, want #%d", svc.playedJobID, demoManualJobID)
+	}
+	if len(svc.playedVars) != 0 {
+		t.Errorf("played variables = %+v, want none", svc.playedVars)
+	}
+}
+
+// TestRunPipelineModal_CancelAndSubmit: N opens the run-pipeline form, esc cancels it, and a filled
+// form triggers a pipeline on the ref with its variables.
+// Given the pipelines panel with demo pipelines loaded, when N opens the modal, esc cancels it, and
+// a reopened form has its ref replaced and a variable added before enter, then the cancel triggers
+// nothing and the submit sends the edited ref and the pair.
+// Why it matters: a trigger that ignores the edited ref runs the wrong branch, and one that drops
+// the variables runs a pipeline whose rules take a different shape than the user asked for.
+func TestRunPipelineModal_CancelAndSubmit(t *testing.T) {
+	// Given: the pipelines panel with demo pipelines loaded
+	svc := &triggerSpyService{DemoService: &demo.DemoService{}}
+	m := pipelinesPanelModelOver(t, svc)
+
+	// When: N opens the run-pipeline modal
+	m, _ = press(m, keyMsg("N"))
+
+	// Then: the modal offers a ref field seeded from the selection, and the variables editor
+	requireContains(t, m.View(), "Run pipeline", "Branch or tag", "Variables", "enter run")
+
+	// When: esc cancels it
+	m, cancelCmd := press(m, tea.KeyMsg{Type: tea.KeyEsc})
+
+	// Then: nothing was triggered and the overlay is gone
+	if cancelCmd != nil {
+		t.Fatal("esc should return no command from the run-pipeline modal")
+	}
+	if svc.createCalled {
+		t.Fatal("a pipeline was triggered after cancel")
+	}
+	requireNotContains(t, m.View(), "Branch or tag")
+
+	// When: the modal is reopened, the ref is replaced and a variable is added
+	m, _ = press(m, keyMsg("N"))
+	m.pipelineView.runPipeline.ref.SetValue("")
+	m = typeString(m, "release/2.0")
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = typeString(m, "DRY_RUN")
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyTab})
+	m = typeString(m, "true")
+
+	// When: enter submits and the command runs against the service
+	m, submitCmd := press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if submitCmd == nil {
+		t.Fatal("expected a create-pipeline command from enter")
+	}
+	m = drainCmd(t, m, submitCmd)
+
+	// Then: the trigger carried the edited ref and the typed pair
+	if svc.createdRef != "release/2.0" {
+		t.Errorf("triggered ref = %q, want %q", svc.createdRef, "release/2.0")
+	}
+	want := []gitlab.PipelineVariable{{Key: "DRY_RUN", Value: "true"}}
+	if !slices.Equal(svc.createdVars, want) {
+		t.Errorf("triggered variables = %+v, want %+v", svc.createdVars, want)
+	}
+
+	// And: the modal is closed and the status names the triggered run
+	if m.pipelineView.runPipeline.active {
+		t.Error("expected the run-pipeline modal to close after the pipeline is triggered")
+	}
+	if !strings.Contains(m.status, "release/2.0") {
+		t.Errorf("status = %q, want it to name the ref", m.status)
+	}
+}
+
+// TestTriggerModals_TildeTypesIntoTheFormRatherThanCyclingTheTheme: a tilde typed in a trigger
+// modal is text, not the theme hotkey.
+// Given the play-job modal and the run-pipeline modal each focused on a field, when a value
+// containing a tilde is typed, then the field holds the tilde and the form renders it.
+// Why it matters: ~ cycles the theme globally, and the guard that stands it down while a modal
+// owns the keystrokes is a hand-kept list of modal names. A modal missing from that list compiles,
+// passes every other test, and silently swallows a character out of a CI variable, so the
+// pipeline runs with a value the user never typed.
+func TestTriggerModals_TildeTypesIntoTheFormRatherThanCyclingTheTheme(t *testing.T) {
+	// A cycled theme is package-global, so restore it whatever this test proves.
+	saved := currentTheme
+	t.Cleanup(func() { applyTheme(saved) })
+
+	// Given: the play-job modal open on the manual deploy job, focused on a variable value
+	play := stagesPanelOverManualJob(t, &triggerSpyService{DemoService: &demo.DemoService{}})
+	play, _ = press(play, keyMsg("P"))
+	play = typeString(play, "HOME_DIR")
+	play, _ = press(play, tea.KeyMsg{Type: tea.KeyTab})
+
+	// When: a value containing a tilde is typed
+	play = typeString(play, "~/build")
+
+	// Then: the variable holds the tilde verbatim
+	requireContains(t, play.View(), "~/build")
+
+	// Given: the run-pipeline modal open, focused on the ref field
+	run := pipelinesPanelModelOver(t, &triggerSpyService{DemoService: &demo.DemoService{}})
+	run, _ = press(run, keyMsg("N"))
+	run.pipelineView.runPipeline.ref.SetValue("")
+
+	// When: a ref containing a tilde is typed
+	run = typeString(run, "wip~1")
+
+	// Then: the ref holds the tilde verbatim
+	requireContains(t, run.View(), "wip~1")
 }

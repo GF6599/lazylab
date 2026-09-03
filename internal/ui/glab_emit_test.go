@@ -399,7 +399,14 @@ const (
 // project, execute the fetch command, and apply the resulting load message.
 func demoPipelinesPanelModel(t *testing.T) Model {
 	t.Helper()
-	svc := &demo.DemoService{}
+	return pipelinesPanelModelOver(t, &demo.DemoService{})
+}
+
+// pipelinesPanelModelOver is demoPipelinesPanelModel over a caller-supplied
+// service, so a scenario can wrap the demo data in a spy and assert on what a
+// write actually sent.
+func pipelinesPanelModelOver(t *testing.T, svc gitlab.Service) Model {
+	t.Helper()
 	m := NewModel(context.Background(), svc, Options{})
 
 	page, err := svc.ListProjects(context.Background(), gitlab.ProjectListOptions{Page: 1, PerPage: m.opts.ProjectsPerPage})

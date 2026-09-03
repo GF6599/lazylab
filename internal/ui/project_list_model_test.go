@@ -746,8 +746,9 @@ func TestRetryConfirmFlow_RetriesSelectedJob(t *testing.T) {
 // TestStagesPanel_BridgeChildActions: cancel, play and retry on a downstream (bridge-child)
 // job address that job's own project, and every reply reaches the view that asked.
 // Given a bridge-child job selected in the stages panel whose ChildProjectID differs from the
-// parent project, when the user cancels a running one, plays a manual one and retries a failed
-// one, then each request carries the downstream project ID and each reply reports its outcome.
+// parent project, when the user cancels a running one, plays a manual one through the variables
+// modal and retries a failed one, then each request carries the downstream project ID and each
+// reply reports its outcome.
 // Why it matters: a child pipeline's jobs live in a different GitLab project, so a request sent
 // to the parent reaches no job, and a reply the view discards strands the action on screen with
 // no outcome and, for retry, no way to try again.
@@ -786,12 +787,18 @@ func TestStagesPanel_BridgeChildActions(t *testing.T) {
 		job        gitlab.PipelineJob
 		addressed  *int
 		wantStatus string
+		// A play opens the variables modal first, so the request only goes out
+		// once the form is submitted.
+		viaModal bool
 	}{
-		{"cancel", "C", gitlab.PipelineJob{ID: 900, Name: "deploy", Stage: "deploy", Status: "running"}, &cancelProjectID, "Canceled job"},
-		{"play", "P", gitlab.PipelineJob{ID: 901, Name: "release", Stage: "deploy", Status: "manual"}, &playProjectID, "Triggered job"},
+		{"cancel", "C", gitlab.PipelineJob{ID: 900, Name: "deploy", Stage: "deploy", Status: "running"}, &cancelProjectID, "Canceled job", false},
+		{"play", "P", gitlab.PipelineJob{ID: 901, Name: "release", Stage: "deploy", Status: "manual"}, &playProjectID, "Triggered job", true},
 	} {
 		// When: the user acts on a bridge-child job and the reply comes back
 		sent, cmd := stagesOver(action.job).Update(keyMsg(action.key))
+		if action.viaModal {
+			sent, cmd = sent.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+		}
 		if cmd == nil {
 			t.Fatalf("%s: expected a command from %s", action.name, action.key)
 		}
