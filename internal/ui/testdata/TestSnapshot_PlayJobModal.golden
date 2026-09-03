@@ -1,0 +1,12 @@
+┌────────────────────────────────────────────────────────────┐
+│                                                            │
+│  Play job: deploy:production                               │
+│                                                            │
+│  Variables                                                 │
+│  [> DEPLOY_ENV        > production                      ]  │
+│   > KEY            > value                                 │
+│                                                            │
+│  tab cycle · ctrl+n add row · ctrl+d remove row            │
+│  enter run · esc cancel                                    │
+│                                                            │
+└────────────────────────────────────────────────────────────┘

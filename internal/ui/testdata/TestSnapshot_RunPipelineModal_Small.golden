@@ -1,0 +1,15 @@
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│  Run pipeline · team/alpha                                           │
+│                                                                      │
+│  Branch or tag                                                       │
+│  > release/2.0                                                       │
+│                                                                      │
+│  Variables                                                           │
+│  [> DRY_RUN              > true                                   ]  │
+│   > KEY               > value                                        │
+│                                                                      │
+│  tab cycle · ctrl+n add row · ctrl+d remove row                      │
+│  enter run · esc cancel                                              │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
