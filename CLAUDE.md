@@ -104,7 +104,7 @@ Key message types in `internal/ui/project_list_cmds.go`:
 - `projectsLoadedMsg`, `cacheLoadedMsg`, `cacheSavedMsg`
 - `treeLoadedMsg`, `fileLoadedMsg`
 - `pipelinesLoadedMsg`, `pipelineStagesLoadedMsg`, `pipelineJobsLoadedMsg`, `pipelineLogLoadedMsg`
-- `pipelineStatusMsg`, `pipelineRetriedMsg`, `pipelineJobRetriedMsg`
+- `pipelineStatusMsg`, `pipelineRetriedMsg`, `pipelineJobRetriedMsg`, `pipelineCreatedMsg`
 - `pipelineTickMsg` (triggers auto-refresh every 5 seconds)
 
 ### File Organization by Concern
@@ -115,6 +115,7 @@ Key message types in `internal/ui/project_list_cmds.go`:
 - `project_list_view.go`: All rendering functions (project list, explorer, pipelines, modals)
 - `project_list_style.go`: Lipgloss styles and color definitions
 - `project_list_helpers.go`: Pure helper functions (formatting, scrolling, selection)
+- `variables_form.go`: Shared key/value editor behind the trigger modals
 - `cache.go`: Project list caching under `<os-cache-dir>/lazylab/projects_<host>.json`
 
 **GitLab Client** (`internal/gitlab/client.go`):
@@ -173,6 +174,19 @@ Retry behavior (`R` key):
 - In pipelines focus: retries entire pipeline (or creates new run if needed)
 - In stages focus: retries the selected stage's job
 - Confirmation modal appears before retry
+
+Trigger behavior, both surfaces collect CI variables the way GitLab's own forms do:
+- `N` in pipelines focus opens the run-pipeline modal: a ref (seeded from the selected
+  pipeline, falling back to the project default branch) plus key/value variables
+- `P` in stages focus opens the play-job modal for a manual job. Enter on an untouched
+  form is a plain play, so the no-variable case matches the pre-modal behavior
+- Both modals use `variablesForm` (`internal/ui/variables_form.go`), keyed
+  `tab` cycle, `ctrl+n` add row, `ctrl+d` remove row, `enter` submit, `esc` cancel
+- Nothing is remembered between runs. Variable values are frequently secrets, so they are
+  never persisted, never written to `m.status`, and modal errors go through
+  `redacting.Redact`
+- Adding another modal that holds a text input means adding it to `isTextInputActive`
+  (`internal/ui/project_list_model.go`), or the global `~` theme hotkey eats the character
 
 ### State Management Patterns
 
