@@ -621,11 +621,11 @@ func cancelJobCmd(parentCtx context.Context, client gitlab.Service, timeout time
 	}
 }
 
-func playJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, target jobActionTarget, jobID int) tea.Cmd {
+func playJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, target jobActionTarget, jobID int, vars []gitlab.PipelineVariable) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
-		job, err := client.PlayJob(ctx, target.projectID, jobID)
+		job, err := client.PlayJob(ctx, target.projectID, jobID, vars)
 		return jobPlayedMsg{viewProjectID: target.viewProjectID, jobID: jobID, job: job, err: err}
 	}
 }

@@ -28,7 +28,8 @@ type PipelineService interface {
 	RetryJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
 	CancelPipeline(ctx context.Context, projectID, pipelineID int) error
 	CancelJob(ctx context.Context, projectID, jobID int) error
-	PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error)
+	PlayJob(ctx context.Context, projectID, jobID int, vars []PipelineVariable) (PipelineJob, error)
+	CreatePipeline(ctx context.Context, projectID int, ref string, vars []PipelineVariable) (PipelineSummary, error)
 	ListPipelineBridges(ctx context.Context, projectID, pipelineID int) ([]PipelineBridge, error)
 	GetPipelineTestReport(ctx context.Context, projectID, pipelineID int) (*TestReport, error)
 }
@@ -116,6 +117,46 @@ func (c *Client) ListPipelines(ctx context.Context, projectID int, opts Pipeline
 	}, nil
 }
 
+// PipelineVariable is one key/value pair supplied when a pipeline or a manual
+// job is triggered. The type is always env_var: the file type writes the value
+// to a temporary file on the runner and has no sensible TUI affordance.
+type PipelineVariable struct {
+	Key   string
+	Value string
+}
+
+// pipelineVariableOptions returns nil for an empty slice so the request omits
+// the field entirely, keeping a no-variable trigger byte-identical to what this
+// client sent before variables existed.
+func pipelineVariableOptions(vars []PipelineVariable) *[]*gl.PipelineVariableOptions {
+	if len(vars) == 0 {
+		return nil
+	}
+	out := make([]*gl.PipelineVariableOptions, 0, len(vars))
+	for _, v := range vars {
+		out = append(out, &gl.PipelineVariableOptions{
+			Key:          gl.Ptr(v.Key),
+			Value:        gl.Ptr(v.Value),
+			VariableType: gl.Ptr(gl.EnvVariableType),
+		})
+	}
+	return &out
+}
+
+// CreatePipeline starts a new pipeline on ref, passing each variable through as
+// an env_var. It is the single place that builds CreatePipelineOptions, so the
+// run-pipeline action and RetryPipeline's create fallback cannot drift apart.
+func (c *Client) CreatePipeline(ctx context.Context, projectID int, ref string, vars []PipelineVariable) (PipelineSummary, error) {
+	created, _, err := c.api.Pipelines.CreatePipeline(projectID, &gl.CreatePipelineOptions{
+		Ref:       gl.Ptr(ref),
+		Variables: pipelineVariableOptions(vars),
+	}, gl.WithContext(ctx))
+	if err != nil {
+		return PipelineSummary{}, fmt.Errorf("create pipeline: %w", err)
+	}
+	return pipelineSummary(created), nil
+}
+
 // RetryPipeline retries all failed jobs in a pipeline. When GitLab returns a
 // 400 (which happens when the pipeline has no retryable jobs — e.g., it was
 // cancelled before any job ran, or all jobs succeeded), it falls back to
@@ -129,13 +170,11 @@ func (c *Client) RetryPipeline(ctx context.Context, projectID, pipelineID int, r
 		if ref == "" || !gl.HasStatusCode(err, 400) {
 			return PipelineSummary{}, fmt.Errorf("retry pipeline: %w", err)
 		}
-		created, _, createErr := c.api.Pipelines.CreatePipeline(projectID, &gl.CreatePipelineOptions{
-			Ref: gl.Ptr(ref),
-		}, gl.WithContext(ctx))
+		created, createErr := c.CreatePipeline(ctx, projectID, ref, nil)
 		if createErr != nil {
 			return PipelineSummary{}, fmt.Errorf("retry pipeline fallback to create failed: %w", errors.Join(err, createErr))
 		}
-		return pipelineSummary(created), nil
+		return created, nil
 	}
 	return pipelineSummary(pipeline), nil
 }

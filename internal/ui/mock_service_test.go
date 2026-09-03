@@ -21,7 +21,8 @@ type mockService struct {
 	GetPipelineFn                   func(ctx context.Context, projectID, pipelineID int) (gitlab.PipelineSummary, error)
 	CancelPipelineFn                func(ctx context.Context, projectID, pipelineID int) error
 	CancelJobFn                     func(ctx context.Context, projectID, jobID int) error
-	PlayJobFn                       func(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error)
+	PlayJobFn                       func(ctx context.Context, projectID, jobID int, vars []gitlab.PipelineVariable) (gitlab.PipelineJob, error)
+	CreatePipelineFn                func(ctx context.Context, projectID int, ref string, vars []gitlab.PipelineVariable) (gitlab.PipelineSummary, error)
 	ListMergeRequestsFn             func(ctx context.Context, projectID int, opts gitlab.MRListOptions) (gitlab.MRPage, error)
 	ListMergeRequestDiscussionsFn   func(ctx context.Context, projectID, mrIID int) ([]gitlab.MRDiscussion, error)
 	ListMergeRequestDiffsFn         func(ctx context.Context, projectID, mrIID int) ([]gitlab.MRDiffFile, error)
@@ -129,11 +130,18 @@ func (m *mockService) CancelJob(ctx context.Context, projectID, jobID int) error
 	return nil
 }
 
-func (m *mockService) PlayJob(ctx context.Context, projectID, jobID int) (gitlab.PipelineJob, error) {
+func (m *mockService) PlayJob(ctx context.Context, projectID, jobID int, vars []gitlab.PipelineVariable) (gitlab.PipelineJob, error) {
 	if m.PlayJobFn != nil {
-		return m.PlayJobFn(ctx, projectID, jobID)
+		return m.PlayJobFn(ctx, projectID, jobID, vars)
 	}
 	return gitlab.PipelineJob{}, nil
+}
+
+func (m *mockService) CreatePipeline(ctx context.Context, projectID int, ref string, vars []gitlab.PipelineVariable) (gitlab.PipelineSummary, error) {
+	if m.CreatePipelineFn != nil {
+		return m.CreatePipelineFn(ctx, projectID, ref, vars)
+	}
+	return gitlab.PipelineSummary{}, nil
 }
 
 func (m *mockService) ListMergeRequests(ctx context.Context, projectID int, opts gitlab.MRListOptions) (gitlab.MRPage, error) {

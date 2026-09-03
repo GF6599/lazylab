@@ -184,7 +184,7 @@ func (m Model) playManualJob() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.status = fmt.Sprintf("Playing job %s (#%d)...", job.Name, job.ID)
-	return m, playJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.jobActionTargetIn(row.downstreamProjectID()), job.ID)
+	return m, playJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.jobActionTargetIn(row.downstreamProjectID()), job.ID, nil)
 }
 
 func (m Model) jobActionTargetIn(projectID int) jobActionTarget {

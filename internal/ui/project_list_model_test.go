@@ -761,7 +761,7 @@ func TestStagesPanel_BridgeChildActions(t *testing.T) {
 			cancelProjectID = projectID
 			return nil
 		},
-		PlayJobFn: func(_ context.Context, projectID, jobID int) (gitlab.PipelineJob, error) {
+		PlayJobFn: func(_ context.Context, projectID, jobID int, _ []gitlab.PipelineVariable) (gitlab.PipelineJob, error) {
 			playProjectID = projectID
 			return gitlab.PipelineJob{ID: jobID, Name: "release", Status: "running"}, nil
 		},

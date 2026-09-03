@@ -125,14 +125,33 @@ func (c *Client) CancelJob(ctx context.Context, projectID, jobID int) error {
 	return nil
 }
 
-// PlayJob triggers a manual (when:manual) job that is waiting for user
-// action and returns its updated state. Has no effect on non-manual jobs.
-func (c *Client) PlayJob(ctx context.Context, projectID, jobID int) (PipelineJob, error) {
-	job, _, err := c.api.Jobs.PlayJob(projectID, int64(jobID), nil, gl.WithContext(ctx))
+// PlayJob triggers a manual (when:manual) job that is waiting for user action
+// and returns its updated state. Has no effect on non-manual jobs. Each
+// variable in vars is passed to the job as an env_var. A job whose script
+// requires one stays queued when it is missing.
+func (c *Client) PlayJob(ctx context.Context, projectID, jobID int, vars []PipelineVariable) (PipelineJob, error) {
+	job, _, err := c.api.Jobs.PlayJob(projectID, int64(jobID), playJobOptions(vars), gl.WithContext(ctx))
 	if err != nil {
 		return PipelineJob{}, fmt.Errorf("play job: %w", err)
 	}
 	return mapJob(job), nil
+}
+
+// playJobOptions returns nil for an empty slice, which sends no request body at
+// all: the exact form every manual play took before variables existed.
+func playJobOptions(vars []PipelineVariable) *gl.PlayJobOptions {
+	if len(vars) == 0 {
+		return nil
+	}
+	attrs := make([]*gl.JobVariableOptions, 0, len(vars))
+	for _, v := range vars {
+		attrs = append(attrs, &gl.JobVariableOptions{
+			Key:          gl.Ptr(v.Key),
+			Value:        gl.Ptr(v.Value),
+			VariableType: gl.Ptr(gl.EnvVariableType),
+		})
+	}
+	return &gl.PlayJobOptions{JobVariablesAttributes: &attrs}
 }
 
 // mapJob converts a client-go Job to our flat PipelineJob, nil-safe.

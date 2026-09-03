@@ -7,8 +7,16 @@ import (
 	"github.com/GF6599/lazylab/internal/gitlab"
 )
 
+// demoPipelineBase is the ID floor for a project's seeded pipelines. A
+// triggered run derives its ID from it too, so the two cannot collide.
+func demoPipelineBase(projectID int) int { return projectID * 1000 }
+
+// demoTriggeredPipelineOffset sits above every seeded pipeline for a project, so
+// a run triggered in demo mode gets an ID that collides with none of them.
+const demoTriggeredPipelineOffset = 900
+
 func demoPipelines(projectID int) []gitlab.PipelineSummary {
-	base := projectID * 1000
+	base := demoPipelineBase(projectID)
 	branch := "main"
 
 	statuses := []struct {

@@ -207,10 +207,21 @@ func (d *DemoService) CancelJob(_ context.Context, _, _ int) error {
 
 // PlayJob is a no-op write that echoes jobID back as a pending job; nothing is
 // persisted.
-func (d *DemoService) PlayJob(_ context.Context, _, jobID int) (gitlab.PipelineJob, error) {
+func (d *DemoService) PlayJob(_ context.Context, _, jobID int, _ []gitlab.PipelineVariable) (gitlab.PipelineJob, error) {
 	return gitlab.PipelineJob{
 		ID:     jobID,
 		Status: "pending",
+	}, nil
+}
+
+// CreatePipeline is a no-op write that fabricates a pending pipeline on the
+// requested ref with a fixed synthetic ID; nothing is persisted.
+func (d *DemoService) CreatePipeline(_ context.Context, projectID int, ref string, _ []gitlab.PipelineVariable) (gitlab.PipelineSummary, error) {
+	return gitlab.PipelineSummary{
+		ID:        demoPipelineBase(projectID) + demoTriggeredPipelineOffset,
+		Status:    "pending",
+		Ref:       ref,
+		UpdatedAt: refTime,
 	}, nil
 }
 
