@@ -630,6 +630,25 @@ func playJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.D
 	}
 }
 
+// pipelineCreatedMsg reports a pipeline triggered from the run-pipeline modal.
+// It carries the ref so the status line can name what was started even when the
+// API answers without a usable pipeline record.
+type pipelineCreatedMsg struct {
+	projectID int
+	ref       string
+	pipeline  gitlab.PipelineSummary
+	err       error
+}
+
+func createPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, ref string, vars []gitlab.PipelineVariable) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		pipeline, err := client.CreatePipeline(ctx, projectID, ref, vars)
+		return pipelineCreatedMsg{projectID: projectID, ref: ref, pipeline: pipeline, err: err}
+	}
+}
+
 // commitsLoadedMsg is sent when recent commits for a project have been fetched.
 // Handled in handleCommitsLoaded to populate the detail pane's "Recent Commits" section.
 type commitsLoadedMsg struct {

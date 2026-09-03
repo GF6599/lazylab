@@ -552,6 +552,8 @@ type pipelineViewState struct {
 	testReportErr        error
 	testReportPipelineID int
 	detailTab            pipelineDetailTab
+	playJob              playJobState
+	runPipeline          runPipelineState
 }
 
 // retryConfirmState groups the retry confirmation modal fields into a single
@@ -566,6 +568,34 @@ type retryConfirmState struct {
 	jobName   string
 	jobStage  string
 	projectID int // Non-zero for bridge child jobs (downstream project)
+}
+
+// playJobState backs the play-job modal. A manual job's script can require
+// variables that no earlier stage sets, so the modal collects them before the
+// play instead of firing straight away. Zero value means the modal is closed.
+type playJobState struct {
+	active        bool
+	projectID     int // Downstream project for a bridge child, else the view project
+	viewProjectID int
+	jobID         int
+	jobName       string
+	vars          variablesForm
+	sending       bool
+	err           error
+}
+
+// runPipelineState backs the run-pipeline modal: the ref to run on plus the
+// variables the run needs. focus is 0 for the ref field and 1..n for variable
+// field n-1, so one wrapping increment walks the whole form. Zero value means
+// the modal is closed.
+type runPipelineState struct {
+	active    bool
+	projectID int
+	ref       textinput.Model
+	vars      variablesForm
+	focus     int
+	sending   bool
+	err       error
 }
 
 // pipelineState is a tri-state model for a project's latest pipeline status:
@@ -799,7 +829,8 @@ func (m Model) refreshThemeSubComponents() Model {
 // isTextInputActive returns true when a text input has focus and keystrokes
 // should be routed to it rather than interpreted as global hotkeys.
 func (m Model) isTextInputActive() bool {
-	return m.search.active || m.mrView.reply.active || m.mrView.createMR.active
+	return m.search.active || m.mrView.reply.active || m.mrView.createMR.active ||
+		m.pipelineView.playJob.active || m.pipelineView.runPipeline.active
 }
 
 // toggleTheme cycles to the next theme, applies it, invalidates all caches
@@ -1111,6 +1142,8 @@ func (m Model) routeAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleJobCanceled(msg)
 	case jobPlayedMsg:
 		return m.handleJobPlayed(msg)
+	case pipelineCreatedMsg:
+		return m.handlePipelineCreated(msg)
 	case childPipelineJobsLoadedMsg:
 		return m.handleChildPipelineJobsLoaded(msg)
 	case bridgesLoadedMsg:
@@ -1185,6 +1218,8 @@ func (m Model) modalOverlays() []modalOverlay {
 		{active: m.mrView.createMR.active, handle: m.handleCreateMRKey},
 		{active: m.mrView.reply.active, handle: m.handleMRReplyKey},
 		{active: m.pipelineView.retryConfirm.active, handle: m.handlePipelineRetryConfirmKey},
+		{active: m.pipelineView.playJob.active, handle: m.handlePlayJobKey},
+		{active: m.pipelineView.runPipeline.active, handle: m.handleRunPipelineKey},
 		{active: m.glabPreview.active, handle: m.handleGlabPreviewKey},
 	}
 }

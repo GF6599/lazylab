@@ -63,6 +63,8 @@ func (m Model) handlePipelinesPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openRetryModal()
 	case key.Matches(msg, m.keys.Cancel):
 		return m.cancelPipelineAction()
+	case key.Matches(msg, m.keys.RunPipeline):
+		return m.openRunPipelineModal()
 	case key.Matches(msg, m.keys.ScrollDown):
 		m.pipelineView.logViewport.HalfPageDown()
 		m.pipelineView.logAutoFollow = m.pipelineView.logViewport.AtBottom()

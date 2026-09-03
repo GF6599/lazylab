@@ -81,6 +81,10 @@ func (m Model) activeModalOverlay(width int) (string, bool) {
 		return renderMRReplyModal(m, width), true
 	case m.pipelineView.retryConfirm.active:
 		return renderPipelineRetryConfirmModal(m, width), true
+	case m.pipelineView.playJob.active:
+		return renderPlayJobModal(m, width), true
+	case m.pipelineView.runPipeline.active:
+		return renderRunPipelineModal(m, width), true
 	case m.glabPreview.active:
 		return renderGlabPreviewModal(m, width), true
 	}
