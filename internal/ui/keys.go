@@ -59,6 +59,9 @@ type keyMap struct {
 	ScrollUp   key.Binding
 	ScrollDown key.Binding
 
+	// Pipeline actions
+	RunPipeline key.Binding
+
 	// MR actions
 	CreateMR          key.Binding
 	ResolveDiscussion key.Binding
@@ -174,6 +177,13 @@ func newKeyMap() keyMap {
 		CreateMR: key.NewBinding(
 			key.WithKeys("N"),
 			key.WithHelp("N", "new MR"),
+		),
+		// Shares the "N for new" mnemonic with CreateMR. The two never appear on
+		// one help surface, so keys_contract_test.go still proves each key is
+		// offered for exactly one action wherever a user can see it.
+		RunPipeline: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "new pipeline"),
 		),
 		ResolveDiscussion: key.NewBinding(
 			key.WithKeys("r"),
@@ -357,7 +367,7 @@ func multiPanelKeyMap(panel PanelID, prevActive PanelID, m *Model) []key.Binding
 			k.Up, k.Down, k.HalfUp, k.HalfDown,
 			k.Top, k.Bottom, k.Left, k.Right,
 			k.ScrollUp, k.ScrollDown, k.Retry, k.Cancel,
-			k.CycleTab, k.NextPage, k.PrevPage,
+			k.RunPipeline, k.CycleTab, k.NextPage, k.PrevPage,
 			k.YankGlab, k.GlabPreview,
 			k.Refresh, k.Copy, k.Theme, k.Help, k.Quit,
 		}

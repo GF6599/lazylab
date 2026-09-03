@@ -187,7 +187,7 @@ func TestDemoService_WriteOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RetryJob: %v", err)
 	}
-	_, err = svc.PlayJob(ctx, 1001, 100100101)
+	_, err = svc.PlayJob(ctx, 1001, 100100101, nil)
 	if err != nil {
 		t.Fatalf("PlayJob: %v", err)
 	}

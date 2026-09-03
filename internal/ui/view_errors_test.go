@@ -57,9 +57,9 @@ func TestViewErrors_RedactTokens(t *testing.T) {
 				m := newModel()
 				m.mrView.createMR = createMRState{
 					active:       true,
-					title:        newMRTextinput("title"),
-					sourceBranch: newMRTextinput("source"),
-					targetBranch: newMRTextinput("target"),
+					title:        newModalTextinput("title"),
+					sourceBranch: newModalTextinput("source"),
+					targetBranch: newModalTextinput("target"),
 					description:  m.newMRTextarea("description"),
 					err:          tokErr,
 				}
@@ -69,7 +69,7 @@ func TestViewErrors_RedactTokens(t *testing.T) {
 		{
 			name: "branch picker",
 			render: func(t *testing.T) string {
-				return renderBranchPicker(branchPickerState{search: newMRTextinput("filter"), err: tokErr}, 200)
+				return renderBranchPicker(branchPickerState{search: newModalTextinput("filter"), err: tokErr}, 200)
 			},
 		},
 	}

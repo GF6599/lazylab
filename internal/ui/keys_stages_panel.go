@@ -167,7 +167,9 @@ func (m Model) cancelJobAction() (tea.Model, tea.Cmd) {
 	return m, cancelJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.jobActionTargetIn(row.downstreamProjectID()), job.ID)
 }
 
-// playManualJob triggers a manual job.
+// playManualJob opens the play-job modal for a manual job. The variables it
+// collects are the reason it does not play straight away: a job whose script
+// requires one stays queued when the play omits it.
 func (m Model) playManualJob() (tea.Model, tea.Cmd) {
 	row := m.selectedStageJobRow()
 	if row != nil && (row.Kind == rowKindMatrixGroup || row.Kind == rowKindBridge) {
@@ -183,8 +185,7 @@ func (m Model) playManualJob() (tea.Model, tea.Cmd) {
 		m.status = "Job is not manual"
 		return m, nil
 	}
-	m.status = fmt.Sprintf("Playing job %s (#%d)...", job.Name, job.ID)
-	return m, playJobCmd(m.ctx, m.client, m.opts.PipelineTimeout, m.jobActionTargetIn(row.downstreamProjectID()), job.ID)
+	return m.openPlayJobModal(m.jobActionTargetIn(row.downstreamProjectID()), job.ID, job.Name)
 }
 
 func (m Model) jobActionTargetIn(projectID int) jobActionTarget {

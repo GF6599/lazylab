@@ -90,7 +90,7 @@ var (
 )
 
 // MR modal input styles: cached at theme-rebuild time so newMRTextarea /
-// newMRTextinput don't allocate a fresh lipgloss.Style every modal open.
+// newModalTextinput don't allocate a fresh lipgloss.Style every modal open.
 // Each MR comment, reply, or create-MR action would otherwise pay 9 style
 // allocations per open on a hot interactive path.
 var (

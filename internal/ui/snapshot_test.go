@@ -300,3 +300,73 @@ func TestUpdate_TooSmall_BlocksKeys(t *testing.T) {
 		t.Fatal("ctrl+c did not produce a quit command")
 	}
 }
+
+// snapshotTriggerModel builds a snapshot model whose pipeline view carries the
+// project and selection both trigger modals read when they open.
+func snapshotTriggerModel(width, height int) Model {
+	m := newSnapshotModel(PanelPipelines, width, height)
+	m.pipelineView.project = m.allProjects[0]
+	m.pipelineView.pipelines = []gitlab.PipelineSummary{
+		{ID: 10, Ref: "main", Status: "manual"},
+	}
+	return m
+}
+
+// TestSnapshot_PlayJobModal: the play-job form with two variables matches its golden file.
+// Given the trigger snapshot model and a play-job modal holding a filled and an empty row, when the
+// modal renders at 120 columns, then the output equals the stored golden snapshot.
+// Why it matters: the key and value inputs are sized from a width split, so a drift overlaps the two
+// columns and the user edits a field they cannot fully read.
+func TestSnapshot_PlayJobModal(t *testing.T) {
+	// Given: the play-job modal over a manual job, one variable filled
+	m := snapshotTriggerModel(120, 40)
+	m.pipelineView.playJob = playJobState{
+		active:  true,
+		jobID:   901,
+		jobName: "deploy:production",
+		vars:    variablesFormWith([2]string{"DEPLOY_ENV", "production"}, [2]string{"", ""}),
+	}
+
+	// When/Then: the rendered modal matches the golden file
+	golden.RequireEqual(t, []byte(renderPlayJobModal(m, m.width)))
+}
+
+// TestSnapshot_RunPipelineModal: the run-pipeline form matches its golden file.
+// Given the trigger snapshot model and a run-pipeline modal holding a ref and one variable, when the
+// modal renders at 120 columns, then the output equals the stored golden snapshot.
+// Why it matters: the ref field and the variables table share the modal width, so a regression in
+// either pushes the other past the border.
+func TestSnapshot_RunPipelineModal(t *testing.T) {
+	// Given: the run-pipeline modal with a ref and one variable
+	m := snapshotTriggerModel(120, 40)
+	ref := newModalTextinput("Branch or tag (required)")
+	ref.SetValue("release/2.0")
+	m.pipelineView.runPipeline = runPipelineState{
+		active: true,
+		ref:    ref,
+		vars:   variablesFormWith([2]string{"DRY_RUN", "true"}, [2]string{"", ""}),
+	}
+
+	// When/Then: the rendered modal matches the golden file
+	golden.RequireEqual(t, []byte(renderRunPipelineModal(m, m.width)))
+}
+
+// TestSnapshot_RunPipelineModal_Small: the run-pipeline form at a classic 80x24 terminal matches its golden file.
+// Given the trigger snapshot model at 80 columns and a run-pipeline modal holding a ref and one
+// variable, when the modal renders, then the output equals the stored golden snapshot.
+// Why it matters: 80 columns is the tightest common terminal, and it is where the split between the
+// key and value inputs runs out of room first, wrapping a row and tearing the modal border.
+func TestSnapshot_RunPipelineModal_Small(t *testing.T) {
+	// Given: the run-pipeline modal at 80 columns
+	m := snapshotTriggerModel(80, 24)
+	ref := newModalTextinput("Branch or tag (required)")
+	ref.SetValue("release/2.0")
+	m.pipelineView.runPipeline = runPipelineState{
+		active: true,
+		ref:    ref,
+		vars:   variablesFormWith([2]string{"DRY_RUN", "true"}, [2]string{"", ""}),
+	}
+
+	// When/Then: the rendered modal matches the golden file
+	golden.RequireEqual(t, []byte(renderRunPipelineModal(m, m.width)))
+}

@@ -621,12 +621,31 @@ func cancelJobCmd(parentCtx context.Context, client gitlab.Service, timeout time
 	}
 }
 
-func playJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, target jobActionTarget, jobID int) tea.Cmd {
+func playJobCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, target jobActionTarget, jobID int, vars []gitlab.PipelineVariable) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parentCtx, timeout)
 		defer cancel()
-		job, err := client.PlayJob(ctx, target.projectID, jobID)
+		job, err := client.PlayJob(ctx, target.projectID, jobID, vars)
 		return jobPlayedMsg{viewProjectID: target.viewProjectID, jobID: jobID, job: job, err: err}
+	}
+}
+
+// pipelineCreatedMsg reports a pipeline triggered from the run-pipeline modal.
+// It carries the ref so the status line can name what was started even when the
+// API answers without a usable pipeline record.
+type pipelineCreatedMsg struct {
+	projectID int
+	ref       string
+	pipeline  gitlab.PipelineSummary
+	err       error
+}
+
+func createPipelineCmd(parentCtx context.Context, client gitlab.Service, timeout time.Duration, projectID int, ref string, vars []gitlab.PipelineVariable) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(parentCtx, timeout)
+		defer cancel()
+		pipeline, err := client.CreatePipeline(ctx, projectID, ref, vars)
+		return pipelineCreatedMsg{projectID: projectID, ref: ref, pipeline: pipeline, err: err}
 	}
 }
 

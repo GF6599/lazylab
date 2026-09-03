@@ -381,8 +381,8 @@ func (m Model) newMRTextarea(placeholder string) textarea.Model {
 	return ta
 }
 
-// newMRTextinput creates a styled single-line text input for MR form fields.
-func newMRTextinput(placeholder string) textinput.Model {
+// newModalTextinput creates a styled single-line text input for any modal form field.
+func newModalTextinput(placeholder string) textinput.Model {
 	ti := textinput.New()
 	ti.Placeholder = placeholder
 	ti.CharLimit = 256
@@ -398,11 +398,11 @@ func (m Model) openCreateMRModal() (tea.Model, tea.Cmd) {
 	if m.mrView.project.ID == 0 {
 		return m, nil
 	}
-	titleInput := newMRTextinput("MR title (required)")
+	titleInput := newModalTextinput("MR title (required)")
 	titleInput.Focus()
 
-	sourceInput := newMRTextinput("Source branch (required)")
-	targetInput := newMRTextinput("Target branch")
+	sourceInput := newModalTextinput("Source branch (required)")
+	targetInput := newModalTextinput("Target branch")
 	targetInput.SetValue(m.mrView.project.DefaultBranch)
 
 	descInput := m.newMRTextarea("Description (optional)")
@@ -533,7 +533,7 @@ func (m Model) openBranchPicker() (tea.Model, tea.Cmd) {
 	if idx != 1 && idx != 2 {
 		return m, nil // Only source (1) and target (2) fields
 	}
-	search := newMRTextinput("Filter branches...")
+	search := newModalTextinput("Filter branches...")
 	search.Focus()
 
 	m.mrView.createMR.branchPicker = branchPickerState{

@@ -378,15 +378,45 @@ func (m Model) handleJobPlayed(msg jobPlayedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.err != nil {
+		// The modal stays open holding the error, so the variables the user
+		// typed survive a rejected play and can be corrected in place.
+		m.pipelineView.playJob.sending = false
+		m.pipelineView.playJob.err = msg.err
 		m.status = fmt.Sprintf("Failed to play job #%d: %v", msg.jobID, redacting.Redact(msg.err.Error()))
 		return m, nil
 	}
+	m.pipelineView.playJob = playJobState{}
 	if msg.job.Name != "" {
 		m.status = fmt.Sprintf("Triggered job %s (#%d)", msg.job.Name, msg.job.ID)
 	} else {
 		m.status = fmt.Sprintf("Triggered job #%d", msg.jobID)
 	}
 	return m, m.queuePipelineSubRefresh()
+}
+
+// handlePipelineCreated processes a pipeline triggered from the run-pipeline
+// modal. On success it selects the new run after the reload, the way a retry
+// does, so the user lands on the pipeline they just started. On failure the
+// modal stays open holding the error, keeping the typed variables recoverable.
+func (m Model) handlePipelineCreated(msg pipelineCreatedMsg) (tea.Model, tea.Cmd) {
+	if (m.mode != modePipelines && m.mode != modeMultiPanel) || m.pipelineView.project.ID != msg.projectID {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.pipelineView.runPipeline.sending = false
+		m.pipelineView.runPipeline.err = msg.err
+		m.status = fmt.Sprintf("Failed to trigger pipeline on %s", msg.ref)
+		return m, nil
+	}
+	m.pipelineView.runPipeline = runPipelineState{}
+	if msg.pipeline.ID != 0 {
+		m.pipelineView.pendingSelectID = msg.pipeline.ID
+		m.status = fmt.Sprintf("Triggered pipeline #%d on %s", msg.pipeline.ID, msg.ref)
+	} else {
+		m.status = fmt.Sprintf("Triggered pipeline on %s", msg.ref)
+	}
+	m.pipelineView.page = 1
+	return m.reloadPipelineView()
 }
 
 func (m Model) handleChildPipelineJobsLoaded(msg childPipelineJobsLoadedMsg) (tea.Model, tea.Cmd) {
