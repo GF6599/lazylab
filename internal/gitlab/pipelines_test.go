@@ -3,8 +3,10 @@ package gitlab
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"testing"
 	"time"
 )
@@ -411,5 +413,98 @@ func TestGetPipeline_ReportsAFailedFetch(t *testing.T) {
 	// Then: the failure is reported
 	if err == nil {
 		t.Error("a failed fetch returned no error, so a blank pipeline would read as success")
+	}
+}
+
+// variableBodyList decodes the variables array a trigger request carries into
+// key/value pairs, so a test asserts the wire shape without repeating the
+// any-cast.
+func variableBodyList(t *testing.T, body map[string]any, field string) []PipelineVariable {
+	t.Helper()
+	raw, ok := body[field]
+	if !ok {
+		t.Fatalf("body has no %s: %v", field, body)
+	}
+	entries, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("%s is not an array: %T", field, raw)
+	}
+	out := make([]PipelineVariable, 0, len(entries))
+	for _, e := range entries {
+		m, ok := e.(map[string]any)
+		if !ok {
+			t.Fatalf("%s entry is not an object: %T", field, e)
+		}
+		key, _ := m["key"].(string)
+		value, _ := m["value"].(string)
+		out = append(out, PipelineVariable{Key: key, Value: value})
+	}
+	return out
+}
+
+// TestCreatePipeline_SendsRefAndVariables: a triggered pipeline carries its ref and every variable.
+// Given two variables and a server that captures the request body, when
+// CreatePipeline runs, then it POSTs to /projects/42/pipeline with the ref and
+// both key/value pairs, in the order they were supplied.
+// Why it matters: a pipeline whose rules read a variable takes a different
+// shape when the variable is missing, so a dropped pair produces a run that
+// looks triggered but does the wrong work.
+func TestCreatePipeline_SendsRefAndVariables(t *testing.T) {
+	// Given: a create endpoint that captures the body.
+	var body map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v4/projects/42/pipeline" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		body = readBodyJSON(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, wrappersFixture.pipeline)
+	}))
+
+	// When: creating a pipeline on a ref with variables.
+	vars := []PipelineVariable{
+		{Key: "DEPLOY_ENV", Value: "staging"},
+		{Key: "DRY_RUN", Value: "true"},
+	}
+	if _, err := client.CreatePipeline(context.Background(), 42, "main", vars); err != nil {
+		t.Fatalf("CreatePipeline: %v", err)
+	}
+
+	// Then: the body names the ref.
+	if got, _ := body["ref"].(string); got != "main" {
+		t.Errorf("ref = %q, want %q", got, "main")
+	}
+	// And: the body carries both variables in order.
+	if got := variableBodyList(t, body, "variables"); !slices.Equal(got, vars) {
+		t.Errorf("variables = %+v, want %+v", got, vars)
+	}
+}
+
+// TestCreatePipeline_OmitsVariablesWhenEmpty: triggering without variables sends no variables field.
+// Given no variables, when CreatePipeline runs, then the request body carries
+// the ref and no "variables" key at all.
+// Why it matters: this is the shape the existing retry fallback already puts
+// on the wire. Sending an empty array instead would change every no-variable
+// trigger, which is the common case, for a feature nobody asked it to serve.
+func TestCreatePipeline_OmitsVariablesWhenEmpty(t *testing.T) {
+	// Given: a create endpoint that captures the body.
+	var body map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = readBodyJSON(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, wrappersFixture.pipeline)
+	}))
+
+	// When: creating a pipeline with no variables.
+	if _, err := client.CreatePipeline(context.Background(), 42, "main", nil); err != nil {
+		t.Fatalf("CreatePipeline: %v", err)
+	}
+
+	// Then: the ref is present and the variables field is absent.
+	if got, _ := body["ref"].(string); got != "main" {
+		t.Errorf("ref = %q, want %q", got, "main")
+	}
+	if _, present := body["variables"]; present {
+		t.Errorf("body carries a variables field for an empty slice: %v", body)
 	}
 }

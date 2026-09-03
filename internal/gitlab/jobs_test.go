@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"testing"
 )
 
@@ -194,7 +195,7 @@ func TestPlayJob_Success(t *testing.T) {
 	}))
 
 	// When: playing the manual job.
-	job, err := client.PlayJob(context.Background(), 1, 1001)
+	job, err := client.PlayJob(context.Background(), 1, 1001, nil)
 	// Then: the call succeeds and the returned job maps its ID.
 	if err != nil {
 		t.Fatalf("PlayJob: %v", err)
@@ -223,7 +224,7 @@ func TestPlayJob_Unauthorized(t *testing.T) {
 	}))
 
 	// When: playing the job without permission.
-	_, err := client.PlayJob(context.Background(), 1, 1001)
+	_, err := client.PlayJob(context.Background(), 1, 1001, nil)
 
 	// Then: the refusal surfaces and classifies as forbidden.
 	if err == nil {
@@ -271,4 +272,66 @@ func extractFirstJSONArrayElement(data []byte) []byte {
 		return data
 	}
 	return elements[0]
+}
+
+// TestPlayJob_SendsVariables: variables supplied at play time reach the play endpoint.
+// Given two variables and a server that captures the request body, when
+// PlayJob runs, then the body carries job_variables_attributes with both
+// key/value pairs, in the order they were supplied.
+// Why it matters: a manual gate job that declares a required variable stays
+// queued when the trigger omits it, and the TUI reports a successful play, so
+// a dropped pair reads as a job that started and then did nothing.
+func TestPlayJob_SendsVariables(t *testing.T) {
+	// Given: a play endpoint that captures the body.
+	data, _ := os.ReadFile("testdata/pipeline_jobs.json")
+	var body map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v4/projects/1/jobs/1001/play" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		body = readBodyJSON(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(extractFirstJSONArrayElement(data))
+	}))
+
+	// When: playing the job with variables.
+	vars := []PipelineVariable{
+		{Key: "DEPLOY_ENV", Value: "production"},
+		{Key: "CONFIRM", Value: "yes"},
+	}
+	if _, err := client.PlayJob(context.Background(), 1, 1001, vars); err != nil {
+		t.Fatalf("PlayJob: %v", err)
+	}
+
+	// Then: the body carries both variables in order.
+	if got := variableBodyList(t, body, "job_variables_attributes"); !slices.Equal(got, vars) {
+		t.Errorf("job_variables_attributes = %+v, want %+v", got, vars)
+	}
+}
+
+// TestPlayJob_OmitsVariablesWhenEmpty: playing without variables sends no variables field.
+// Given no variables, when PlayJob runs, then the request body carries no
+// job_variables_attributes key at all.
+// Why it matters: every manual job played before this feature existed took
+// this path, so the empty case must put the same bytes on the wire it always
+// did rather than start sending an empty array.
+func TestPlayJob_OmitsVariablesWhenEmpty(t *testing.T) {
+	// Given: a play endpoint that captures the body.
+	data, _ := os.ReadFile("testdata/pipeline_jobs.json")
+	var body map[string]any
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = readBodyJSON(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(extractFirstJSONArrayElement(data))
+	}))
+
+	// When: playing the job with no variables.
+	if _, err := client.PlayJob(context.Background(), 1, 1001, nil); err != nil {
+		t.Fatalf("PlayJob: %v", err)
+	}
+
+	// Then: the variables field is absent.
+	if _, present := body["job_variables_attributes"]; present {
+		t.Errorf("body carries a job_variables_attributes field for an empty slice: %v", body)
+	}
 }
