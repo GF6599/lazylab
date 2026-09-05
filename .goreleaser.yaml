@@ -34,19 +34,19 @@ homebrew_casks:
     homepage: https://github.com/GF6599/lazylab
     description: A Bubble Tea-powered terminal UI for browsing GitLab projects, pipelines, and repository files
     license: MIT
-    # The download domain differs from the homepage, which `brew audit` rejects
-    # until the release host is named here.
-    url:
-      verified: github.com/GF6599/lazylab
     # Homebrew quarantines what a cask downloads, and macOS reports a quarantined
     # binary that nobody notarized as damaged rather than running it. Notarizing
     # needs a paid Apple developer account, so the cask clears the attribute.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/lazylab"]
-          end
+    # GoReleaser renders `hooks.post.install` as `postflight`, which Homebrew 6.0
+    # deprecates, so the stanza goes in through `custom_block` instead. GoReleaser
+    # templates the rendered cask one more time. The escape therefore leaves a
+    # literal {{staged_path}} for Homebrew to expand at install time.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/lazylab"]
+        end
+      end
 
 changelog:
   sort: asc
