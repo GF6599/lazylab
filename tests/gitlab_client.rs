@@ -184,3 +184,35 @@ async fn a_body_that_is_not_a_project_list_is_a_decode_failure() {
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::Decode, "{error}");
 }
+
+#[tokio::test]
+async fn a_redirect_to_another_host_does_not_carry_the_token() {
+    // Given: GitLab redirects the request to a different host, which records what it receives.
+    let elsewhere = MockServer::start().await;
+    Mock::given(path("/api/v4/projects"))
+        .respond_with(project_page("[]"))
+        .mount(&elsewhere)
+        .await;
+    let gitlab = MockServer::start().await;
+    Mock::given(path("/api/v4/projects"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", format!("{}/api/v4/projects", elsewhere.uri())),
+        )
+        .mount(&gitlab)
+        .await;
+
+    // When: a page is listed.
+    let _ = client_for(&gitlab.uri()).list_projects(1, 30).await;
+
+    // Then: the other host never sees the token.
+    let received = elsewhere.received_requests().await.unwrap();
+    let leaked = received
+        .iter()
+        .any(|r| r.headers.get("PRIVATE-TOKEN").is_some());
+    assert!(
+        !leaked,
+        "the token followed the redirect to {}",
+        elsewhere.uri()
+    );
+}
