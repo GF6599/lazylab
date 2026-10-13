@@ -1,0 +1,16 @@
+[
+  {
+    "id": 2003,
+    "name": "trigger-late",
+    "stage": "deploy",
+    "status": "running",
+    "ref": "main",
+    "allow_failure": false,
+    "duration": 12.0,
+    "downstream_pipeline": {
+      "id": 201,
+      "status": "running",
+      "web_url": "https://gitlab.com/team/child/-/pipelines/201"
+    }
+  }
+]

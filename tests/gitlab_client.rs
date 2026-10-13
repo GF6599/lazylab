@@ -1,14 +1,9 @@
-use lazylab::config::Token;
-use lazylab::gitlab::{Client, ErrorKind, Page};
-use url::Url;
+mod common;
+
+use common::{TOKEN, client_for};
+use lazylab::gitlab::{ErrorKind, Page};
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-
-const TOKEN: &str = "glpat-abcdefghijklmnopqrst";
-
-fn client_for(host: &str) -> Client {
-    Client::new(&Url::parse(host).unwrap(), &Token::new(TOKEN)).unwrap()
-}
 
 fn project_page(body: &str) -> ResponseTemplate {
     ResponseTemplate::new(200)
