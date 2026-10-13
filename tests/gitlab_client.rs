@@ -60,7 +60,7 @@ async fn projects_are_listed_with_the_go_query_and_the_token_in_a_header() {
     assert_eq!(project.default_branch.as_deref(), Some("main"));
     assert_eq!(
         project.last_activity_at.map(|t| t.unix_timestamp()),
-        Some(1_760_349_600)
+        Some(1_791_885_600)
     );
     assert_eq!(
         (
@@ -156,10 +156,11 @@ async fn each_refusal_has_its_kind_and_exit_code_and_never_shows_the_token() {
 
 #[tokio::test]
 async fn no_answer_at_all_is_a_network_failure() {
-    // Given: a host where nothing listens.
-    let server = MockServer::start().await;
-    let host = server.uri();
-    drop(server);
+    // Given: a host where nothing listens. A dropped MockServer goes back to wiremock's pool
+    // and keeps answering, so the port comes from a listener that is closed again.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
     // When: a page is listed.
     let error = client_for(&host).list_projects(1, 30).await.unwrap_err();
     // Then: it is a network failure with its own exit code.
