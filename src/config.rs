@@ -59,6 +59,17 @@ pub struct Flags {
 #[derive(Clone, PartialEq)]
 pub struct Token(pub(crate) String);
 
+impl Token {
+    pub fn new(value: impl Into<String>) -> Token {
+        Token(value.into())
+    }
+
+    /// The one way to read the token, so every place that sends it can be found by name.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[REDACTED]")
