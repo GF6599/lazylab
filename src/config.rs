@@ -369,6 +369,22 @@ mod tests {
     }
 
     #[test]
+    fn a_token_from_the_environment_is_read_as_text_whatever_it_looks_like() {
+        for token in ["12345678901234567890", "true", "[abc]"] {
+            Jail::expect_with(|jail| {
+                // Given: a token that would parse as a number, a bool or a list.
+                jail.clear_env();
+                jail.set_env("GITLAB_TOKEN", token);
+                // When: the settings load.
+                let config = load(&Flags::default()).unwrap();
+                // Then: the token is the text as written.
+                assert_eq!(config.token, Token(token.into()));
+                Ok(())
+            });
+        }
+    }
+
+    #[test]
     fn a_bad_number_in_the_environment_is_an_error_not_the_default() {
         Jail::expect_with(|jail| {
             jail.clear_env();
