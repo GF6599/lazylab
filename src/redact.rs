@@ -51,6 +51,7 @@ mod tests {
     /// The cases of the Go `TestRedact` table, so both releases scrub the same shapes.
     #[test]
     fn every_credential_shape_is_replaced_and_plain_text_is_kept() {
+        // Given: each credential shape, and plain text with none.
         let cases = [
             (
                 "error: glpat-abcdefghijklmnopqrstuvwxyz",
@@ -127,6 +128,8 @@ mod tests {
                 "GET /api?ACCESS_TOKEN=[REDACTED]",
             ),
         ];
+        // When: each input is redacted.
+        // Then: every case matches its expected output.
         let failures: Vec<String> = cases
             .iter()
             .filter(|(input, want)| redact(input) != *want)

@@ -64,6 +64,7 @@ mod tests {
 
     #[test]
     fn a_token_in_the_message_a_field_or_a_span_reaches_stderr_redacted() {
+        // Given: the real formatter writing through `Redacted` into a buffer.
         let captured = Captured::default();
         let sink = captured.clone();
         let subscriber = tracing_subscriber::fmt()
@@ -72,6 +73,7 @@ mod tests {
             .without_time()
             .finish();
 
+        // When: a span and two events carry credentials and plain fields.
         tracing::subscriber::with_default(subscriber, || {
             let span =
                 tracing::info_span!("request", header = "PRIVATE-TOKEN: abcdefghijklmnopqrst");
@@ -83,6 +85,7 @@ mod tests {
             tracing::error!(host = "gitlab.com", port = 443, "connection established");
         });
 
+        // Then: no credential survives, the header keeps its name, and plain fields are untouched.
         let output = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
         for secret in [
             "abcdefghijklmnopqrst",
