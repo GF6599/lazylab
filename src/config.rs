@@ -398,6 +398,49 @@ mod tests {
     }
 
     #[test]
+    fn a_rejected_setting_is_named_without_quoting_its_value() {
+        Jail::expect_with(|jail| {
+            // Given: a credential in each place the loader can reject it.
+            jail.clear_env();
+            jail.create_file("number.toml", "token = 123456789012")?;
+            jail.create_file("syntax.toml", "token = \"abcdefghijkl")?;
+            jail.create_file("number.yaml", "token: 123456789012\n")?;
+            jail.create_file("number.json", r#"{"token": 123456789012}"#)?;
+            let from_file = |file: &str| {
+                error(&Flags {
+                    config: Some(file.into()),
+                    ..Flags::default()
+                })
+            };
+            let bad_host = |host: &str| {
+                error(&Flags {
+                    host: Some(host.into()),
+                    ..flags("t")
+                })
+            };
+            // When: each is loaded.
+            let rejected = [
+                (from_file("number.toml"), "123456789012", "number.toml"),
+                (from_file("syntax.toml"), "abcdefghijkl", "syntax.toml"),
+                (from_file("number.yaml"), "123456789012", "number.yaml"),
+                (from_file("number.json"), "123456789012", "number.json"),
+                (
+                    bad_host("https://oauth2:s3cretvalue@gitlab .com"),
+                    "s3cretvalue",
+                    "host",
+                ),
+                (bad_host("s3cretvalue@gitlab.com"), "s3cretvalue", "scheme"),
+            ];
+            // Then: each error says where the problem is, and none quotes the credential.
+            for (message, secret, names) in rejected {
+                assert!(!message.contains(secret), "{secret} quoted in: {message}");
+                assert!(message.contains(names), "{names} missing from: {message}");
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
     fn a_bad_number_in_the_environment_is_an_error_not_the_default() {
         Jail::expect_with(|jail| {
             jail.clear_env();
