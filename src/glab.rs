@@ -231,6 +231,30 @@ mod tests {
     }
 
     #[test]
+    fn the_hint_is_read_by_the_same_url_parser_as_the_config() {
+        // Given: a gitlab.com token, and one for a host on a custom port.
+        let stored = glab(&[
+            ("config get token --host gitlab.com", "glpat-gitlab-com", ""),
+            (
+                "config get token --host gitlab.example.com:8443",
+                "glpat-port",
+                "",
+            ),
+        ]);
+        // When: one hint names gitlab.com only after a later `://`, and one has a port.
+        // Then: the first resolves to the host the config would contact, which has no token, and
+        // the second keeps its port in the lookup.
+        assert_eq!(
+            resolve_with(&stored, Some("https:evil.example/x://gitlab.com")),
+            None
+        );
+        assert_eq!(
+            resolve_with(&stored, Some("https://gitlab.example.com:8443")),
+            found("glpat-port", "https://gitlab.example.com:8443")
+        );
+    }
+
+    #[test]
     fn a_command_that_outlives_the_deadline_is_stopped() {
         // When: a command that sleeps for 5 s runs with a 50 ms deadline.
         let start = Instant::now();
