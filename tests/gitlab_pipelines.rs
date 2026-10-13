@@ -188,11 +188,12 @@ async fn a_project_with_no_pipelines_has_no_latest_pipeline() {
 async fn each_stage_shows_the_most_urgent_status_among_its_jobs() {
     // Given: jobs out of id order, where each stage holds a different contest.
     let contests = [
+        (13, " ", "created"),
         (9, "failure", "success"),
         (1, "failure", "failed"),
         (2, "cancel", "pending"),
         (3, "cancel", "canceled"),
-        (4, "manual", "skipped"),
+        (4, "manual", "success"),
         (5, "manual", "manual"),
         (6, "tie", "running"),
         (7, "tie", "preparing"),
@@ -200,7 +201,6 @@ async fn each_stage_shows_the_most_urgent_status_among_its_jobs() {
         (10, "callback", "waiting_for_callback"),
         (11, "quiet", "success"),
         (12, "quiet", "skipped"),
-        (13, " ", "created"),
         (14, "novel", "a_status_from_a_newer_gitlab"),
     ];
     let jobs: Vec<_> = contests
