@@ -202,6 +202,7 @@ async fn each_stage_shows_the_most_urgent_status_among_its_jobs() {
         (11, "quiet", "success"),
         (12, "quiet", "skipped"),
         (14, "novel", "a_status_from_a_newer_gitlab"),
+        (15, "stopping", "canceling"),
     ];
     let jobs: Vec<_> = contests
         .iter()
@@ -232,6 +233,7 @@ async fn each_stage_shows_the_most_urgent_status_among_its_jobs() {
             stage("quiet", Status::Success),
             stage("(unknown stage)", Status::Created),
             stage("novel", Status::Unknown),
+            stage("stopping", Status::Canceling),
         ]
     );
 }
