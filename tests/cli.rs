@@ -7,6 +7,15 @@ fn lazylab(args: &[&str]) -> Output {
         .expect("the binary runs")
 }
 
+/// Runs with no environment, so a token or config file on the developer's machine cannot leak in.
+fn lazylab_without_env(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_lazylab"))
+        .args(args)
+        .env_clear()
+        .output()
+        .expect("the binary runs")
+}
+
 #[test]
 fn version_prints_the_name_and_the_package_version() {
     // When: the reader asks for the version.
@@ -48,4 +57,16 @@ fn a_token_passed_as_an_argument_is_not_echoed() {
     assert_eq!(out.status.code(), Some(1));
     assert!(!stderr.contains("glpat-abcdefghijklmnopqrst"), "{stderr}");
     assert!(stderr.contains("[REDACTED-TOKEN]"), "{stderr}");
+}
+
+#[test]
+fn no_token_from_any_source_exits_with_the_reason() {
+    // When: lazylab starts with no token anywhere.
+    let out = lazylab_without_env(&[]);
+    // Then: one line names the missing token, and the exit code is the generic one.
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        "error: config error: gitlab token is required: set --token or $GITLAB_TOKEN\n"
+    );
 }
