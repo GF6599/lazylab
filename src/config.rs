@@ -1,13 +1,23 @@
 //! Resolves the settings from flags, `GITLAB_*` environment variables, a config file and
 //! defaults, in that order of precedence.
 
+use std::env;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
-use serde::Serialize;
+use figment::Figment;
+use figment::providers::{Env, Format, Json, Serialized, Toml, Yaml};
+use serde::{Deserialize, Serialize};
 use tracing::Level;
 use url::Url;
+
+const DEFAULT_HOST: &str = "https://gitlab.com";
+const DEFAULT_PROJECTS_PER_PAGE: u8 = 30;
+/// The GitLab API caps a page here, and above it returns fewer rows with no error.
+const MAX_PROJECTS_PER_PAGE: i64 = 100;
+const ENV_PREFIX: &str = "GITLAB_";
+const ENV_KEYS: [&str; 4] = ["host", "token", "projects_per_page", "log_level"];
 
 #[derive(Args, Serialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -63,8 +73,129 @@ impl fmt::Display for Error {
     }
 }
 
-pub fn load(_flags: &Flags) -> Result<Config, Error> {
-    Err(Error("not implemented".into()))
+impl From<figment::Error> for Error {
+    fn from(e: figment::Error) -> Self {
+        Error(e.to_string())
+    }
+}
+
+/// Every source after merging, before defaults and validation.
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct Merged {
+    host: Option<String>,
+    token: Option<String>,
+    projects_per_page: Option<i64>,
+    log_level: Option<String>,
+}
+
+pub fn load(flags: &Flags) -> Result<Config, Error> {
+    let config_file = flags
+        .config
+        .clone()
+        .or_else(|| env::var_os("LAZYLAB_CONFIG").map(PathBuf::from))
+        .or_else(|| env::var_os("GITLAB_TUI_CONFIG").map(PathBuf::from))
+        .filter(|path| !path.as_os_str().is_empty());
+    let mut sources = Figment::new();
+    if let Some(path) = &config_file {
+        sources = with_file(sources, path)?;
+    }
+    let merged: Merged = sources
+        .merge(
+            Env::prefixed(ENV_PREFIX)
+                .only(&ENV_KEYS)
+                .map(|key| key.as_str().replace('_', "-").into()),
+        )
+        .merge(Serialized::defaults(flags))
+        .extract()?;
+
+    let present = |value: Option<String>| value.filter(|v| !v.is_empty());
+    let host = parse_host(&present(merged.host).unwrap_or_else(|| DEFAULT_HOST.into()))?;
+    let projects_per_page = match merged.projects_per_page {
+        None | Some(..=0) => DEFAULT_PROJECTS_PER_PAGE,
+        Some(n @ 1..=MAX_PROJECTS_PER_PAGE) => n as u8,
+        Some(n) => {
+            return Err(Error(format!(
+                "projects-per-page must be between 1 and {MAX_PROJECTS_PER_PAGE}, got {n}"
+            )));
+        }
+    };
+    let log_level = match present(merged.log_level)
+        .map(|l| l.to_lowercase())
+        .as_deref()
+    {
+        None | Some("error") => Level::ERROR,
+        Some("warn") => Level::WARN,
+        Some("info") => Level::INFO,
+        Some("debug") => Level::DEBUG,
+        Some(other) => {
+            return Err(Error(format!(
+                "invalid log level {other:?}, must be one of: debug, info, warn, error"
+            )));
+        }
+    };
+    let token = present(merged.token)
+        .map(Token)
+        .ok_or_else(|| Error("gitlab token is required: set --token or $GITLAB_TOKEN".into()))?;
+
+    Ok(Config {
+        host,
+        token,
+        projects_per_page,
+        log_level,
+        config_file,
+    })
+}
+
+/// Reads the file once up front, so an unreadable or malformed file is reported with its path
+/// rather than as a bare I/O error.
+fn with_file(sources: Figment, path: &Path) -> Result<Figment, Error> {
+    let unreadable = |e: figment::Error| Error(format!("load config {}: {e}", path.display()));
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_lowercase);
+    match extension.as_deref() {
+        Some("toml") => {
+            let file = Toml::file_exact(path);
+            figment::Provider::data(&file).map_err(unreadable)?;
+            Ok(sources.merge(file))
+        }
+        Some("yaml" | "yml") => {
+            let file = Yaml::file_exact(path);
+            figment::Provider::data(&file).map_err(unreadable)?;
+            Ok(sources.merge(file))
+        }
+        Some("json") => {
+            let file = Json::file_exact(path);
+            figment::Provider::data(&file).map_err(unreadable)?;
+            Ok(sources.merge(file))
+        }
+        _ => Err(Error(format!(
+            "load config {}: unsupported file type, use .toml, .yaml, .yml or .json",
+            path.display()
+        ))),
+    }
+}
+
+fn parse_host(host: &str) -> Result<Url, Error> {
+    let url = Url::parse(host).map_err(|e| match e {
+        url::ParseError::RelativeUrlWithoutBase => Error(format!(
+            "host URL must include a scheme (e.g., https://{host})"
+        )),
+        url::ParseError::EmptyHost => Error("host URL must include a hostname".into()),
+        e => Error(format!("invalid host URL {host:?}: {e}")),
+    })?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(Error(format!(
+            "host URL must use http or https scheme, got {:?}",
+            url.scheme()
+        )));
+    }
+    if url.host_str().is_none_or(str::is_empty) {
+        return Err(Error("host URL must include a hostname".into()));
+    }
+    Ok(url)
 }
 
 #[cfg(test)]
