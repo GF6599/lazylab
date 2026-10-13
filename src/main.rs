@@ -1,15 +1,8 @@
-//! Lazylab, a terminal UI for GitLab.
-
-mod config;
-mod glab;
-mod logging;
-mod redact;
-
 use std::process::ExitCode;
 
 use clap::Parser;
-
-use crate::redact::redact;
+use lazylab::redact::redact;
+use lazylab::{config, glab, logging};
 
 /// Scripts that wrap lazylab read the exit code, so each value keeps its meaning across
 /// releases. clap exits with 2 on a usage error, which here means a transient failure that is
