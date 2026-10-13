@@ -403,3 +403,25 @@ async fn a_job_log_past_the_cap_is_refused_and_one_at_the_cap_is_read() {
     assert_eq!(at_cap.unwrap().len(), MAX_JOB_LOG_BYTES);
     assert_eq!(past_cap.unwrap_err().kind, ErrorKind::TooLarge);
 }
+
+#[tokio::test]
+async fn a_next_page_that_does_not_advance_stops_the_list() {
+    // Given: a server that names the page it just served as the next page.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/pipelines/100/bridges"))
+        .respond_with(json_body(BRIDGES).insert_header("X-Next-Page", "1"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+
+    // When: the bridges are listed.
+    let error = client_for(&server.uri())
+        .list_pipeline_bridges(1, 100)
+        .await
+        .unwrap_err();
+
+    // Then: the list stops after one request and reports the answer as malformed.
+    assert_eq!(error.kind, ErrorKind::Decode);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
