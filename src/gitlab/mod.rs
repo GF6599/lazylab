@@ -139,7 +139,15 @@ impl Client {
             let next = self.get_page(operation, path, &query, page).await?;
             items.extend(next.items);
             match next.next_page {
-                Some(number) => page = number,
+                Some(number) if number > page => page = number,
+                // A next page that does not advance would repeat the request forever.
+                Some(number) => {
+                    return Err(Error {
+                        kind: ErrorKind::Decode,
+                        operation,
+                        detail: format!("GitLab named page {number} as the page after {page}"),
+                    });
+                }
                 None => return Ok(items),
             }
         }
