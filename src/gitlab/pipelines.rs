@@ -236,23 +236,10 @@ pub struct Job {
     pub finished_at: Option<OffsetDateTime>,
     #[serde(default)]
     pub failure_reason: Option<String>,
-    /// A failed job that may fail is a warning, not a failure.
-    #[serde(default)]
-    pub allow_failure: bool,
-    /// `None` until a runner picks the job up.
-    #[serde(default)]
-    pub runner: Option<Runner>,
     #[serde(default)]
     pub artifacts: Vec<Artifact>,
     #[serde(default, with = "time::serde::rfc3339::option")]
     pub artifacts_expire_at: Option<OffsetDateTime>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Runner {
-    pub id: u64,
-    #[serde(default)]
-    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -261,8 +248,6 @@ pub struct Artifact {
     pub filename: String,
     #[serde(default)]
     pub size: u64,
-    #[serde(default)]
-    pub file_format: Option<String>,
 }
 
 /// A job that triggers a downstream pipeline.
@@ -274,8 +259,6 @@ pub struct Bridge {
     pub status: Status,
     #[serde(rename = "ref")]
     pub git_ref: String,
-    #[serde(default)]
-    pub allow_failure: bool,
     /// Seconds.
     #[serde(default)]
     pub duration: Option<f64>,

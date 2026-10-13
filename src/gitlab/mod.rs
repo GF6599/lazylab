@@ -18,8 +18,8 @@ use crate::redact::redact;
 mod pipelines;
 
 pub use pipelines::{
-    Artifact, Bridge, Downstream, Job, LatestPipeline, MAX_JOB_LOG_BYTES, Pipeline, Runner, Stage,
-    Status, User,
+    Artifact, Bridge, Downstream, Job, LatestPipeline, MAX_JOB_LOG_BYTES, Pipeline, Stage, Status,
+    User,
 };
 
 /// The Go release gives every call 15 seconds.

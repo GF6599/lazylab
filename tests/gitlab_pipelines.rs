@@ -239,7 +239,7 @@ async fn each_stage_shows_the_most_urgent_status_among_its_jobs() {
 }
 
 #[tokio::test]
-async fn jobs_are_listed_with_their_runner_artifacts_and_failure_reason() {
+async fn jobs_are_listed_with_their_artifacts_and_failure_reason() {
     // Given: GitLab answers the jobs of a pipeline, a hundred to a page.
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -265,10 +265,6 @@ async fn jobs_are_listed_with_their_runner_artifacts_and_failure_reason() {
         (1001, "build", "build")
     );
     assert_eq!(build.duration, Some(30.5));
-    assert_eq!(
-        build.runner.as_ref().and_then(|r| r.description.as_deref()),
-        Some("shared-runner-1")
-    );
     let artifacts: Vec<_> = build
         .artifacts
         .iter()
