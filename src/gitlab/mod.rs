@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Response, StatusCode};
+use reqwest::{Response, StatusCode, redirect};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use time::OffsetDateTime;
@@ -18,6 +18,7 @@ use crate::redact::redact;
 /// The Go release gives every call 15 seconds.
 const TIMEOUT: Duration = Duration::from_secs(15);
 const API_PATH: &str = "api/v4/";
+const MAX_REDIRECTS: usize = 10;
 
 pub struct Client {
     http: reqwest::Client,
@@ -38,6 +39,7 @@ impl Client {
         headers.insert("PRIVATE-TOKEN", value);
         let http = reqwest::Client::builder()
             .default_headers(headers)
+            .redirect(redirect::Policy::custom(same_origin_only))
             .timeout(TIMEOUT)
             .user_agent(concat!("lazylab/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -87,6 +89,22 @@ impl Client {
             total_pages: header_number(&headers, "x-total-pages"),
             total_items: header_number(&headers, "x-total"),
         })
+    }
+}
+
+/// reqwest strips only the standard credential headers when a redirect leaves the origin, so
+/// `PRIVATE-TOKEN` would travel to whatever host the redirect names. A redirect that leaves the
+/// origin stops instead, and its 3xx answer is reported as a refusal.
+fn same_origin_only(attempt: redirect::Attempt) -> redirect::Action {
+    let first = &attempt.previous()[0];
+    let next = attempt.url();
+    let same = first.scheme() == next.scheme()
+        && first.host_str() == next.host_str()
+        && first.port_or_known_default() == next.port_or_known_default();
+    if same && attempt.previous().len() < MAX_REDIRECTS {
+        attempt.follow()
+    } else {
+        attempt.stop()
     }
 }
 
