@@ -59,6 +59,17 @@ pub struct Flags {
 #[derive(Clone, PartialEq)]
 pub struct Token(pub(crate) String);
 
+impl Token {
+    pub fn new(value: impl Into<String>) -> Token {
+        Token(value.into())
+    }
+
+    /// The one way to read the token, so every place that sends it can be found by name.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[REDACTED]")
@@ -259,6 +270,12 @@ fn parse_host(host: &str) -> Result<Url, Error> {
     }
     if url.host_str().is_none_or(str::is_empty) {
         return Err(Error("host URL must include a hostname".into()));
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(Error(
+            "host URL must not carry a user name or password, put the token in $GITLAB_TOKEN"
+                .into(),
+        ));
     }
     Ok(url)
 }
@@ -558,6 +575,30 @@ mod tests {
             for (message, secret, names) in rejected {
                 assert!(!message.contains(secret), "{secret} quoted in: {message}");
                 assert!(message.contains(names), "{names} missing from: {message}");
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn a_host_that_carries_credentials_is_rejected_without_quoting_them() {
+        Jail::expect_with(|jail| {
+            jail.clear_env();
+            // When: the host names a user, with and without a password.
+            let rejected = [
+                "https://oauth2:s3cretvalue@gitlab.com",
+                "https://s3cretvalue@gitlab.com",
+            ]
+            .map(|host| {
+                error(&Flags {
+                    host: Some(host.into()),
+                    ..flags("t")
+                })
+            });
+            // Then: each is refused with where the token belongs, and the secret is not quoted.
+            for message in rejected {
+                assert!(message.contains("GITLAB_TOKEN"), "{message}");
+                assert!(!message.contains("s3cretvalue"), "{message}");
             }
             Ok(())
         });
