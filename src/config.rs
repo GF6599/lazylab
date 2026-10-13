@@ -57,7 +57,7 @@ pub struct Flags {
 
 /// Prints as a placeholder, so no `{:?}` of a config can put the token in a log line.
 #[derive(Clone, PartialEq)]
-pub struct Token(String);
+pub struct Token(pub(crate) String);
 
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -126,7 +126,6 @@ pub fn load(
     flags: &Flags,
     glab: &dyn Fn(Option<&str>) -> Option<Credentials>,
 ) -> Result<Config, Error> {
-    let _ = glab;
     let named = |path: Option<PathBuf>| path.filter(|p| !p.as_os_str().is_empty());
     let config_file = named(flags.config.clone())
         .or_else(|| named(env::var_os("LAZYLAB_CONFIG").map(PathBuf::from)))
@@ -146,7 +145,15 @@ pub fn load(
         .extract()?;
 
     let present = |value: Option<String>| value.filter(|v| !v.is_empty());
-    let host = parse_host(&present(merged.host).unwrap_or_else(|| DEFAULT_HOST.into()))?;
+    let mut host = present(merged.host);
+    let mut token = present(merged.token).map(Token);
+    if token.is_none()
+        && let Some(found) = glab(host.as_deref())
+    {
+        token = Some(found.token);
+        host.get_or_insert(found.host);
+    }
+    let host = parse_host(&host.unwrap_or_else(|| DEFAULT_HOST.into()))?;
     let projects_per_page = match merged.projects_per_page {
         None | Some(..=0) => DEFAULT_PROJECTS_PER_PAGE,
         Some(n @ 1..=MAX_PROJECTS_PER_PAGE) => n as u8,
@@ -170,9 +177,11 @@ pub fn load(
             )));
         }
     };
-    let token = present(merged.token)
-        .map(Token)
-        .ok_or_else(|| Error("gitlab token is required: set --token or $GITLAB_TOKEN".into()))?;
+    let token = token.ok_or_else(|| {
+        Error(
+            "gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`".into(),
+        )
+    })?;
 
     Ok(Config {
         host,
@@ -310,7 +319,7 @@ mod tests {
             let glab = |hint: Option<&str>| {
                 hints.borrow_mut().push(hint.map(String::from));
                 Some(Credentials {
-                    token: "glab-token".into(),
+                    token: Token("glab-token".into()),
                     host: "https://glab.example".into(),
                 })
             };

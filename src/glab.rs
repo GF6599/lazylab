@@ -1,11 +1,22 @@
 //! Reads the GitLab credentials the glab CLI has stored, so a glab login needs no
 //! `GITLAB_TOKEN`.
 
-use std::time::Duration;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
+
+use crate::config::Token;
+
+/// A token behind a locked OS keyring makes glab wait on an unlock prompt, and startup must not
+/// wait with it.
+const TIMEOUT: Duration = Duration::from_secs(3);
+const POLL: Duration = Duration::from_millis(10);
+const DEFAULT_HOST: &str = "gitlab.com";
 
 #[derive(Debug, PartialEq)]
 pub struct Credentials {
-    pub token: String,
+    pub token: Token,
     pub host: String,
 }
 
@@ -14,22 +25,102 @@ pub struct Credentials {
 type Run<'a> = &'a dyn Fn(&[&str]) -> Option<(String, String)>;
 
 pub fn resolve(host_hint: Option<&str>) -> Option<Credentials> {
-    resolve_with(
-        &|args| run_with_timeout("glab", args, Duration::from_secs(3)),
-        host_hint,
-    )
+    resolve_with(&|args| run_with_timeout("glab", args, TIMEOUT), host_hint)
 }
 
-fn resolve_with(_run: Run, _host_hint: Option<&str>) -> Option<Credentials> {
-    None
+/// With a hint, only a token stored for that host, so a token never goes to another instance.
+/// Without one, glab's default host decides, and its token and host travel together.
+fn resolve_with(run: Run, host_hint: Option<&str>) -> Option<Credentials> {
+    match host_hint {
+        Some(hint) => token_for_host(run, hostname_of(hint)).map(|token| Credentials {
+            token,
+            host: hint.to_string(),
+        }),
+        None => {
+            let stored_host =
+                output(run, &["config", "get", "host"]).unwrap_or_else(|| DEFAULT_HOST.into());
+            let token = output(run, &["config", "get", "token"])
+                .map(Token)
+                .or_else(|| token_for_host(run, hostname_of(&stored_host)))?;
+            Some(Credentials {
+                token,
+                host: host_url(run, &stored_host),
+            })
+        }
+    }
 }
 
-fn run_with_timeout(
-    _program: &str,
-    _args: &[&str],
-    _timeout: Duration,
-) -> Option<(String, String)> {
-    Some((String::new(), String::new()))
+fn output(run: Run, args: &[&str]) -> Option<String> {
+    run(args).map(|(out, _)| out).filter(|out| !out.is_empty())
+}
+
+/// The per-host config entry first, then `glab auth status`, the only way to read a token that
+/// lives in the OS keyring rather than in glab's config file. glab prints that report to
+/// stderr, and both streams are read in case it moves.
+fn token_for_host(run: Run, hostname: &str) -> Option<Token> {
+    let stored = output(run, &["config", "get", "token", "--host", hostname]);
+    stored
+        .or_else(|| {
+            let (out, err) = run(&["auth", "status", "--hostname", hostname, "--show-token"])?;
+            format!("{out}\n{err}")
+                .lines()
+                .find_map(|line| line.split_once("Token found:"))
+                .map(|(_, token)| token.trim().to_string())
+                .filter(|token| !token.is_empty())
+        })
+        .map(Token)
+}
+
+/// glab passes `GITLAB_HOST` through as set, so a stored host can already carry a scheme.
+fn host_url(run: Run, stored_host: &str) -> String {
+    if stored_host.contains("://") {
+        return stored_host.to_string();
+    }
+    let protocol =
+        output(run, &["config", "get", "api_protocol"]).unwrap_or_else(|| "https".into());
+    format!("{protocol}://{stored_host}")
+}
+
+fn hostname_of(host: &str) -> &str {
+    let host = host.split_once("://").map_or(host, |(_, rest)| rest);
+    host.split('/').next().unwrap_or(host)
+}
+
+fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Option<(String, String)> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let stdout = read_in_background(child.stdout.take()?);
+    let stderr = read_in_background(child.stderr.take()?);
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait().ok()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        thread::sleep(POLL);
+    };
+    let (stdout, stderr) = (stdout.join().ok()?, stderr.join().ok()?);
+    status
+        .success()
+        .then(|| (stdout.trim().to_string(), stderr.trim().to_string()))
+}
+
+/// Both pipes drain while the command runs, so a full pipe cannot stall it until the deadline.
+fn read_in_background(mut pipe: impl Read + Send + 'static) -> JoinHandle<String> {
+    thread::spawn(move || {
+        let mut text = String::new();
+        let _ = pipe.read_to_string(&mut text);
+        text
+    })
 }
 
 #[cfg(test)]
@@ -53,7 +144,7 @@ mod tests {
 
     fn found(token: &str, host: &str) -> Option<Credentials> {
         Some(Credentials {
-            token: token.into(),
+            token: Token(token.into()),
             host: host.into(),
         })
     }
@@ -153,13 +244,20 @@ mod tests {
         );
     }
 
+    /// Runs inside a `Jail`, because a config test's `Jail` moves the working directory of the
+    /// whole test process and then deletes it, and the shell reports that on stderr.
     #[test]
     fn a_command_that_finishes_returns_its_trimmed_output() {
-        let result = run_with_timeout(
-            "sh",
-            &["-c", "echo ' out '; echo ' err ' >&2"],
-            Duration::from_secs(5),
-        );
-        assert_eq!(result, Some(("out".into(), "err".into())));
+        figment::Jail::expect_with(|_| {
+            // When: a command prints to both streams with surrounding spaces.
+            let result = run_with_timeout(
+                "sh",
+                &["-c", "echo ' out '; echo ' err ' >&2"],
+                Duration::from_secs(5),
+            );
+            // Then: both come back trimmed.
+            assert_eq!(result, Some(("out".into(), "err".into())));
+            Ok(())
+        });
     }
 }
