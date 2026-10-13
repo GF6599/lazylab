@@ -7,7 +7,8 @@ fn lazylab(args: &[&str]) -> Output {
         .expect("the binary runs")
 }
 
-/// Runs with no environment, so a token or config file on the developer's machine cannot leak in.
+/// Runs with no environment, so a token, a config file or a glab login on the developer's machine
+/// cannot leak in: with no `PATH` and no `HOME`, glab is not found or finds no login.
 fn lazylab_without_env(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_lazylab"))
         .args(args)
@@ -67,6 +68,6 @@ fn no_token_from_any_source_exits_with_the_reason() {
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
-        "error: config error: gitlab token is required: set --token or $GITLAB_TOKEN\n"
+        "error: config error: gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`\n"
     );
 }
