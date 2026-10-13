@@ -1,5 +1,6 @@
 //! Lazylab, a terminal UI for GitLab.
 
+mod config;
 mod logging;
 mod redact;
 
