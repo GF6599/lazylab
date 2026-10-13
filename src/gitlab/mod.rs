@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{RequestBuilder, Response, StatusCode, redirect};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use url::Url;
 
@@ -15,8 +15,10 @@ use crate::config::Token;
 use crate::exit;
 use crate::redact::redact;
 
+mod actions;
 mod pipelines;
 
+pub use actions::Variable;
 pub use pipelines::{
     Artifact, Bridge, Downstream, Job, LatestPipeline, MAX_JOB_LOG_BYTES, Pipeline, Stage, Status,
     User,
@@ -81,6 +83,20 @@ impl Client {
         let request = self.http.get(self.url(path)).query(query);
         let response = send(operation, request).await?;
         refusal(operation, response).await
+    }
+
+    /// Unlike `get`, this leaves a refusal to the caller, because a retry treats a 400 as a cue.
+    async fn post(
+        &self,
+        operation: &'static str,
+        path: &str,
+        body: Option<&impl Serialize>,
+    ) -> Result<Response, Error> {
+        let mut request = self.http.post(self.url(path));
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        send(operation, request).await
     }
 
     fn url(&self, path: &str) -> Url {
