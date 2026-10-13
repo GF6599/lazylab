@@ -1,6 +1,7 @@
 //! Lazylab, a terminal UI for GitLab.
 
 mod config;
+mod glab;
 mod logging;
 mod redact;
 
@@ -34,7 +35,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
     };
-    let config = match config::load(&cli.flags) {
+    let config = match config::load(&cli.flags, &glab::resolve) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("error: {}", redact(&format!("config error: {e}")));

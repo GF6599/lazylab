@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 use url::Url;
 
+use crate::glab::Credentials;
+
 const DEFAULT_HOST: &str = "https://gitlab.com";
 const DEFAULT_PROJECTS_PER_PAGE: u8 = 30;
 /// The GitLab API caps a page here, and above it returns fewer rows with no error.
@@ -55,7 +57,7 @@ pub struct Flags {
 
 /// Prints as a placeholder, so no `{:?}` of a config can put the token in a log line.
 #[derive(Clone, PartialEq)]
-pub struct Token(String);
+pub struct Token(pub(crate) String);
 
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -118,7 +120,12 @@ struct Merged {
     log_level: Option<String>,
 }
 
-pub fn load(flags: &Flags) -> Result<Config, Error> {
+/// `glab` supplies the token, and the host when none is set, only when no other source has a
+/// token. It receives the host set so far, so it can return a token for that host only.
+pub fn load(
+    flags: &Flags,
+    glab: &dyn Fn(Option<&str>) -> Option<Credentials>,
+) -> Result<Config, Error> {
     let named = |path: Option<PathBuf>| path.filter(|p| !p.as_os_str().is_empty());
     let config_file = named(flags.config.clone())
         .or_else(|| named(env::var_os("LAZYLAB_CONFIG").map(PathBuf::from)))
@@ -138,7 +145,15 @@ pub fn load(flags: &Flags) -> Result<Config, Error> {
         .extract()?;
 
     let present = |value: Option<String>| value.filter(|v| !v.is_empty());
-    let host = parse_host(&present(merged.host).unwrap_or_else(|| DEFAULT_HOST.into()))?;
+    let mut host = present(merged.host);
+    let mut token = present(merged.token).map(Token);
+    if token.is_none()
+        && let Some(found) = glab(host.as_deref())
+    {
+        token = Some(found.token);
+        host.get_or_insert(found.host);
+    }
+    let host = parse_host(&host.unwrap_or_else(|| DEFAULT_HOST.into()))?;
     let projects_per_page = match merged.projects_per_page {
         None | Some(..=0) => DEFAULT_PROJECTS_PER_PAGE,
         Some(n @ 1..=MAX_PROJECTS_PER_PAGE) => n as u8,
@@ -162,9 +177,11 @@ pub fn load(flags: &Flags) -> Result<Config, Error> {
             )));
         }
     };
-    let token = present(merged.token)
-        .map(Token)
-        .ok_or_else(|| Error("gitlab token is required: set --token or $GITLAB_TOKEN".into()))?;
+    let token = token.ok_or_else(|| {
+        Error(
+            "gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`".into(),
+        )
+    })?;
 
     Ok(Config {
         host,
@@ -248,9 +265,15 @@ fn parse_host(host: &str) -> Result<Url, Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use figment::Jail;
 
     use super::*;
+
+    fn load(flags: &Flags) -> Result<Config, Error> {
+        super::load(flags, &|_| None)
+    }
 
     fn flags(token: &str) -> Flags {
         Flags {
@@ -282,6 +305,51 @@ mod tests {
                     log_level: Level::ERROR,
                     config_file: None,
                 }
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn glab_supplies_the_token_only_when_no_other_source_has_one() {
+        Jail::expect_with(|jail| {
+            // Given: glab holds a token for a host of its own, and records each hint it gets.
+            jail.clear_env();
+            let hints = RefCell::new(Vec::new());
+            let glab = |hint: Option<&str>| {
+                hints.borrow_mut().push(hint.map(String::from));
+                Some(Credentials {
+                    token: Token("glab-token".into()),
+                    host: "https://glab.example".into(),
+                })
+            };
+            // When: no source has a token, then with an explicit host, then with a token in the
+            // environment.
+            let alone = super::load(&Flags::default(), &glab).unwrap();
+            let explicit_host = Flags {
+                host: Some("https://my.gitlab.test".into()),
+                ..Flags::default()
+            };
+            let with_host = super::load(&explicit_host, &glab).unwrap();
+            jail.set_env("GITLAB_TOKEN", "env-token");
+            let with_env_token = super::load(&Flags::default(), &glab).unwrap();
+
+            // Then: glab's token and host come together, an explicit host stays and is the
+            // hint, and a token from the environment means glab is not asked.
+            let glab_token = Token("glab-token".into());
+            assert_eq!(
+                (&alone.token, alone.host.as_str()),
+                (&glab_token, "https://glab.example/")
+            );
+            assert_eq!(
+                (&with_host.token, with_host.host.as_str()),
+                (&glab_token, "https://my.gitlab.test/")
+            );
+            assert_eq!(with_env_token.token, Token("env-token".into()));
+            assert_eq!(with_env_token.host.as_str(), "https://gitlab.com/");
+            assert_eq!(
+                *hints.borrow(),
+                [None, Some("https://my.gitlab.test".into())]
             );
             Ok(())
         });
