@@ -119,12 +119,10 @@ struct Merged {
 }
 
 pub fn load(flags: &Flags) -> Result<Config, Error> {
-    let config_file = flags
-        .config
-        .clone()
-        .or_else(|| env::var_os("LAZYLAB_CONFIG").map(PathBuf::from))
-        .or_else(|| env::var_os("GITLAB_TUI_CONFIG").map(PathBuf::from))
-        .filter(|path| !path.as_os_str().is_empty());
+    let named = |path: Option<PathBuf>| path.filter(|p| !p.as_os_str().is_empty());
+    let config_file = named(flags.config.clone())
+        .or_else(|| named(env::var_os("LAZYLAB_CONFIG").map(PathBuf::from)))
+        .or_else(|| named(env::var_os("GITLAB_TUI_CONFIG").map(PathBuf::from)));
     let mut sources = Figment::new();
     if let Some(path) = &config_file {
         sources = with_file(sources, path)?;
