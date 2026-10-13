@@ -4,11 +4,15 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use clap::Args;
-use figment::Figment;
+use figment::error::Kind;
 use figment::providers::{Env, Format, Json, Serialized, Toml, Yaml};
+use figment::{Figment, Provider};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 use url::Url;
@@ -77,9 +81,30 @@ impl fmt::Display for Error {
     }
 }
 
+/// figment's messages quote the rejected value, and that value can be the token, so an error
+/// names the setting and its source instead.
 impl From<figment::Error> for Error {
-    fn from(e: figment::Error) -> Self {
-        Error(e.to_string())
+    fn from(errors: figment::Error) -> Self {
+        let described: Vec<String> = errors
+            .into_iter()
+            .map(|e| {
+                let source = e
+                    .metadata
+                    .map(|m| match m.source {
+                        Some(source) => format!(" in {source} {}", m.name),
+                        None => format!(" in {}", m.name),
+                    })
+                    .unwrap_or_default();
+                let expected = match &e.kind {
+                    Kind::InvalidType(_, expected) | Kind::InvalidValue(_, expected) => {
+                        format!(", expected {expected}")
+                    }
+                    _ => String::new(),
+                };
+                format!("invalid {}{source}{expected}", e.path.join("."))
+            })
+            .collect();
+        Error(described.join("; "))
     }
 }
 
@@ -160,30 +185,18 @@ fn env_text() -> BTreeMap<String, String> {
         .collect()
 }
 
-/// Reads the file once up front, so an unreadable or malformed file is reported with its path
-/// rather than as a bare I/O error.
+/// Reads the file up front, so an unreadable or malformed file is reported with its path rather
+/// than as a bare I/O error.
 fn with_file(sources: Figment, path: &Path) -> Result<Figment, Error> {
-    let unreadable = |e: figment::Error| Error(format!("load config {}: {e}", path.display()));
+    fs::read(path).map_err(|e| Error(format!("load config {}: {e}", path.display())))?;
     let extension = path
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_lowercase);
     match extension.as_deref() {
-        Some("toml") => {
-            let file = Toml::file_exact(path);
-            figment::Provider::data(&file).map_err(unreadable)?;
-            Ok(sources.merge(file))
-        }
-        Some("yaml" | "yml") => {
-            let file = Yaml::file_exact(path);
-            figment::Provider::data(&file).map_err(unreadable)?;
-            Ok(sources.merge(file))
-        }
-        Some("json") => {
-            let file = Json::file_exact(path);
-            figment::Provider::data(&file).map_err(unreadable)?;
-            Ok(sources.merge(file))
-        }
+        Some("toml") => merge_file::<Toml>(sources, path),
+        Some("yaml" | "yml") => merge_file::<Yaml>(sources, path),
+        Some("json") => merge_file::<Json>(sources, path),
         _ => Err(Error(format!(
             "load config {}: unsupported file type, use .toml, .yaml, .yml or .json",
             path.display()
@@ -191,13 +204,37 @@ fn with_file(sources: Figment, path: &Path) -> Result<Figment, Error> {
     }
 }
 
+fn merge_file<F: Format>(sources: Figment, path: &Path) -> Result<Figment, Error> {
+    let file = F::file_exact(path);
+    file.data().map_err(|e| {
+        Error(format!(
+            "load config {}: not valid {}{}",
+            path.display(),
+            F::NAME,
+            position(&e.to_string())
+        ))
+    })?;
+    Ok(sources.merge(file))
+}
+
+/// A parser message quotes the source line, which can hold the token, so only its position is
+/// kept.
+fn position(message: &str) -> String {
+    static POSITION: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"line (\d+),? column (\d+)").expect("a valid pattern"));
+    POSITION
+        .captures(message)
+        .map(|c| format!(" at line {}, column {}", &c[1], &c[2]))
+        .unwrap_or_default()
+}
+
 fn parse_host(host: &str) -> Result<Url, Error> {
     let url = Url::parse(host).map_err(|e| match e {
-        url::ParseError::RelativeUrlWithoutBase => Error(format!(
-            "host URL must include a scheme (e.g., https://{host})"
-        )),
+        url::ParseError::RelativeUrlWithoutBase => {
+            Error("host URL must include a scheme, for example https://".into())
+        }
         url::ParseError::EmptyHost => Error("host URL must include a hostname".into()),
-        e => Error(format!("invalid host URL {host:?}: {e}")),
+        e => Error(format!("invalid host URL: {e}")),
     })?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(Error(format!(
