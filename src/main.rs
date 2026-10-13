@@ -2,12 +2,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use lazylab::redact::redact;
-use lazylab::{config, glab, logging};
-
-/// Scripts that wrap lazylab read the exit code, so each value keeps its meaning across
-/// releases. clap exits with 2 on a usage error, which here means a transient failure that is
-/// safe to retry, so a usage error is mapped to this one instead.
-const EXIT_GENERIC: u8 = 1;
+use lazylab::{config, exit, glab, logging};
 
 #[derive(Parser)]
 #[command(name = "lazylab", version, about)]
@@ -21,7 +16,7 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(e) if e.use_stderr() => {
             eprint!("{}", redact(&e.render().to_string()));
-            return ExitCode::from(EXIT_GENERIC);
+            return ExitCode::from(exit::GENERIC);
         }
         Err(e) => {
             let _ = e.print();
@@ -32,7 +27,7 @@ fn main() -> ExitCode {
         Ok(config) => config,
         Err(e) => {
             eprintln!("error: {}", redact(&format!("config error: {e}")));
-            return ExitCode::from(EXIT_GENERIC);
+            return ExitCode::from(exit::GENERIC);
         }
     };
     logging::init(config.log_level);
