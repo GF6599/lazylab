@@ -38,3 +38,18 @@ jobs:
       - run: go tool gofumpt -l -d .
 
       - run: go tool govulncheck ./...
+
+  cargo:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # rustup reads rust-toolchain.toml, so this job and a laptop run the same compiler and
+      # the same clippy lints.
+      - run: rustup toolchain install
+
+      - run: cargo fmt --check
+
+      - run: cargo clippy --all-targets --locked -- -D warnings
+
+      - run: cargo test --locked

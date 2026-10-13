@@ -16,3 +16,6 @@ debug.log,
 
 # IDE
 .idea/
+
+# Rust
+/target/

@@ -1,0 +1,16 @@
+[package]
+name = "lazylab"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.93"
+description = "Terminal UI for GitLab"
+license = "MIT"
+publish = false
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

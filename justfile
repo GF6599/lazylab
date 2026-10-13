@@ -15,10 +15,11 @@ default:
 run HOST="https://gitlab.com":
 	go run ./cmd/lazylab --host {{HOST}}
 
-# Run tests with the race detector
+# Run the Go tests with the race detector, then the Rust tests
 [group('dev')]
 test:
 	go test -race ./...
+	cargo test --locked
 
 # Build darwin and linux binaries into build/
 [group('build')]
@@ -47,10 +48,11 @@ install: build
 	cp build/lazylab-darwin-$(go env GOARCH) ~/self-made-bin/lazylab
 	codesign -s - ~/self-made-bin/lazylab
 
-# Format with gofumpt
+# Format the Go code with gofumpt and the Rust code with rustfmt
 [group('dev')]
 fmt:
 	go tool gofumpt -w .
+	cargo fmt
 
 # Every static check CI runs, in the same order
 [group('dev')]
@@ -60,6 +62,8 @@ lint:
 	go tool gofumpt -l -d .
 	# Reaches vuln.go.dev, so this recipe needs a network connection.
 	go tool govulncheck ./...
+	cargo fmt --check
+	cargo clippy --all-targets --locked -- -D warnings
 
 # Report unreachable code (informational, test-only functions are expected)
 [group('dev')]
