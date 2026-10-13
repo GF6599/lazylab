@@ -260,6 +260,12 @@ fn parse_host(host: &str) -> Result<Url, Error> {
     if url.host_str().is_none_or(str::is_empty) {
         return Err(Error("host URL must include a hostname".into()));
     }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(Error(
+            "host URL must not carry a user name or password, put the token in $GITLAB_TOKEN"
+                .into(),
+        ));
+    }
     Ok(url)
 }
 
