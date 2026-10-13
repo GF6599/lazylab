@@ -1,5 +1,8 @@
 //! Lazylab, a terminal UI for GitLab.
 
+mod logging;
+mod redact;
+
 use std::process::ExitCode;
 
 use clap::Parser;
