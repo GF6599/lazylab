@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Response, StatusCode, redirect};
+use reqwest::{RequestBuilder, Response, StatusCode, redirect};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use time::OffsetDateTime;
@@ -78,15 +78,13 @@ impl Client {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<Response, Error> {
-        let url = self.api.join(path).expect("an API path is relative");
-        let response = self
-            .http
-            .get(url)
-            .query(query)
-            .send()
-            .await
-            .map_err(|e| Error::transport(operation, e))?;
+        let request = self.http.get(self.url(path)).query(query);
+        let response = send(operation, request).await?;
         refusal(operation, response).await
+    }
+
+    fn url(&self, path: &str) -> Url {
+        self.api.join(path).expect("an API path is relative")
     }
 
     async fn get_json<T: DeserializeOwned>(
@@ -96,10 +94,7 @@ impl Client {
         query: &[(&str, String)],
     ) -> Result<T, Error> {
         let response = self.get(operation, path, query).await?;
-        response
-            .json()
-            .await
-            .map_err(|e| Error::transport(operation, e))
+        decode(operation, response).await
     }
 
     async fn get_page<T: DeserializeOwned>(
@@ -111,10 +106,7 @@ impl Client {
     ) -> Result<Page<T>, Error> {
         let response = self.get(operation, path, query).await?;
         let headers = response.headers().clone();
-        let items = response
-            .json()
-            .await
-            .map_err(|e| Error::transport(operation, e))?;
+        let items = decode(operation, response).await?;
         Ok(Page {
             items,
             page: header_number(&headers, "x-page").unwrap_or(requested),
@@ -188,11 +180,32 @@ fn header_number<T: FromStr>(headers: &HeaderMap, name: &str) -> Option<T> {
     headers.get(name)?.to_str().ok()?.trim().parse().ok()
 }
 
+async fn send(operation: &'static str, request: RequestBuilder) -> Result<Response, Error> {
+    request
+        .send()
+        .await
+        .map_err(|e| Error::transport(operation, e))
+}
+
+async fn decode<T: DeserializeOwned>(
+    operation: &'static str,
+    response: Response,
+) -> Result<T, Error> {
+    response
+        .json()
+        .await
+        .map_err(|e| Error::transport(operation, e))
+}
+
 async fn refusal(operation: &'static str, response: Response) -> Result<Response, Error> {
-    let status = response.status();
-    if status.is_success() {
+    if response.status().is_success() {
         return Ok(response);
     }
+    Err(rejection(operation, response).await)
+}
+
+async fn rejection(operation: &'static str, response: Response) -> Error {
+    let status = response.status();
     let kind = match status {
         StatusCode::UNAUTHORIZED => ErrorKind::Unauthorized,
         StatusCode::FORBIDDEN => ErrorKind::Forbidden,
@@ -202,11 +215,11 @@ async fn refusal(operation: &'static str, response: Response) -> Result<Response
         _ => ErrorKind::Rejected,
     };
     let body = response.text().await.unwrap_or_default();
-    Err(Error {
+    Error {
         kind,
         operation,
         detail: format!("GitLab answered {status}{}", reason(&body)),
-    })
+    }
 }
 
 /// GitLab puts its reason in `message`, or in `error` for an OAuth refusal.
