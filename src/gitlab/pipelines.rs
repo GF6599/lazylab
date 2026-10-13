@@ -132,6 +132,7 @@ pub enum Status {
     Success,
     Failed,
     Canceled,
+    Canceling,
     Skipped,
     Manual,
     Blocked,
@@ -154,7 +155,8 @@ impl Status {
             Status::Created => 5,
             Status::Success => 6,
             Status::Skipped => 7,
-            Status::Unknown => 8,
+            // The Go release ranked these last, as a status it did not know.
+            Status::Canceling | Status::Unknown => 8,
         }
     }
 }
