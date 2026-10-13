@@ -1,6 +1,7 @@
 //! Resolves the settings from flags, `GITLAB_*` environment variables, a config file and
 //! defaults, in that order of precedence.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -17,7 +18,10 @@ const DEFAULT_PROJECTS_PER_PAGE: u8 = 30;
 /// The GitLab API caps a page here, and above it returns fewer rows with no error.
 const MAX_PROJECTS_PER_PAGE: i64 = 100;
 const ENV_PREFIX: &str = "GITLAB_";
-const ENV_KEYS: [&str; 4] = ["host", "token", "projects_per_page", "log_level"];
+/// figment's `Env` parses each value, so a token of digits would arrive as a number. These keys
+/// are taken as the text that was set.
+const ENV_TEXT_KEYS: [&str; 3] = ["host", "token", "log_level"];
+const ENV_NUMBER_KEYS: [&str; 1] = ["projects_per_page"];
 
 #[derive(Args, Serialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -103,9 +107,10 @@ pub fn load(flags: &Flags) -> Result<Config, Error> {
     let merged: Merged = sources
         .merge(
             Env::prefixed(ENV_PREFIX)
-                .only(&ENV_KEYS)
+                .only(&ENV_NUMBER_KEYS)
                 .map(|key| key.as_str().replace('_', "-").into()),
         )
+        .merge(Serialized::defaults(env_text()))
         .merge(Serialized::defaults(flags))
         .extract()?;
 
@@ -145,6 +150,14 @@ pub fn load(flags: &Flags) -> Result<Config, Error> {
         log_level,
         config_file,
     })
+}
+
+fn env_text() -> BTreeMap<String, String> {
+    Env::prefixed(ENV_PREFIX)
+        .only(&ENV_TEXT_KEYS)
+        .iter()
+        .map(|(key, value)| (key.as_str().replace('_', "-"), value))
+        .collect()
 }
 
 /// Reads the file once up front, so an unreadable or malformed file is reported with its path
