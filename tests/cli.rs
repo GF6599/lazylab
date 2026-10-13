@@ -37,3 +37,15 @@ fn a_positional_argument_is_rejected_with_the_generic_exit_code() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).contains("pipelines"));
 }
+
+/// clap echoes an unexpected argument, so a token passed by mistake would land in scrollback.
+#[test]
+fn a_token_passed_as_an_argument_is_not_echoed() {
+    // When: a token is passed where no argument belongs.
+    let out = lazylab(&["glpat-abcdefghijklmnopqrst"]);
+    // Then: the usage error names a placeholder in its place.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!stderr.contains("glpat-abcdefghijklmnopqrst"), "{stderr}");
+    assert!(stderr.contains("[REDACTED-TOKEN]"), "{stderr}");
+}
