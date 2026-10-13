@@ -355,6 +355,26 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_config_source_falls_through_to_the_next() {
+        Jail::expect_with(|jail| {
+            // Given: an empty --config and an empty LAZYLAB_CONFIG, and a legacy variable naming a file.
+            jail.clear_env();
+            jail.create_file("legacy.toml", "host = \"https://legacy.example\"")?;
+            jail.set_env("LAZYLAB_CONFIG", "");
+            jail.set_env("GITLAB_TUI_CONFIG", "legacy.toml");
+            // When: the settings load.
+            let config = load(&Flags {
+                config: Some(PathBuf::new()),
+                ..flags("t")
+            })
+            .unwrap();
+            // Then: the legacy file is read.
+            assert_eq!(config.host.as_str(), "https://legacy.example/");
+            Ok(())
+        });
+    }
+
+    #[test]
     fn yaml_and_json_files_are_read_by_their_extension() {
         Jail::expect_with(|jail| {
             // Given: the same settings as YAML and as JSON.
