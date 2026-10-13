@@ -16,9 +16,13 @@ use crate::exit;
 use crate::redact::redact;
 
 mod actions;
+mod merge_requests;
 mod pipelines;
 
 pub use actions::Variable;
+pub use merge_requests::{
+    DiffRefs, Discussion, FileDiff, MergeRequest, MergeRequestState, Note, Position,
+};
 pub use pipelines::{
     Artifact, Bridge, Downstream, Job, LatestPipeline, MAX_JOB_LOG_BYTES, Pipeline, Stage, Status,
     User,
