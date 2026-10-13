@@ -2,7 +2,18 @@
 
 use std::io::{self, Write};
 
+use tracing::Level;
 use tracing_subscriber::fmt::MakeWriter;
+
+use crate::redact::redact;
+
+pub fn init(level: Level) {
+    tracing_subscriber::fmt()
+        .with_writer(Redacted(io::stderr))
+        .with_ansi(false)
+        .with_max_level(level)
+        .init();
+}
 
 /// Hands out writers that pass each formatted event through `redact`.
 pub struct Redacted<M>(pub M);
@@ -15,11 +26,15 @@ impl<'a, M: MakeWriter<'a>> MakeWriter<'a> for Redacted<M> {
     }
 }
 
+/// tracing's formatter writes each event with one `write_all`, so a credential never straddles
+/// two calls here.
 pub struct RedactingWriter<W>(W);
 
 impl<W: Write> Write for RedactingWriter<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf)
+        self.0
+            .write_all(redact(&String::from_utf8_lossy(buf)).as_bytes())?;
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {

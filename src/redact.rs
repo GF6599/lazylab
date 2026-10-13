@@ -1,7 +1,47 @@
 //! Removes GitLab credentials from text before it reaches a log line, stderr or the screen.
 
+use std::sync::LazyLock;
+
+use regex::Regex;
+
+/// Applied in this order, so `Authorization: Bearer glpat-x` collapses into the header
+/// placeholder whole rather than leaving the scheme or the token behind.
+///
+/// A field ends at `[^\t\n\x0C\r ]`, the ASCII whitespace Go's RE2 means by `\s`. Rust's `\s` is
+/// Unicode, so it stops at a no-break space and would print the rest of the credential. No rule
+/// crosses a newline, so the error text after a header survives.
+static RULES: LazyLock<[(Regex, &str); 5]> = LazyLock::new(|| {
+    [
+        (
+            r"[Aa]uthorization:[ \t]*[^\t\n\x0C\r ]+([ \t]+[^\t\n\x0C\r ]+)*",
+            "Authorization: [REDACTED]",
+        ),
+        (
+            r"(?i)private-token:[ \t]*[^\t\n\x0C\r ]+",
+            "PRIVATE-TOKEN: [REDACTED]",
+        ),
+        (
+            r"(?i)((?:private|access)_token)=[^&\t\n\x0C\r ]+",
+            "${1}=[REDACTED]",
+        ),
+        (
+            r"[Bb]earer[ \t]+[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*",
+            "Bearer [REDACTED]",
+        ),
+        (
+            r"gl[a-zA-Z0-9]{1,8}-[a-zA-Z0-9_-]{6,}(?:\.[a-zA-Z0-9_-]+)*",
+            "[REDACTED-TOKEN]",
+        ),
+    ]
+    .map(|(pattern, replacement)| (Regex::new(pattern).expect("a valid pattern"), replacement))
+});
+
 pub fn redact(text: &str) -> String {
-    text.to_string()
+    RULES
+        .iter()
+        .fold(text.to_string(), |text, (pattern, replacement)| {
+            pattern.replace_all(&text, *replacement).into_owned()
+        })
 }
 
 #[cfg(test)]
