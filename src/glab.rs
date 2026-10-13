@@ -6,6 +6,8 @@ use std::process::{Command, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use url::Url;
+
 use crate::config::Token;
 
 /// A token behind a locked OS keyring makes glab wait on an unlock prompt, and startup must not
@@ -32,7 +34,7 @@ pub fn resolve(host_hint: Option<&str>) -> Option<Credentials> {
 /// Without one, glab's default host decides, and its token and host travel together.
 fn resolve_with(run: Run, host_hint: Option<&str>) -> Option<Credentials> {
     match host_hint {
-        Some(hint) => token_for_host(run, hostname_of(hint)).map(|token| Credentials {
+        Some(hint) => token_for_host(run, &hostname_of(hint)?).map(|token| Credentials {
             token,
             host: hint.to_string(),
         }),
@@ -41,7 +43,7 @@ fn resolve_with(run: Run, host_hint: Option<&str>) -> Option<Credentials> {
                 output(run, &["config", "get", "host"]).unwrap_or_else(|| DEFAULT_HOST.into());
             let token = output(run, &["config", "get", "token"])
                 .map(Token)
-                .or_else(|| token_for_host(run, hostname_of(&stored_host)))?;
+                .or_else(|| token_for_host(run, &hostname_of(&stored_host)?))?;
             Some(Credentials {
                 token,
                 host: host_url(run, &stored_host),
@@ -81,9 +83,22 @@ fn host_url(run: Run, stored_host: &str) -> String {
     format!("{protocol}://{stored_host}")
 }
 
-fn hostname_of(host: &str) -> &str {
-    let host = host.split_once("://").map_or(host, |(_, rest)| rest);
-    host.split('/').next().unwrap_or(host)
+/// Read with the same URL parser as the config, so the token is looked up for the host lazylab
+/// will contact. Splitting at `://` by hand disagrees with it: the config reads
+/// `https:evil.example/x://gitlab.com` as `evil.example`. A bare host is read as https, and a
+/// port stays in the name, because glab keys its per-host config with it.
+fn hostname_of(host: &str) -> Option<String> {
+    let url = if host.contains("://") {
+        Url::parse(host)
+    } else {
+        Url::parse(&format!("https://{host}"))
+    }
+    .ok()?;
+    let name = url.host_str()?;
+    Some(match url.port() {
+        Some(port) => format!("{name}:{port}"),
+        None => name.to_string(),
+    })
 }
 
 fn run_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Option<(String, String)> {
