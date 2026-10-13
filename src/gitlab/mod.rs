@@ -15,10 +15,19 @@ use crate::config::Token;
 use crate::exit;
 use crate::redact::redact;
 
+mod pipelines;
+
+pub use pipelines::{
+    Artifact, Bridge, Downstream, Job, LatestPipeline, MAX_JOB_LOG_BYTES, Pipeline, Runner, Stage,
+    Status, User,
+};
+
 /// The Go release gives every call 15 seconds.
 const TIMEOUT: Duration = Duration::from_secs(15);
 const API_PATH: &str = "api/v4/";
 const MAX_REDIRECTS: usize = 10;
+/// The largest page GitLab serves.
+const ALL_PAGES_SIZE: u8 = 100;
 
 pub struct Client {
     http: reqwest::Client,
@@ -63,14 +72,12 @@ impl Client {
             .await
     }
 
-    async fn get_page<T: DeserializeOwned>(
+    async fn get(
         &self,
         operation: &'static str,
         path: &str,
         query: &[(&str, String)],
-        requested: u32,
-    ) -> Result<Page<T>, Error> {
-        let transport = |e: reqwest::Error| Error::transport(operation, e);
+    ) -> Result<Response, Error> {
         let url = self.api.join(path).expect("an API path is relative");
         let response = self
             .http
@@ -78,10 +85,36 @@ impl Client {
             .query(query)
             .send()
             .await
-            .map_err(transport)?;
-        let response = refusal(operation, response).await?;
+            .map_err(|e| Error::transport(operation, e))?;
+        refusal(operation, response).await
+    }
+
+    async fn get_json<T: DeserializeOwned>(
+        &self,
+        operation: &'static str,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<T, Error> {
+        let response = self.get(operation, path, query).await?;
+        response
+            .json()
+            .await
+            .map_err(|e| Error::transport(operation, e))
+    }
+
+    async fn get_page<T: DeserializeOwned>(
+        &self,
+        operation: &'static str,
+        path: &str,
+        query: &[(&str, String)],
+        requested: u32,
+    ) -> Result<Page<T>, Error> {
+        let response = self.get(operation, path, query).await?;
         let headers = response.headers().clone();
-        let items = response.json().await.map_err(transport)?;
+        let items = response
+            .json()
+            .await
+            .map_err(|e| Error::transport(operation, e))?;
         Ok(Page {
             items,
             page: header_number(&headers, "x-page").unwrap_or(requested),
@@ -89,6 +122,27 @@ impl Client {
             total_pages: header_number(&headers, "x-total-pages"),
             total_items: header_number(&headers, "x-total"),
         })
+    }
+
+    async fn get_all<T: DeserializeOwned>(
+        &self,
+        operation: &'static str,
+        path: &str,
+    ) -> Result<Vec<T>, Error> {
+        let mut items = Vec::new();
+        let mut page = 1;
+        loop {
+            let query = [
+                ("page", page.to_string()),
+                ("per_page", ALL_PAGES_SIZE.to_string()),
+            ];
+            let next = self.get_page(operation, path, &query, page).await?;
+            items.extend(next.items);
+            match next.next_page {
+                Some(number) => page = number,
+                None => return Ok(items),
+            }
+        }
     }
 }
 
@@ -208,6 +262,8 @@ pub enum ErrorKind {
     Network,
     Decode,
     Setup,
+    /// The answer is larger than lazylab reads, as for a job log past `MAX_JOB_LOG_BYTES`.
+    TooLarge,
 }
 
 #[derive(Debug)]
@@ -237,9 +293,11 @@ impl Error {
             ErrorKind::Unauthorized | ErrorKind::Forbidden => exit::UNAUTHORIZED,
             ErrorKind::RateLimited | ErrorKind::Server => exit::TRANSIENT,
             ErrorKind::Network => exit::NETWORK,
-            ErrorKind::NotFound | ErrorKind::Rejected | ErrorKind::Decode | ErrorKind::Setup => {
-                exit::GENERIC
-            }
+            ErrorKind::NotFound
+            | ErrorKind::Rejected
+            | ErrorKind::Decode
+            | ErrorKind::Setup
+            | ErrorKind::TooLarge => exit::GENERIC,
         }
     }
 }
