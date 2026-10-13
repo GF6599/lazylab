@@ -564,6 +564,30 @@ mod tests {
     }
 
     #[test]
+    fn a_host_that_carries_credentials_is_rejected_without_quoting_them() {
+        Jail::expect_with(|jail| {
+            jail.clear_env();
+            // When: the host names a user, with and without a password.
+            let rejected = [
+                "https://oauth2:s3cretvalue@gitlab.com",
+                "https://s3cretvalue@gitlab.com",
+            ]
+            .map(|host| {
+                error(&Flags {
+                    host: Some(host.into()),
+                    ..flags("t")
+                })
+            });
+            // Then: each is refused with where the token belongs, and the secret is not quoted.
+            for message in rejected {
+                assert!(message.contains("GITLAB_TOKEN"), "{message}");
+                assert!(!message.contains("s3cretvalue"), "{message}");
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
     fn a_bad_number_in_the_environment_is_an_error_not_the_default() {
         Jail::expect_with(|jail| {
             jail.clear_env();
