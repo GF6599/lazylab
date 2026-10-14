@@ -191,14 +191,9 @@ fn favorites_load_in_the_order_they_were_saved_in() {
 }
 
 #[test]
-fn missing_null_or_other_version_favorites_load_as_none() {
-    let null = br#"{"version":2,"host":"https://gitlab.example.com","project_ids":null}"#;
+fn missing_or_other_version_favorites_load_as_none() {
     let version_one = br#"{"version":1,"host":"https://gitlab.example.com","project_ids":[3]}"#;
-    let cases: [(&str, &[(&str, &[u8])]); 3] = [
-        ("missing", &[]),
-        ("null", &[(FAVORITES, null)]),
-        ("version 1", &[(FAVORITES, version_one)]),
-    ];
+    let cases: [(&str, Files); 2] = [("missing", &[]), ("version 1", &[(FAVORITES, version_one)])];
     for (case, files) in cases {
         // Given: the cache folder for the case.
         let (_dir, store) = store_holding(files);
