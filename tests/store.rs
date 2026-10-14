@@ -17,16 +17,22 @@ const FAVORITES: &str = "favorites_https_gitlab_example_com.json";
 const GO_CACHED_AT: &str = "2026-10-12T23:31:49.628521-04:00";
 const NOW: &str = "2026-10-14T12:00:00Z";
 
+type Files<'a> = &'a [(&'a str, &'a [u8])];
+
 fn at(text: &str) -> OffsetDateTime {
     OffsetDateTime::parse(text, &Rfc3339).unwrap()
 }
 
 fn fixture(name: &str) -> Vec<u8> {
-    fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/store").join(name))
-        .unwrap()
+    fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/store")
+            .join(name),
+    )
+    .unwrap()
 }
 
-fn store_holding(files: &[(&str, &[u8])]) -> (TempDir, Store) {
+fn store_holding(files: Files) -> (TempDir, Store) {
     let dir = tempfile::tempdir().unwrap();
     for (name, data) in files {
         fs::write(dir.path().join(name), data).unwrap();
@@ -110,7 +116,7 @@ fn a_cache_older_than_a_day_is_a_miss() {
 fn a_missing_empty_or_other_version_cache_is_a_miss() {
     let empty = br#"{"version":2,"host":"https://gitlab.example.com","cached_at":"2026-10-14T11:00:00Z","total_projects":0,"projects":[]}"#;
     let version_one = br#"{"version":1,"host":"https://gitlab.example.com","cached_at":"2026-10-14T11:00:00Z","projects":[{"ID":1,"Name":"api"}]}"#;
-    let cases: [(&str, &[(&str, &[u8])]); 3] = [
+    let cases: [(&str, Files); 3] = [
         ("missing", &[]),
         ("empty", &[(PROJECTS, empty)]),
         ("version 1", &[(PROJECTS, version_one)]),
