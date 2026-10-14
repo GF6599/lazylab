@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use lazylab::redact::redact;
-use lazylab::{config, exit, glab, logging};
+use lazylab::{config, exit, glab, logging, tui};
 
 #[derive(Parser)]
 #[command(name = "lazylab", version, about)]
@@ -33,6 +33,10 @@ fn main() -> ExitCode {
     logging::init(config.log_level);
     if let Some(path) = &config.config_file {
         tracing::debug!(path = %path.display(), "using config file");
+    }
+    if let Err(e) = tui::launch(&config.host) {
+        eprintln!("error: {}", redact(&format!("terminal error: {e}")));
+        return ExitCode::from(exit::GENERIC);
     }
     ExitCode::SUCCESS
 }
