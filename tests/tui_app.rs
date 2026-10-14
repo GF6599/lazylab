@@ -60,8 +60,8 @@ fn a_start_loads_the_first_project_its_pipelines_jobs_and_merge_requests() {
     // When: it starts.
     let first = app.start();
 
-    // Then: it reads the project cache first.
-    assert_eq!(first, [Cmd::LoadCache]);
+    // Then: it reads the project cache and the favorites first.
+    assert_eq!(first, [Cmd::LoadCache, Cmd::LoadFavorites]);
 
     // When: the cached projects arrive.
     let projects = answer(Cmd::LoadCache);

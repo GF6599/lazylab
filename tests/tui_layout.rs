@@ -265,3 +265,42 @@ fn a_load_in_progress_counts_the_projects_that_have_arrived() {
         "{bottom}"
     );
 }
+
+#[test]
+fn a_favorite_wears_a_gold_star_before_its_path() {
+    // Given: the demo data, with the second project a favorite.
+    let mut app = loaded();
+    let path = app.projects[1].path_with_namespace.clone();
+    app.update(Msg::FavoritesLoaded(vec![app.projects[1].id]));
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+
+    // Then: a gold star sits before the favorite's path, and before no other.
+    let rows: Vec<(u16, String)> = (0..32).map(|y| (y, row_text(&buffer, y))).collect();
+    let (y, row) = rows
+        .iter()
+        .find(|(_, row)| row.contains(&format!("★ {path}")))
+        .expect("the favorite row");
+    assert_eq!(buffer[(column_of(row, "★"), *y)].fg, T.gold);
+    assert_eq!(rows.iter().filter(|(_, row)| row.contains('★')).count(), 1);
+}
+
+#[test]
+fn the_projects_pane_names_its_search_and_its_favorites_view() {
+    // Given: the demo data, with the first project a favorite.
+    let mut app = loaded();
+    app.update(Msg::FavoritesLoaded(vec![app.projects[0].id]));
+
+    // When: a search is typed, and drawn; then the favorites show alone, and drawn.
+    press(&mut app, '/');
+    "plat".chars().for_each(|c| press(&mut app, c));
+    let searching = screen(&render(&app, 120, 32));
+    app.update(Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    press(&mut app, 't');
+    let favorites = screen(&render(&app, 120, 32));
+
+    // Then: the pane shows the search as it is typed, and then names the favorites view.
+    assert!(searching.contains("/plat"), "{searching}");
+    assert!(favorites.contains("★ favorites"), "{favorites}");
+}

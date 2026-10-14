@@ -189,3 +189,57 @@ async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
         "{merge_requests:?}"
     );
 }
+
+#[tokio::test]
+async fn saved_favorites_come_back_in_their_order() {
+    // Given: a live source with a store in an empty folder, and one with no store.
+    let dir = tempfile::tempdir().unwrap();
+    let host = Url::parse("https://gitlab.example.com").unwrap();
+    let stored = Source::live(
+        client_for(host.as_str()),
+        Some(Store::new(dir.path().to_path_buf(), &host)),
+    );
+    let none = Source::live(client_for(host.as_str()), None);
+
+    // When: favorites are saved to each, then asked for.
+    let saved = stored.answer(Cmd::SaveFavorites(vec![3, 1])).await;
+    none.answer(Cmd::SaveFavorites(vec![3, 1])).await;
+    let kept = stored.answer(Cmd::LoadFavorites).await;
+    let lost = none.answer(Cmd::LoadFavorites).await;
+
+    // Then: the store keeps them in their order, and without one there are none.
+    assert!(saved.is_none());
+    assert!(
+        matches!(&kept, Some(Msg::FavoritesLoaded(ids)) if ids == &[3, 1]),
+        "{kept:?}"
+    );
+    assert!(
+        matches!(&lost, Some(Msg::FavoritesLoaded(ids)) if ids.is_empty()),
+        "{lost:?}"
+    );
+}
+
+#[tokio::test]
+async fn favorites_that_cannot_be_read_are_none() {
+    // Given: a favorites file that is not JSON.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("favorites_https_gitlab_example_com.json"),
+        "not json",
+    )
+    .unwrap();
+    let host = Url::parse("https://gitlab.example.com").unwrap();
+    let source = Source::live(
+        client_for(host.as_str()),
+        Some(Store::new(dir.path().to_path_buf(), &host)),
+    );
+
+    // When: the favorites are asked for.
+    let answer = source.answer(Cmd::LoadFavorites).await;
+
+    // Then: there are none, and nothing fails.
+    assert!(
+        matches!(&answer, Some(Msg::FavoritesLoaded(ids)) if ids.is_empty()),
+        "{answer:?}"
+    );
+}

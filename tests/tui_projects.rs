@@ -59,9 +59,9 @@ fn ids(projects: &[Project]) -> Vec<u64> {
 
 #[test]
 fn without_a_cache_the_first_page_loads_at_the_configured_size() {
-    // Given: an app set to 25 projects a page, which asks for the cache first.
+    // Given: an app set to 25 projects a page.
     let mut app = App::new(25);
-    assert_eq!(app.start(), [Cmd::LoadCache]);
+    app.start();
 
     // When: there is no cache.
     let commands = app.update(Msg::CacheLoaded(None));
