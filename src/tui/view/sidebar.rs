@@ -91,6 +91,8 @@ fn draw_pane(frame: &mut Frame, app: &App, context: &Context, pane: Pane, area: 
     let label = if pane == Pane::Projects && (search.typing || !search.query.is_empty()) {
         let caret = if search.typing { "_" } else { "" };
         format!("/{}{caret}  {position}", search.query)
+    } else if pane == Pane::Pipelines && app.pipelines_paged() {
+        format!("{position} · page {}", app.pipeline_page)
     } else {
         position
     };

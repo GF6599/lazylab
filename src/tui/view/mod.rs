@@ -38,6 +38,7 @@ const HELP: &[(&str, &str)] = &[
     ("t", "favorites only, or every project"),
     ("{ }", "move a favorite up, down"),
     ("ctrl+r", "reload the projects"),
+    ("[ ]", "the page of pipelines before, after"),
     ("z", "full screen for the pane in view"),
     ("?", "open or close this help"),
     ("q ctrl+c", "quit"),

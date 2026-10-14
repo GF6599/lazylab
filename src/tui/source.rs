@@ -10,8 +10,8 @@ use super::demo;
 use crate::gitlab::{Client, Error, MergeRequestState};
 use crate::store::Store;
 
-/// Pipelines and merge requests load one page of this size until their panes page through more.
-const FIRST_PAGE: u8 = 20;
+/// Pipelines and merge requests load in pages of this size.
+const PAGE_SIZE: u8 = 20;
 /// The Go release found that more status calls at once tripped GitLab's rate limit.
 const STATUS_CALLS: usize = 5;
 
@@ -76,14 +76,11 @@ impl Live {
                 .list_projects(page, per_page)
                 .await
                 .map(|page| Msg::ProjectPageLoaded { load, page }),
-            Cmd::LoadPipelines { project } => self
+            Cmd::LoadPipelines { project, page } => self
                 .client
-                .list_pipelines(project, 1, FIRST_PAGE)
+                .list_pipelines(project, page, PAGE_SIZE)
                 .await
-                .map(|page| Msg::PipelinesLoaded {
-                    project,
-                    pipelines: page.items,
-                }),
+                .map(|page| Msg::PipelinesLoaded { project, page }),
             Cmd::LoadStatus { project } => {
                 // The semaphore is never closed, so the permit always comes.
                 let _permit = self.status_calls.acquire().await.ok();
@@ -102,7 +99,7 @@ impl Live {
                 .map(|jobs| Msg::JobsLoaded { pipeline, jobs }),
             Cmd::LoadMergeRequests { project } => self
                 .client
-                .list_merge_requests(project, Some(MergeRequestState::Opened), 1, FIRST_PAGE)
+                .list_merge_requests(project, Some(MergeRequestState::Opened), 1, PAGE_SIZE)
                 .await
                 .map(|page| Msg::MergeRequestsLoaded {
                     project,
