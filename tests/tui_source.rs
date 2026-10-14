@@ -1,9 +1,10 @@
 mod common;
 
 use std::fs;
+use std::time::{Duration, Instant};
 
 use common::client_for;
-use lazylab::gitlab::Project;
+use lazylab::gitlab::{Project, Status};
 use lazylab::store::Store;
 use lazylab::tui::Source;
 use lazylab::tui::app::{Cmd, Msg};
@@ -242,4 +243,89 @@ async fn favorites_that_cannot_be_read_are_none() {
         matches!(&answer, Some(Msg::FavoritesLoaded(ids)) if ids.is_empty()),
         "{answer:?}"
     );
+}
+
+#[tokio::test]
+async fn a_status_is_the_newest_pipeline_s_or_none_without_one() {
+    // Given: project 1 with a running pipeline and project 2 with none.
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v4/projects/1/pipelines"))
+        .and(query_param("per_page", "1"))
+        .respond_with(json_body(
+            r#"[{"id":5,"status":"running","ref":"main","sha":"abc"}]"#,
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/v4/projects/2/pipelines"))
+        .respond_with(json_body("[]"))
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: both statuses are asked for.
+    let running = source.answer(Cmd::LoadStatus { project: 1 }).await;
+    let none = source.answer(Cmd::LoadStatus { project: 2 }).await;
+
+    // Then: the first is running, and the second has no pipeline.
+    assert!(
+        matches!(
+            running,
+            Some(Msg::StatusLoaded {
+                project: 1,
+                status: Some(Status::Running)
+            })
+        ),
+        "{running:?}"
+    );
+    assert!(
+        matches!(
+            none,
+            Some(Msg::StatusLoaded {
+                project: 2,
+                status: None
+            })
+        ),
+        "{none:?}"
+    );
+}
+
+#[tokio::test]
+async fn no_more_than_five_statuses_are_asked_for_at_once() {
+    // Given: GitLab answers each status after 200 ms.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(json_body("[]").set_delay(Duration::from_millis(200)))
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: ten statuses are asked for together.
+    let started = Instant::now();
+    let answers = join_all((1..=10).map(|project| {
+        let source = source.clone();
+        async move { source.answer(Cmd::LoadStatus { project }).await }
+    }))
+    .await;
+
+    // Then: all ten answer, in two rounds of five, never in one round of ten.
+    assert_eq!(answers.iter().filter(|a| a.is_some()).count(), 10);
+    assert!(
+        started.elapsed() >= Duration::from_millis(390),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+async fn join_all<F: std::future::Future + Send + 'static>(
+    futures: impl Iterator<Item = F>,
+) -> Vec<F::Output>
+where
+    F::Output: Send + 'static,
+{
+    let handles: Vec<_> = futures.map(tokio::spawn).collect();
+    let mut outputs = Vec::new();
+    for handle in handles {
+        outputs.push(handle.await.unwrap());
+    }
+    outputs
 }

@@ -1,3 +1,4 @@
+use lazylab::gitlab::Status;
 use lazylab::tui::app::{App, Cmd, Focus, Msg, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::theme::ROSE_PINE as T;
@@ -303,4 +304,42 @@ fn the_projects_pane_names_its_search_and_its_favorites_view() {
     // Then: the pane shows the search as it is typed, and then names the favorites view.
     assert!(searching.contains("/plat_"), "{searching}");
     assert!(favorites.contains("★ favorites"), "{favorites}");
+}
+
+#[test]
+fn each_project_shows_its_latest_pipeline_before_its_path() {
+    // Given: the demo data, with known statuses for three projects and one still loading.
+    let mut app = loaded();
+    let ids: Vec<u64> = app.projects.iter().map(|p| p.id).collect();
+    let paths: Vec<String> = (app.projects.iter())
+        .map(|p| p.path_with_namespace.clone())
+        .collect();
+    app.update(Msg::StatusLoaded {
+        project: ids[0],
+        status: Some(Status::Failed),
+    });
+    app.update(Msg::StatusLoaded {
+        project: ids[1],
+        status: None,
+    });
+    app.update(Msg::Failed {
+        cmd: Cmd::LoadStatus { project: ids[2] },
+        error: "list pipelines: timed out".into(),
+    });
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+
+    // Then: a red cross, the empty set and a question mark sit before those paths.
+    let glyph_before = |path: &str| {
+        let (y, row) = (0..32)
+            .map(|y| (y, row_text(&buffer, y)))
+            .find(|(_, row)| row.contains(path))
+            .expect("the project row");
+        let x = column_of(&row, path) - 2;
+        (buffer[(x, y)].symbol().to_string(), buffer[(x, y)].fg)
+    };
+    assert_eq!(glyph_before(&paths[0]), ("✗".into(), T.love));
+    assert_eq!(glyph_before(&paths[1]).0, "∅");
+    assert_eq!(glyph_before(&paths[2]).0, "?");
 }
