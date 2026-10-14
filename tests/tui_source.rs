@@ -428,3 +428,36 @@ async fn a_retry_answers_with_the_pipeline_it_started_and_a_cancel_goes_to_its_p
         })
     );
 }
+
+#[tokio::test]
+async fn a_refused_run_answers_without_the_variable_value_it_echoed() {
+    // Given: GitLab refuses a pipeline and quotes the variable value in its reason.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/pipeline"))
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_string(r#"{"message":"bad variable s3cr3t-value-9f2"}"#),
+        )
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+    let run = Action::RunPipeline {
+        project: 1,
+        git_ref: "main".into(),
+        variables: vec![lazylab::gitlab::Variable {
+            key: "TOKEN".into(),
+            value: "s3cr3t-value-9f2".into(),
+        }],
+    };
+
+    // When: the run is sent.
+    let answer = source.answer(Cmd::Act(run)).await;
+
+    // Then: it fails, and the reason does not carry the value.
+    let Some(Msg::Failed { error, .. }) = answer else {
+        panic!("a failure, got {answer:?}");
+    };
+    assert!(error.starts_with("create pipeline"), "{error}");
+    assert!(!error.contains("s3cr3t-value-9f2"), "{error}");
+}
