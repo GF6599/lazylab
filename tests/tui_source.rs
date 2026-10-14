@@ -354,3 +354,23 @@ where
     }
     outputs
 }
+
+#[tokio::test]
+async fn a_job_log_is_read_from_the_job_trace() {
+    // Given: GitLab with a trace for job 5 of project 1.
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v4/projects/1/jobs/5/trace"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("step 1\nstep 2\n"))
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the log is asked for.
+    let answer = source.answer(Cmd::LoadLog { project: 1, job: 5 }).await;
+
+    // Then: the trace comes back for that job.
+    assert!(
+        matches!(&answer, Some(Msg::LogLoaded { job: 5, log }) if log == "step 1\nstep 2\n"),
+        "{answer:?}"
+    );
+}
