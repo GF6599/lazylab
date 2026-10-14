@@ -1,4 +1,4 @@
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 
 use crate::gitlab::Status;
 
@@ -68,6 +68,13 @@ impl Theme {
 
     pub fn selected_row(&self) -> Style {
         Style::new().bg(self.hl_low)
+    }
+
+    pub fn badge(&self) -> Style {
+        Style::new()
+            .fg(self.base)
+            .bg(self.iris)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn status(&self, status: Status, tick: u64) -> (&'static str, Style) {

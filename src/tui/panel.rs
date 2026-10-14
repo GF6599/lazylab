@@ -4,7 +4,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Padding};
 
-use super::text::{clamp_spans, pad, spans_width};
+use super::text::{clamp_spans, fit, pad, spans_width};
 use super::theme::Theme;
 
 /// Every frame on the surface is built here, so the border style stays one lever.
@@ -100,6 +100,33 @@ pub fn marked_line(row: Row, width: u16, current: bool, filled: bool, t: &Theme)
     } else {
         line
     }
+}
+
+/// The machine-truth readout in the bottom rule, right aligned: a position, or `empty`.
+pub fn bottom_label(label: String, t: &Theme) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!(" {label} "), t.dim()),
+        Span::styled("─", t.border()),
+    ])
+    .right_aligned()
+}
+
+pub fn kv(key: &str, value: Vec<Span<'static>>, t: &Theme) -> Line<'static> {
+    const KEY_WIDTH: usize = 11;
+    let mut spans = vec![Span::styled(
+        format!("{:<KEY_WIDTH$}", fit(key, KEY_WIDTH - 1)),
+        t.dim(),
+    )];
+    spans.extend(value);
+    Line::from(spans)
+}
+
+/// The first row index to draw so `selected` stays inside a window of `height` rows.
+pub fn window_start(len: usize, selected: usize, height: usize) -> usize {
+    if height == 0 || len <= height {
+        return 0;
+    }
+    selected.saturating_sub(height / 2).min(len - height)
 }
 
 pub fn label_style(current: bool, t: &Theme) -> Style {

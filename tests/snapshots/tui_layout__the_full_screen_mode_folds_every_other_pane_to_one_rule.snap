@@ -1,0 +1,34 @@
+---
+source: tests/tui_layout.rs
+expression: screen(&buffer)
+---
+ {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
+ 1 projects  [2 pipelines]  3 jobs   4 merge requests                                      zoom (z)
+─ projects · acme/platform/api ─────────┌─ pipeline #61441 ────────────────────────────────────────┐
+┌─ pipelines ──────────────────────────┐│ status     ⠋ running                                     │
+│[⠋ #61441 main                     2m]││ ref        main                                          │
+│ ✓ #61434 feat/runner-cache       39m ││ commit     ba2a447                                       │
+│ ✗ #61427 fix/flaky-e2e            1h ││ by         Dana                                          │
+│ ✓ #61420 main                     1h ││ updated    2m ago                                        │
+│ ► #61413 feat/sso-login           2h ││                                                          │
+│ ✓ #61406 chore/bump-deps          3h ││                                                          │
+│ ⊘ #61399 main                     3h ││                                                          │
+│ ✓ #61392 feat/runner-cache        4h ││                                                          │
+│ ✗ #61385 fix/flaky-e2e            4h ││                                                          │
+│ ✓ #61378 main                     5h ││                                                          │
+│ ⠋ #61371 feat/sso-login           6h ││                                                          │
+│ ✓ #61364 chore/bump-deps          6h ││                                                          │
+│ ✗ #61357 main                     7h ││                                                          │
+│ ✓ #61350 feat/runner-cache        8h ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+│                                      ││                                                          │
+└─────────────────────────────── 1/14 ─┘│                                                          │
+─ jobs · ✓ build:compile ───────────────│                                                          │
+─ merge requests · !412 Cache the runn… └──────────────────────────────────────────────────────────┘
+ BROWSE  j/k move  l open  1-4 pane  z zoom  ? help  q quit

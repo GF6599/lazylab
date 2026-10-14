@@ -6,6 +6,7 @@ pub mod mark;
 pub mod panel;
 pub mod text;
 pub mod theme;
+pub mod view;
 
 use ratatui::backend::Backend;
 use ratatui::{Frame, Terminal};
