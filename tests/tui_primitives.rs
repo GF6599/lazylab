@@ -43,7 +43,7 @@ fn the_current_row_wears_a_gold_bracket_pair_around_its_iris_label() {
         assert_eq!(buffer[(x, 0)].fg, T.gold, "bracket at {x}");
     }
     assert_eq!(buffer[(1, 0)].fg, T.iris);
-    // And: the fill colours the background only, so it leaves the gold and iris pair intact.
+    // And: the current row carries the selection fill.
     assert_eq!(buffer[(0, 0)].bg, T.hl_low);
 }
 
