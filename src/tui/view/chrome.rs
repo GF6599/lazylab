@@ -108,6 +108,7 @@ pub(super) fn draw_strip(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
 
 fn mode(app: &App) -> &'static str {
     match (app.overlay, app.focus) {
+        _ if app.search.typing => "SEARCH",
         (Overlay::Help, _) => "HELP",
         (Overlay::None, Focus::Detail) => "DETAIL",
         (Overlay::None, Focus::Sidebar) => "BROWSE",
@@ -118,8 +119,18 @@ fn mode(app: &App) -> &'static str {
 /// least useful ones.
 fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
     match (app.overlay, app.focus) {
+        _ if app.search.typing => &[("enter", "keep"), ("esc", "clear")],
         (Overlay::Help, _) => &[("esc", "close")],
         (Overlay::None, Focus::Detail) => &[("h", "back"), ("?", "help"), ("q", "quit")],
+        (Overlay::None, Focus::Sidebar) if app.pane == Pane::Projects => &[
+            ("j/k", "move"),
+            ("l", "open"),
+            ("/", "search"),
+            ("1-4", "pane"),
+            ("z", "zoom"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
         (Overlay::None, Focus::Sidebar) => &[
             ("j/k", "move"),
             ("l", "open"),

@@ -1,7 +1,7 @@
 //! The state of the screen, and the one place it changes: `update`, which takes a message and
 //! answers with the work the event loop has to start.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -74,6 +74,7 @@ pub enum Msg {
     Key(KeyEvent),
     Tick,
     CacheLoaded(Option<CachedProjects>),
+    FavoritesLoaded(Vec<u64>),
     ProjectPageLoaded {
         load: u64,
         page: Page<Project>,
@@ -100,6 +101,8 @@ pub enum Msg {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Cmd {
     LoadCache,
+    LoadFavorites,
+    SaveFavorites(Vec<u64>),
     /// `load` marks each page of one load, so a page from a load that a reload replaced is
     /// dropped instead of mixed into the new list.
     LoadProjectPage {
@@ -123,6 +126,12 @@ pub enum Cmd {
     },
 }
 
+#[derive(Debug, Default)]
+pub struct Search {
+    pub query: String,
+    pub typing: bool,
+}
+
 #[derive(Debug)]
 pub struct App {
     pub pane: Pane,
@@ -137,8 +146,14 @@ pub struct App {
     pub total_projects: u64,
     pub loading: bool,
     pub error: Option<String>,
+    /// In the order the user set, which the favorites view keeps.
+    pub favorites: Vec<u64>,
+    pub favorites_only: bool,
+    pub search: Search,
     page_size: u8,
     load: u64,
+    /// The indexes into `projects` of the rows the projects pane shows, in their order.
+    shown: Vec<usize>,
     pub pipelines: Vec<Pipeline>,
     pub jobs: Vec<Job>,
     pub merge_requests: Vec<MergeRequest>,
@@ -158,8 +173,12 @@ impl App {
             total_projects: 0,
             loading: false,
             error: None,
+            favorites: Vec::new(),
+            favorites_only: false,
+            search: Search::default(),
             page_size,
             load: 0,
+            shown: Vec::new(),
             pipelines: Vec::new(),
             jobs: Vec::new(),
             merge_requests: Vec::new(),
@@ -168,7 +187,7 @@ impl App {
     }
 
     pub fn start(&mut self) -> Vec<Cmd> {
-        vec![Cmd::LoadCache]
+        vec![Cmd::LoadCache, Cmd::LoadFavorites]
     }
 
     pub fn cursor(&self, pane: Pane) -> usize {
@@ -176,7 +195,16 @@ impl App {
     }
 
     pub fn project(&self) -> Option<&Project> {
-        self.projects.get(self.cursor(Pane::Projects))
+        self.shown_project(self.cursor(Pane::Projects))
+    }
+
+    /// The project on row `row` of the projects pane.
+    pub fn shown_project(&self, row: usize) -> Option<&Project> {
+        self.shown.get(row).map(|&i| &self.projects[i])
+    }
+
+    pub fn shown_projects(&self) -> impl Iterator<Item = &Project> {
+        self.shown.iter().map(|&i| &self.projects[i])
     }
 
     pub fn pipeline(&self) -> Option<&Pipeline> {
@@ -185,7 +213,7 @@ impl App {
 
     pub fn len(&self, pane: Pane) -> usize {
         match pane {
-            Pane::Projects => self.projects.len(),
+            Pane::Projects => self.shown.len(),
             Pane::Pipelines => self.pipelines.len(),
             Pane::Jobs => self.jobs.len(),
             Pane::MergeRequests => self.merge_requests.len(),
@@ -200,6 +228,11 @@ impl App {
                 Vec::new()
             }
             Msg::CacheLoaded(cached) => self.cache_loaded(cached),
+            Msg::FavoritesLoaded(ids) => {
+                let before = self.selected();
+                self.favorites = ids;
+                self.reshow(before)
+            }
             Msg::ProjectPageLoaded { load, page } if load == self.load => self.page_loaded(page),
             Msg::ProjectPageLoaded { .. } => Vec::new(),
             Msg::Failed { cmd, error } => {
@@ -244,6 +277,9 @@ impl App {
             return Vec::new();
         }
         self.error = None;
+        if self.search.typing {
+            return self.on_search_key(key);
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             return match key.code {
                 KeyCode::Char('c') => {
@@ -262,7 +298,23 @@ impl App {
             }
             return Vec::new();
         }
+        let before = self.selected();
+        let on_projects = self.pane == Pane::Projects && self.focus == Focus::Sidebar;
         match key.code {
+            KeyCode::Char('/') if on_projects => {
+                self.search = Search {
+                    query: String::new(),
+                    typing: true,
+                };
+                return self.reshow(before);
+            }
+            KeyCode::Char('f') if on_projects => return self.toggle_favorite(),
+            KeyCode::Char('t') if on_projects => {
+                self.favorites_only = !self.favorites_only;
+                return self.reshow(before);
+            }
+            KeyCode::Char('{') if on_projects => return self.move_favorite(-1),
+            KeyCode::Char('}') if on_projects => return self.move_favorite(1),
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') => self.overlay = Overlay::Help,
             KeyCode::Char('z') => self.zoom = !self.zoom,
@@ -284,14 +336,111 @@ impl App {
         Vec::new()
     }
 
+    fn on_search_key(&mut self, key: KeyEvent) -> Vec<Cmd> {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.quit |= key.code == KeyCode::Char('c');
+            return Vec::new();
+        }
+        let before = self.selected();
+        match key.code {
+            KeyCode::Enter => self.search.typing = false,
+            KeyCode::Esc => self.search = Search::default(),
+            KeyCode::Backspace => {
+                self.search.query.pop();
+            }
+            KeyCode::Char(c) => self.search.query.push(c),
+            _ => return Vec::new(),
+        }
+        self.reshow(before)
+    }
+
+    fn toggle_favorite(&mut self) -> Vec<Cmd> {
+        let Some(id) = self.selected() else {
+            return Vec::new();
+        };
+        match self.favorites.iter().position(|&f| f == id) {
+            Some(at) => {
+                self.favorites.remove(at);
+            }
+            None => self.favorites.push(id),
+        }
+        let mut commands = self.reshow(Some(id));
+        commands.push(Cmd::SaveFavorites(self.favorites.clone()));
+        commands
+    }
+
+    /// Swaps the favorite with its neighbour on screen, which a search can make another
+    /// favorite than its neighbour in the saved order.
+    fn move_favorite(&mut self, step: isize) -> Vec<Cmd> {
+        if !self.favorites_only {
+            return Vec::new();
+        }
+        let cursor = self.cursor(Pane::Projects);
+        let neighbour = cursor.checked_add_signed(step);
+        let (Some(id), Some(other)) = (
+            self.selected(),
+            neighbour
+                .and_then(|row| self.shown_project(row))
+                .map(|p| p.id),
+        ) else {
+            return Vec::new();
+        };
+        let at = |id: u64| self.favorites.iter().position(|&f| f == id);
+        let (Some(from), Some(to)) = (at(id), at(other)) else {
+            return Vec::new();
+        };
+        self.favorites.swap(from, to);
+        let mut commands = self.reshow(Some(id));
+        commands.push(Cmd::SaveFavorites(self.favorites.clone()));
+        commands
+    }
+
+    fn selected(&self) -> Option<u64> {
+        self.project().map(|p| p.id)
+    }
+
+    /// The cursor stays on the project it was on while that project still shows, and the lists
+    /// load again only when another project is selected.
+    fn reshow(&mut self, before: Option<u64>) -> Vec<Cmd> {
+        let row = self.cursor(Pane::Projects);
+        self.shown = self.matching();
+        let kept = before.and_then(|id| self.shown_projects().position(|p| p.id == id));
+        self.cursors[Pane::Projects.index()] =
+            kept.unwrap_or_else(|| row.min(self.shown.len().saturating_sub(1)));
+        if self.selected() == before {
+            Vec::new()
+        } else {
+            self.project_changed()
+        }
+    }
+
+    fn matching(&self) -> Vec<usize> {
+        let query = &self.search.query;
+        let found = |&i: &usize| {
+            let project = &self.projects[i];
+            fuzzy(&project.path_with_namespace, query) || fuzzy(&project.name, query)
+        };
+        if self.favorites_only {
+            let index: HashMap<u64, usize> = (self.projects.iter().enumerate())
+                .map(|(i, p)| (p.id, i))
+                .collect();
+            (self.favorites.iter())
+                .filter_map(|id| index.get(id).copied())
+                .filter(found)
+                .collect()
+        } else {
+            (0..self.projects.len()).filter(found).collect()
+        }
+    }
+
     fn cache_loaded(&mut self, cached: Option<CachedProjects>) -> Vec<Cmd> {
         let Some(cached) = cached else {
             return self.reload();
         };
+        let before = self.selected();
         self.projects = cached.projects;
         self.total_projects = cached.total;
-        self.cursors[Pane::Projects.index()] = 0;
-        let mut commands = self.project_changed();
+        let mut commands = self.reshow(before);
         let held = self.projects.len() as u64;
         if held < self.total_projects {
             // Integer division rounds down, so the resumed page starts at or before the first
@@ -317,14 +466,15 @@ impl App {
     }
 
     fn page_loaded(&mut self, page: Page<Project>) -> Vec<Cmd> {
-        let mut commands = if page.page == 1 {
-            self.replace_projects(page.items)
+        let before = self.selected();
+        if page.page == 1 {
+            self.projects = page.items;
         } else {
             let mut held: HashSet<u64> = self.projects.iter().map(|p| p.id).collect();
             let fresh = page.items.into_iter().filter(|p| held.insert(p.id));
             self.projects.extend(fresh);
-            Vec::new()
-        };
+        }
+        let mut commands = self.reshow(before);
         let held = self.projects.len() as u64;
         self.total_projects = page.total_items.unwrap_or(held).max(held);
         commands.push(Cmd::SaveProjects {
@@ -336,18 +486,6 @@ impl App {
             None => self.loading = false,
         }
         commands
-    }
-
-    fn replace_projects(&mut self, projects: Vec<Project>) -> Vec<Cmd> {
-        let selected = self.project().map(|p| p.id);
-        self.projects = projects;
-        let kept = selected.and_then(|id| self.projects.iter().position(|p| p.id == id));
-        self.cursors[Pane::Projects.index()] = kept.unwrap_or(0);
-        if kept.is_some() {
-            Vec::new()
-        } else {
-            self.project_changed()
-        }
     }
 
     fn move_by(&mut self, delta: isize) -> Vec<Cmd> {
@@ -395,4 +533,10 @@ impl App {
             _ => Vec::new(),
         }
     }
+}
+
+/// Every character of `pattern` appears in `target` in the same order, in any case.
+fn fuzzy(target: &str, pattern: &str) -> bool {
+    let mut target = target.chars().flat_map(char::to_lowercase);
+    (pattern.chars().flat_map(char::to_lowercase)).all(|c| target.any(|t| t == c))
 }

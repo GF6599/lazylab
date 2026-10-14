@@ -42,6 +42,15 @@ impl Live {
     async fn answer(&self, cmd: Cmd) -> Option<Msg> {
         let result = match cmd.clone() {
             Cmd::LoadCache => return Some(Msg::CacheLoaded(self.cached())),
+            Cmd::LoadFavorites => return Some(Msg::FavoritesLoaded(self.favorites())),
+            Cmd::SaveFavorites(ids) => {
+                if let Some(store) = &self.store
+                    && let Err(e) = store.save_favorites(&ids)
+                {
+                    tracing::warn!(error = %e, "save the favorites");
+                }
+                return None;
+            }
             Cmd::SaveProjects { projects, total } => {
                 if let Some(store) = &self.store
                     && let Err(e) = store.save_projects(&projects, total, OffsetDateTime::now_utc())
@@ -88,6 +97,17 @@ impl Live {
                 error: e.to_string(),
             }
         }))
+    }
+
+    /// Favorites that cannot be read are none, so the screen still opens on every project.
+    fn favorites(&self) -> Vec<u64> {
+        let Some(store) = &self.store else {
+            return Vec::new();
+        };
+        store.load_favorites().unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "read the favorites");
+            Vec::new()
+        })
     }
 
     /// A cache that cannot be read is a miss, so the projects load from GitLab instead.
