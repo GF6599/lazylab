@@ -101,7 +101,9 @@ fn draw_pane(frame: &mut Frame, app: &App, context: &Context, pane: Pane, area: 
     frame.render_widget(frame_block, area);
 
     let cursor = app.cursor(pane);
-    let lines: Vec<Line> = (0..len)
+    let height = list.height as usize;
+    let start = window_start(len, cursor, height);
+    let visible: Vec<Line> = (start..len.min(start + height))
         .map(|i| {
             marked_line(
                 row(app, context, pane, i, t),
@@ -111,12 +113,6 @@ fn draw_pane(frame: &mut Frame, app: &App, context: &Context, pane: Pane, area: 
                 t,
             )
         })
-        .collect();
-    let start = window_start(lines.len(), cursor, list.height as usize);
-    let visible: Vec<Line> = lines
-        .into_iter()
-        .skip(start)
-        .take(list.height as usize)
         .collect();
     frame.render_widget(Paragraph::new(visible), list);
     if lit {
