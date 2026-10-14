@@ -5,7 +5,7 @@ use std::ffi::OsString;
 use std::fs::{self, DirBuilder};
 use std::io::{self, Write};
 use std::os::unix::fs::DirBuilderExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,11 @@ fn user_cache_dir(var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
         Some(dir) => dir.is_absolute().then_some(dir),
         None => set("HOME").map(|home| home.join(".cache")),
     }
+}
+
+/// Only the user can enter the folder, as with the Go release, because it names their projects.
+pub fn create_dir(dir: &Path) -> io::Result<()> {
+    DirBuilder::new().recursive(true).mode(0o700).create(dir)
 }
 
 /// `sanitizeHost` in the Go release, so both name the files of one host alike.
@@ -140,10 +145,7 @@ impl Store {
     /// The rename replaces the file in one step, so a reader, in this process or another, sees
     /// one whole file and never part of two.
     fn write(&self, kind: &str, data: &[u8]) -> io::Result<()> {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&self.dir)?;
+        create_dir(&self.dir)?;
         let name = self.name(kind);
         let mut file = tempfile::Builder::new()
             .prefix(&format!("{name}."))

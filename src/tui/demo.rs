@@ -1,6 +1,6 @@
-//! Sample data that answers the screen's commands until the GitLab client does. It is written as
-//! GitLab's own JSON and decoded into the client types, so the screen meets the same values a real
-//! answer would give it.
+//! Sample data that answers the screen's commands without a GitLab. It is written as GitLab's own
+//! JSON and decoded into the client types, so the screen meets the same values a real answer would
+//! give it.
 
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -8,6 +8,8 @@ use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 use super::app::{Cmd, Msg};
+use crate::gitlab::Page;
+use crate::store::CachedProjects;
 
 const PROJECTS: [(&str, &str, &str); 13] = [
     (
@@ -91,9 +93,29 @@ const MERGE_REQUESTS: [(u64, &str, &str); 5] = [
     (398, "Bump the toolchain", "chore/bump-deps"),
 ];
 
-pub fn answer(command: Cmd, now: OffsetDateTime) -> Msg {
-    match command {
-        Cmd::LoadProjects => Msg::ProjectsLoaded(projects(now)),
+pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
+    let msg = match command {
+        Cmd::LoadCache => {
+            let projects = projects(now);
+            Msg::CacheLoaded(Some(CachedProjects {
+                total: projects.len() as u64,
+                projects,
+            }))
+        }
+        Cmd::LoadProjectPage { load, page, .. } => {
+            let items = if page == 1 { projects(now) } else { Vec::new() };
+            Msg::ProjectPageLoaded {
+                load,
+                page: Page {
+                    total_items: Some(PROJECTS.len() as u64),
+                    items,
+                    page,
+                    next_page: None,
+                    total_pages: Some(1),
+                },
+            }
+        }
+        Cmd::SaveProjects { .. } => return None,
         Cmd::LoadPipelines { project } => Msg::PipelinesLoaded {
             project,
             pipelines: pipelines(project, now),
@@ -106,7 +128,8 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Msg {
             project,
             merge_requests: merge_requests(project, now),
         },
-    }
+    };
+    Some(msg)
 }
 
 fn projects(now: OffsetDateTime) -> Vec<crate::gitlab::Project> {

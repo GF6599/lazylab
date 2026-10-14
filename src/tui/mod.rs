@@ -4,6 +4,7 @@ pub mod app;
 pub mod demo;
 pub mod mark;
 pub mod panel;
+pub mod source;
 pub mod text;
 pub mod theme;
 pub mod view;
@@ -20,23 +21,29 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use url::Url;
 
 use app::{App, Cmd, Msg};
+pub use source::Source;
 use view::Context;
 
 /// A running job's spinner moves on each tick.
 const TICK: Duration = Duration::from_millis(100);
 
 /// Takes the terminal for the session and gives it back as it was, even when the session fails.
-pub fn launch(host: &Url) -> io::Result<()> {
+pub fn launch(host: &Url, page_size: u8, source: Source) -> io::Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
+        .enable_all()
         .build()?;
     let mut terminal = ratatui::try_init()?;
-    let ended = runtime.block_on(session(&mut terminal, host));
+    let ended = runtime.block_on(session(&mut terminal, host, App::new(page_size), source));
     ratatui::restore();
     ended
 }
 
-async fn session(terminal: &mut DefaultTerminal, host: &Url) -> io::Result<()> {
+async fn session(
+    terminal: &mut DefaultTerminal,
+    host: &Url,
+    app: App,
+    source: Source,
+) -> io::Result<()> {
     let (outbox, inbox) = mpsc::unbounded_channel();
     read_keys(outbox.clone());
     tick(outbox.clone());
@@ -44,7 +51,7 @@ async fn session(terminal: &mut DefaultTerminal, host: &Url) -> io::Result<()> {
         host: host.host_str().unwrap_or_default().to_string(),
         now: OffsetDateTime::now_utc(),
     };
-    run(terminal, inbox, outbox, |frame, app| {
+    run(terminal, app, source, inbox, outbox, |frame, app| {
         context.now = OffsetDateTime::now_utc();
         view::draw(frame, app, &context);
     })
@@ -80,28 +87,31 @@ fn tick(outbox: UnboundedSender<Msg>) {
 /// Keys, ticks and finished work all arrive through `inbox`, so they are handled one at a time.
 pub async fn run<B: Backend>(
     terminal: &mut Terminal<B>,
+    mut app: App,
+    source: Source,
     mut inbox: UnboundedReceiver<Msg>,
     outbox: UnboundedSender<Msg>,
     mut draw: impl FnMut(&mut Frame, &App),
 ) -> Result<App, B::Error> {
-    let mut app = App::new();
-    dispatch(app.start(), &outbox);
+    dispatch(app.start(), &source, &outbox);
     while !app.quit {
         terminal.draw(|frame| draw(frame, &app))?;
         match inbox.recv().await {
-            Some(msg) => dispatch(app.update(msg), &outbox),
+            Some(msg) => dispatch(app.update(msg), &source, &outbox),
             None => break,
         }
     }
     Ok(app)
 }
 
-fn dispatch(commands: Vec<Cmd>, outbox: &UnboundedSender<Msg>) {
+fn dispatch(commands: Vec<Cmd>, source: &Source, outbox: &UnboundedSender<Msg>) {
     for command in commands {
-        let outbox = outbox.clone();
+        let (source, outbox) = (source.clone(), outbox.clone());
         tokio::spawn(async move {
-            // A send fails only once the loop has ended, when no one needs the answer.
-            let _ = outbox.send(demo::answer(command, OffsetDateTime::now_utc()));
+            if let Some(msg) = source.answer(command).await {
+                // A send fails only once the loop has ended, when no one needs the answer.
+                let _ = outbox.send(msg);
+            }
         });
     }
 }

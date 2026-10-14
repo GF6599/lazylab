@@ -1,9 +1,12 @@
 //! The state of the screen, and the one place it changes: `update`, which takes a message and
 //! answers with the work the event loop has to start.
 
+use std::collections::HashSet;
+
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::gitlab::{Job, MergeRequest, Pipeline, Project};
+use crate::gitlab::{Job, MergeRequest, Page, Pipeline, Project};
+use crate::store::CachedProjects;
 
 const PAGE: isize = 10;
 
@@ -70,7 +73,11 @@ pub enum Overlay {
 pub enum Msg {
     Key(KeyEvent),
     Tick,
-    ProjectsLoaded(Vec<Project>),
+    CacheLoaded(Option<CachedProjects>),
+    ProjectPageLoaded {
+        load: u64,
+        page: Page<Project>,
+    },
     PipelinesLoaded {
         project: u64,
         pipelines: Vec<Pipeline>,
@@ -83,14 +90,37 @@ pub enum Msg {
         project: u64,
         merge_requests: Vec<MergeRequest>,
     },
+    /// The reason is already fit to show, with any credential redacted.
+    Failed {
+        cmd: Cmd,
+        error: String,
+    },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Cmd {
-    LoadProjects,
-    LoadPipelines { project: u64 },
-    LoadJobs { project: u64, pipeline: u64 },
-    LoadMergeRequests { project: u64 },
+    LoadCache,
+    /// `load` marks each page of one load, so a page from a load that a reload replaced is
+    /// dropped instead of mixed into the new list.
+    LoadProjectPage {
+        load: u64,
+        page: u32,
+        per_page: u8,
+    },
+    SaveProjects {
+        projects: Vec<Project>,
+        total: u64,
+    },
+    LoadPipelines {
+        project: u64,
+    },
+    LoadJobs {
+        project: u64,
+        pipeline: u64,
+    },
+    LoadMergeRequests {
+        project: u64,
+    },
 }
 
 #[derive(Debug)]
@@ -103,20 +133,20 @@ pub struct App {
     pub tick: u64,
     pub quit: bool,
     pub projects: Vec<Project>,
+    /// The size of the whole collection, which is more than `projects` holds while pages load.
+    pub total_projects: u64,
+    pub loading: bool,
+    pub error: Option<String>,
+    page_size: u8,
+    load: u64,
     pub pipelines: Vec<Pipeline>,
     pub jobs: Vec<Job>,
     pub merge_requests: Vec<MergeRequest>,
     cursors: [usize; Pane::ALL.len()],
 }
 
-impl Default for App {
-    fn default() -> Self {
-        App::new()
-    }
-}
-
 impl App {
-    pub fn new() -> App {
+    pub fn new(page_size: u8) -> App {
         App {
             pane: Pane::Projects,
             focus: Focus::Sidebar,
@@ -125,6 +155,11 @@ impl App {
             tick: 0,
             quit: false,
             projects: Vec::new(),
+            total_projects: 0,
+            loading: false,
+            error: None,
+            page_size,
+            load: 0,
             pipelines: Vec::new(),
             jobs: Vec::new(),
             merge_requests: Vec::new(),
@@ -133,7 +168,7 @@ impl App {
     }
 
     pub fn start(&mut self) -> Vec<Cmd> {
-        vec![Cmd::LoadProjects]
+        vec![Cmd::LoadCache]
     }
 
     pub fn cursor(&self, pane: Pane) -> usize {
@@ -164,10 +199,17 @@ impl App {
                 self.tick += 1;
                 Vec::new()
             }
-            Msg::ProjectsLoaded(projects) => {
-                self.projects = projects;
-                self.cursors[Pane::Projects.index()] = 0;
-                self.project_changed()
+            Msg::CacheLoaded(cached) => self.cache_loaded(cached),
+            Msg::ProjectPageLoaded { load, page } if load == self.load => self.page_loaded(page),
+            Msg::ProjectPageLoaded { .. } => Vec::new(),
+            Msg::Failed { cmd, error } => {
+                if let Cmd::LoadProjectPage { load, .. } = cmd
+                    && load == self.load
+                {
+                    self.loading = false;
+                }
+                self.error = Some(error);
+                Vec::new()
             }
             Msg::PipelinesLoaded { project, pipelines } => {
                 if self.project().map(|p| p.id) != Some(project) {
@@ -201,12 +243,14 @@ impl App {
         if key.kind != KeyEventKind::Press {
             return Vec::new();
         }
+        self.error = None;
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             return match key.code {
                 KeyCode::Char('c') => {
                     self.quit = true;
                     Vec::new()
                 }
+                KeyCode::Char('r') if self.overlay == Overlay::None => self.reload(),
                 KeyCode::Char('d') if self.overlay == Overlay::None => self.move_by(PAGE),
                 KeyCode::Char('u') if self.overlay == Overlay::None => self.move_by(-PAGE),
                 _ => Vec::new(),
@@ -238,6 +282,72 @@ impl App {
             _ => {}
         }
         Vec::new()
+    }
+
+    fn cache_loaded(&mut self, cached: Option<CachedProjects>) -> Vec<Cmd> {
+        let Some(cached) = cached else {
+            return self.reload();
+        };
+        self.projects = cached.projects;
+        self.total_projects = cached.total;
+        self.cursors[Pane::Projects.index()] = 0;
+        let mut commands = self.project_changed();
+        let held = self.projects.len() as u64;
+        if held < self.total_projects {
+            // Integer division rounds down, so the resumed page starts at or before the first
+            // project the cache lacks, and a project it already holds is skipped as a duplicate.
+            let page = (held / u64::from(self.page_size.max(1))) as u32 + 1;
+            commands.push(self.request(page));
+        }
+        commands
+    }
+
+    fn reload(&mut self) -> Vec<Cmd> {
+        self.load += 1;
+        vec![self.request(1)]
+    }
+
+    fn request(&mut self, page: u32) -> Cmd {
+        self.loading = true;
+        Cmd::LoadProjectPage {
+            load: self.load,
+            page,
+            per_page: self.page_size,
+        }
+    }
+
+    fn page_loaded(&mut self, page: Page<Project>) -> Vec<Cmd> {
+        let mut commands = if page.page == 1 {
+            self.replace_projects(page.items)
+        } else {
+            let mut held: HashSet<u64> = self.projects.iter().map(|p| p.id).collect();
+            let fresh = page.items.into_iter().filter(|p| held.insert(p.id));
+            self.projects.extend(fresh);
+            Vec::new()
+        };
+        let held = self.projects.len() as u64;
+        self.total_projects = page.total_items.unwrap_or(held).max(held);
+        commands.push(Cmd::SaveProjects {
+            projects: self.projects.clone(),
+            total: self.total_projects,
+        });
+        match page.next_page {
+            Some(next) => commands.push(self.request(next)),
+            None => self.loading = false,
+        }
+        commands
+    }
+
+    fn replace_projects(&mut self, projects: Vec<Project>) -> Vec<Cmd> {
+        let selected = self.project().map(|p| p.id);
+        self.projects = projects;
+        let kept = selected.and_then(|id| self.projects.iter().position(|p| p.id == id));
+        self.cursors[Pane::Projects.index()] = kept.unwrap_or(0);
+        if kept.is_some() {
+            Vec::new()
+        } else {
+            self.project_changed()
+        }
     }
 
     fn move_by(&mut self, delta: isize) -> Vec<Cmd> {

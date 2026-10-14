@@ -9,6 +9,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+const PAGE_SIZE: u8 = 30;
+
 fn now() -> OffsetDateTime {
     OffsetDateTime::parse("2026-01-15T12:00:00Z", &Rfc3339).unwrap()
 }
@@ -21,10 +23,12 @@ fn context() -> Context {
 }
 
 fn loaded() -> App {
-    let mut app = App::new();
+    let mut app = App::new(PAGE_SIZE);
     let mut commands: Vec<Cmd> = app.start();
     while let Some(command) = commands.pop() {
-        commands.extend(app.update(demo::answer(command, now())));
+        if let Some(msg) = demo::answer(command, now()) {
+            commands.extend(app.update(msg));
+        }
     }
     app
 }
@@ -126,7 +130,7 @@ fn every_state_draws_at_every_size() {
     for data in [false, true] {
         for pane in ['1', '2', '3', '4'] {
             for keys in ["", "z", "l", "?"] {
-                let mut app = if data { loaded() } else { App::new() };
+                let mut app = if data { loaded() } else { App::new(PAGE_SIZE) };
                 press(&mut app, pane);
                 keys.chars().for_each(|key| press(&mut app, key));
                 states.push(app);
@@ -207,4 +211,57 @@ fn the_focused_side_lights_its_corners() {
     assert_eq!(sidebar_lit[corner].fg, T.gold);
     assert_ne!(detail_lit[corner].fg, T.gold);
     assert_eq!(app.focus, Focus::Detail);
+}
+
+fn column_of(row: &str, text: &str) -> u16 {
+    let byte = row.find(text).expect("the text on the row");
+    row[..byte].chars().count() as u16
+}
+
+#[test]
+fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
+    // Given: the demo data, and a page load that failed.
+    let mut app = loaded();
+    app.update(Msg::Failed {
+        cmd: Cmd::LoadProjectPage {
+            load: 1,
+            page: 1,
+            per_page: PAGE_SIZE,
+        },
+        error: "list projects: connection refused".into(),
+    });
+
+    // When: the screen is drawn, and drawn again after a key.
+    let failed = render(&app, 120, 32);
+    app.update(Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    let after = render(&app, 120, 32);
+
+    // Then: the bottom row names the failure in the error colour, until the key.
+    let bottom = row_text(&failed, 31);
+    let x = column_of(&bottom, "list projects: connection refused");
+    assert_eq!(failed[(x, 31)].fg, T.love);
+    assert!(!row_text(&after, 31).contains("list projects"));
+}
+
+#[test]
+fn a_load_in_progress_counts_the_projects_that_have_arrived() {
+    // Given: a cache with two projects of five, while the rest load.
+    let mut app = App::new(PAGE_SIZE);
+    app.start();
+    let Some(Msg::CacheLoaded(Some(mut cached))) = demo::answer(Cmd::LoadCache, now()) else {
+        panic!("the demo answers with a cache");
+    };
+    cached.projects.truncate(2);
+    cached.total = 5;
+    app.update(Msg::CacheLoaded(Some(cached)));
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+
+    // Then: the end of the bottom row counts them.
+    let bottom = row_text(&buffer, 31);
+    assert!(
+        bottom.trim_end().ends_with("loading projects 2/5"),
+        "{bottom}"
+    );
 }

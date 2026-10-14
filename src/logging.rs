@@ -1,18 +1,38 @@
-//! Logs to stderr through `redact`.
+//! Logs through `redact` to a file, because a line on stderr would draw over the screen.
 
+use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::Path;
 
 use tracing::Level;
 use tracing_subscriber::fmt::MakeWriter;
 
 use crate::redact::redact;
+use crate::store;
 
-pub fn init(level: Level) {
+const FILE_NAME: &str = "lazylab.log";
+
+pub fn init<W>(level: Level, writer: W)
+where
+    W: for<'a> MakeWriter<'a> + Send + Sync + 'static,
+{
     tracing_subscriber::fmt()
-        .with_writer(Redacted(io::stderr))
+        .with_writer(Redacted(writer))
         .with_ansi(false)
         .with_max_level(level)
         .init();
+}
+
+/// Each session starts the file again, so it holds the last session only and never grows.
+pub fn open(dir: &Path) -> io::Result<File> {
+    store::create_dir(dir)?;
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(dir.join(FILE_NAME))
 }
 
 /// Hands out writers that pass each formatted event through `redact`.

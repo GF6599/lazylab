@@ -1,0 +1,191 @@
+mod common;
+
+use std::fs;
+
+use common::client_for;
+use lazylab::gitlab::Project;
+use lazylab::store::Store;
+use lazylab::tui::Source;
+use lazylab::tui::app::{Cmd, Msg};
+use url::Url;
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+const PIPELINES: &str = include_str!("fixtures/pipelines.json");
+const PIPELINE_JOBS: &str = include_str!("fixtures/pipeline_jobs.json");
+const MERGE_REQUESTS: &str = include_str!("fixtures/merge_requests.json");
+
+fn json_body(body: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200)
+        .insert_header("Content-Type", "application/json")
+        .set_body_string(body)
+}
+
+fn project(id: u64) -> Project {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "name": "api",
+        "path_with_namespace": "acme/api",
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_page_command_lists_that_page_at_that_size() {
+    // Given: GitLab answers page 2 of 25 with one project.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "25"))
+        .respond_with(
+            json_body(r#"[{"id":7,"name":"api","path_with_namespace":"acme/api"}]"#)
+                .insert_header("X-Page", "2")
+                .insert_header("X-Total", "26"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the page is asked for, as part of load 4.
+    let answer = source
+        .answer(Cmd::LoadProjectPage {
+            load: 4,
+            page: 2,
+            per_page: 25,
+        })
+        .await;
+
+    // Then: the page comes back marked with its load.
+    let Some(Msg::ProjectPageLoaded { load, page }) = answer else {
+        panic!("a page, got {answer:?}");
+    };
+    assert_eq!(load, 4);
+    assert_eq!(page.items.iter().map(|p| p.id).collect::<Vec<_>>(), [7]);
+    assert_eq!(page.total_items, Some(26));
+}
+
+#[tokio::test]
+async fn a_failed_call_answers_with_its_command_and_the_reason() {
+    // Given: GitLab refuses the token.
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v4/projects"))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_string(r#"{"message":"401 Unauthorized"}"#),
+        )
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+    let command = Cmd::LoadProjectPage {
+        load: 1,
+        page: 1,
+        per_page: 30,
+    };
+
+    // When: a page is asked for.
+    let answer = source.answer(command.clone()).await;
+
+    // Then: the answer names the command and the operation that failed.
+    let Some(Msg::Failed { cmd, error }) = answer else {
+        panic!("a failure, got {answer:?}");
+    };
+    assert_eq!(cmd, command);
+    assert!(error.starts_with("list projects"), "{error}");
+}
+
+#[tokio::test]
+async fn saved_projects_come_back_from_the_cache() {
+    // Given: a live source with a store in an empty folder.
+    let dir = tempfile::tempdir().unwrap();
+    let host = Url::parse("https://gitlab.example.com").unwrap();
+    let store = Store::new(dir.path().to_path_buf(), &host);
+    let source = Source::live(client_for("https://gitlab.example.com"), Some(store));
+
+    // When: two projects are saved, then the cache is asked for.
+    let saved = source
+        .answer(Cmd::SaveProjects {
+            projects: vec![project(1), project(2)],
+            total: 5,
+        })
+        .await;
+    let answer = source.answer(Cmd::LoadCache).await;
+
+    // Then: the save answers nothing, and the cache holds both projects and the total.
+    assert!(saved.is_none());
+    let Some(Msg::CacheLoaded(Some(cached))) = answer else {
+        panic!("a cache, got {answer:?}");
+    };
+    assert_eq!(cached.projects, [project(1), project(2)]);
+    assert_eq!(cached.total, 5);
+}
+
+#[tokio::test]
+async fn a_cache_that_cannot_be_read_or_kept_is_a_miss() {
+    // Given: one source whose cache file is not JSON, and one with nowhere to keep a cache.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("projects_https_gitlab_example_com.json"),
+        "not json",
+    )
+    .unwrap();
+    let host = Url::parse("https://gitlab.example.com").unwrap();
+    let broken = Source::live(
+        client_for(host.as_str()),
+        Some(Store::new(dir.path().to_path_buf(), &host)),
+    );
+    let none = Source::live(client_for(host.as_str()), None);
+
+    for source in [broken, none] {
+        // When: the cache is asked for.
+        let answer = source.answer(Cmd::LoadCache).await;
+
+        // Then: the answer is a miss, so the projects load from GitLab.
+        assert!(matches!(answer, Some(Msg::CacheLoaded(None))), "{answer:?}");
+    }
+}
+
+#[tokio::test]
+async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
+    // Given: GitLab with pipelines, jobs and open merge requests for project 1.
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v4/projects/1/pipelines"))
+        .and(query_param("page", "1"))
+        .respond_with(json_body(PIPELINES))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/v4/projects/1/pipelines/100/jobs"))
+        .respond_with(json_body(PIPELINE_JOBS))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/v4/projects/1/merge_requests"))
+        .and(query_param("state", "opened"))
+        .respond_with(json_body(MERGE_REQUESTS))
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: each list is asked for.
+    let pipelines = source.answer(Cmd::LoadPipelines { project: 1 }).await;
+    let jobs = source
+        .answer(Cmd::LoadJobs {
+            project: 1,
+            pipeline: 100,
+        })
+        .await;
+    let merge_requests = source.answer(Cmd::LoadMergeRequests { project: 1 }).await;
+
+    // Then: each comes back for the project or pipeline it was asked for.
+    assert!(
+        matches!(&pipelines, Some(Msg::PipelinesLoaded { project: 1, pipelines }) if !pipelines.is_empty()),
+        "{pipelines:?}"
+    );
+    assert!(
+        matches!(&jobs, Some(Msg::JobsLoaded { pipeline: 100, jobs }) if !jobs.is_empty()),
+        "{jobs:?}"
+    );
+    assert!(
+        matches!(&merge_requests, Some(Msg::MergeRequestsLoaded { project: 1, merge_requests }) if !merge_requests.is_empty()),
+        "{merge_requests:?}"
+    );
+}
