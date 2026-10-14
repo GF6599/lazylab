@@ -21,7 +21,8 @@ mod pipelines;
 
 pub use actions::Variable;
 pub use merge_requests::{
-    DiffRefs, Discussion, FileDiff, MergeRequest, MergeRequestState, Note, Position,
+    DiffLine, DiffRefs, Discussion, FileDiff, MergeRequest, MergeRequestState, NewMergeRequest,
+    Note, Position,
 };
 pub use pipelines::{
     Artifact, Bridge, Downstream, Job, LatestPipeline, MAX_JOB_LOG_BYTES, Pipeline, Stage, Status,
