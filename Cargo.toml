@@ -15,7 +15,8 @@ regex = "1.13"
 reqwest = { version = "0.13", features = ["json", "query"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-time = { version = "0.3", features = ["serde", "parsing"] }
+time = { version = "0.3", features = ["serde", "parsing", "formatting"] }
+tokio = { version = "1", features = ["rt", "sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 unicode-width = "0.2"
@@ -28,5 +29,5 @@ strip = "symbols"
 
 [dev-dependencies]
 figment = { version = "0.10", features = ["test"] }
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "time"] }
 wiremock = "0.6"
