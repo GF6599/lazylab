@@ -18,15 +18,18 @@ use crate::redact::redact;
 mod actions;
 mod merge_requests;
 mod pipelines;
+mod repository;
 
 pub use actions::Variable;
 pub use merge_requests::{
-    DiffRefs, Discussion, FileDiff, MergeRequest, MergeRequestState, Note, Position,
+    DiffLine, DiffRefs, Discussion, FileDiff, MergeRequest, MergeRequestState, NewMergeRequest,
+    Note, Position,
 };
 pub use pipelines::{
     Artifact, Bridge, Downstream, Job, LatestPipeline, MAX_JOB_LOG_BYTES, Pipeline, Stage, Status,
-    User,
+    TestCase, TestCaseStatus, TestReport, TestSuite, User,
 };
+pub use repository::Commit;
 
 /// The Go release gives every call 15 seconds.
 const TIMEOUT: Duration = Duration::from_secs(15);

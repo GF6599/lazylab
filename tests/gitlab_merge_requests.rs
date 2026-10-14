@@ -1,7 +1,7 @@
 mod common;
 
 use common::client_for;
-use lazylab::gitlab::{DiffRefs, MergeRequestState};
+use lazylab::gitlab::{DiffLine, DiffRefs, MergeRequestState, NewMergeRequest};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -12,6 +12,8 @@ const MERGE_REQUESTS: &str = include_str!("fixtures/merge_requests.json");
 const DISCUSSIONS: &str = include_str!("fixtures/mr_discussions.json");
 const DIFFS: &str = include_str!("fixtures/mr_diffs.json");
 const DIFF_REFS: &str = include_str!("fixtures/merge_request_diff_refs.json");
+const DISCUSSION: &str = include_str!("fixtures/merge_request_discussion.json");
+const CREATED_MERGE_REQUEST: &str = include_str!("fixtures/create_merge_request.json");
 
 fn json_body(body: impl Into<String>) -> ResponseTemplate {
     ResponseTemplate::new(200)
@@ -21,6 +23,20 @@ fn json_body(body: impl Into<String>) -> ResponseTemplate {
 
 fn json_value(body: Value) -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_json(body)
+}
+
+fn created(body: &str) -> ResponseTemplate {
+    ResponseTemplate::new(201)
+        .insert_header("Content-Type", "application/json")
+        .set_body_string(body)
+}
+
+fn diff_refs() -> DiffRefs {
+    DiffRefs {
+        base_sha: "base123".into(),
+        head_sha: "head456".into(),
+        start_sha: "start789".into(),
+    }
 }
 
 #[tokio::test]
@@ -219,30 +235,184 @@ async fn a_thread_is_resolved_and_then_reopened() {
 
 #[tokio::test]
 async fn a_thread_id_stays_one_part_of_the_path() {
-    // Given: a thread id that holds a slash, and an endpoint that id would otherwise reach.
+    // Given: a thread id that holds a slash, and the endpoints that id would otherwise reach.
     let server = MockServer::start().await;
+    let thread = "/api/v4/projects/1/merge_requests/42/discussions/x%2F..%2F..%2F7";
     Mock::given(method("PUT"))
-        .and(path(
-            "/api/v4/projects/1/merge_requests/42/discussions/x%2F..%2F..%2F7",
-        ))
+        .and(path(thread))
         .respond_with(json_value(json!({"id": "x", "notes": []})))
         .expect(1)
         .mount(&server)
         .await;
-    Mock::given(method("PUT"))
-        .and(path("/api/v4/projects/1/merge_requests/7"))
+    Mock::given(method("POST"))
+        .and(path(format!("{thread}/notes")))
+        .respond_with(created(r#"{"id": 1}"#))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/v4/projects/1/merge_requests/7"))
         .respond_with(json_value(json!({})))
         .expect(0)
         .mount(&server)
         .await;
+    Mock::given(path("/api/v4/projects/1/merge_requests/7/notes"))
+        .respond_with(created(r#"{"id": 1}"#))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let client = client_for(&server.uri());
 
-    // When: that thread is resolved.
-    let resolve = client_for(&server.uri())
+    // When: that thread is resolved, and then gets a reply.
+    let resolve = client
         .resolve_merge_request_discussion(1, 42, "x/../../7", true)
         .await;
+    let reply = client
+        .add_merge_request_discussion_note(1, 42, "x/../../7", "done")
+        .await;
 
-    // Then: the request went to the thread, not to merge request 7.
+    // Then: both requests went to the thread, not to merge request 7.
     assert!(resolve.is_ok(), "{resolve:?}");
+    assert!(reply.is_ok(), "{reply:?}");
+}
+
+#[tokio::test]
+async fn a_reply_is_posted_to_its_thread() {
+    // Given: GitLab accepts a reply in thread disc-1 of merge request 42.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(
+            "/api/v4/projects/1/merge_requests/42/discussions/disc-1/notes",
+        ))
+        .and(body_json(json!({"body": "thanks for the review"})))
+        .respond_with(created(r#"{"id": 901, "body": "thanks for the review"}"#))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // When: the reply is posted.
+    let reply = client_for(&server.uri())
+        .add_merge_request_discussion_note(1, 42, "disc-1", "thanks for the review")
+        .await;
+
+    // Then: GitLab received the text in that thread.
+    assert!(reply.is_ok(), "{reply:?}");
+}
+
+#[tokio::test]
+async fn a_general_comment_starts_a_thread_with_no_position() {
+    // Given: GitLab accepts a new thread that carries only its text.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/merge_requests/42/discussions"))
+        .and(body_json(json!({"body": "general note"})))
+        .respond_with(created(DISCUSSION))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // When: a comment with no diff line is posted.
+    let comment = client_for(&server.uri())
+        .create_merge_request_discussion(1, 42, "general note", None)
+        .await;
+
+    // Then: it starts a thread on the merge request, not on a line.
+    assert!(comment.is_ok(), "{comment:?}");
+}
+
+#[tokio::test]
+async fn a_comment_on_a_diff_line_names_the_line_and_the_three_commits() {
+    // Given: GitLab accepts a comment on an added line and one on a deleted line.
+    let server = MockServer::start().await;
+    let position = |line: Value| {
+        let mut position = json!({
+            "position_type": "text",
+            "base_sha": "base123", "head_sha": "head456", "start_sha": "start789",
+            "old_path": "src/main.rs", "new_path": "src/main.rs",
+        });
+        position
+            .as_object_mut()
+            .unwrap()
+            .extend(line.as_object().unwrap().clone());
+        position
+    };
+    for (body, line) in [
+        ("fix this line", json!({"new_line": 42})),
+        ("why remove this", json!({"old_line": 7})),
+    ] {
+        Mock::given(method("POST"))
+            .and(path("/api/v4/projects/1/merge_requests/42/discussions"))
+            .and(body_json(json!({"body": body, "position": position(line)})))
+            .respond_with(created(DISCUSSION))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let client = client_for(&server.uri());
+    let line = |old_line, new_line| DiffLine {
+        diff_refs: diff_refs(),
+        old_path: "src/main.rs".into(),
+        new_path: "src/main.rs".into(),
+        old_line,
+        new_line,
+    };
+
+    // When: one comment goes on added line 42, and one on deleted line 7.
+    let added = client
+        .create_merge_request_discussion(1, 42, "fix this line", Some(&line(None, Some(42))))
+        .await;
+    let deleted = client
+        .create_merge_request_discussion(1, 42, "why remove this", Some(&line(Some(7), None)))
+        .await;
+
+    // Then: each comment names only the side of the diff its line is on.
+    assert!(added.is_ok(), "{added:?}");
+    assert!(deleted.is_ok(), "{deleted:?}");
+}
+
+#[tokio::test]
+async fn a_merge_request_is_opened_from_one_branch_into_another() {
+    // Given: GitLab opens a merge request from feature/login into main.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/merge_requests"))
+        .and(body_json(json!({
+            "title": "Add login feature",
+            "source_branch": "feature/login",
+            "target_branch": "main",
+            "description": "Closes the login task.",
+        })))
+        .respond_with(created(CREATED_MERGE_REQUEST))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // When: the merge request is opened.
+    let opened = client_for(&server.uri())
+        .create_merge_request(
+            1,
+            &NewMergeRequest {
+                title: "Add login feature",
+                source_branch: "feature/login",
+                target_branch: "main",
+                description: "Closes the login task.",
+            },
+        )
+        .await
+        .unwrap();
+
+    // Then: the answer carries the fields the merge request pane shows.
+    assert_eq!(
+        (opened.iid, opened.title.as_str(), opened.state),
+        (99, "Add login feature", MergeRequestState::Opened)
+    );
+    assert_eq!(
+        (opened.source_branch.as_str(), opened.target_branch.as_str()),
+        ("feature/login", "main")
+    );
+    assert_eq!(
+        opened.author.as_ref().map(|a| a.name.as_str()),
+        Some("Jane Dev")
+    );
 }
 
 #[tokio::test]
@@ -318,14 +488,7 @@ async fn the_diff_refs_name_the_three_commits_a_line_comment_needs() {
         .unwrap();
 
     // Then: the base, head and start commits come back.
-    assert_eq!(
-        refs,
-        Some(DiffRefs {
-            base_sha: "base123".into(),
-            head_sha: "head456".into(),
-            start_sha: "start789".into(),
-        })
-    );
+    assert_eq!(refs, Some(diff_refs()));
 }
 
 #[tokio::test]

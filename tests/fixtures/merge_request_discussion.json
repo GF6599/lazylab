@@ -1,0 +1,18 @@
+{
+  "id": "disc-new",
+  "individual_note": false,
+  "notes": [
+    {
+      "id": 901,
+      "body": "Looks good",
+      "author": {
+        "id": 1,
+        "name": "Reviewer"
+      },
+      "system": false,
+      "resolvable": true,
+      "resolved": false,
+      "created_at": "2025-01-15T13:00:00Z"
+    }
+  ]
+}

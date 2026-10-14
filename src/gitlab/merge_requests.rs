@@ -3,8 +3,9 @@
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use url::Url;
 
-use super::{Client, Error, Page, User, refusal};
+use super::{Client, Error, Page, User, decode, refusal};
 
 impl Client {
     /// `None` lists merge requests in every state.
@@ -45,6 +46,64 @@ impl Client {
         resolved: bool,
     ) -> Result<(), Error> {
         const OPERATION: &str = "resolve merge request thread";
+        let url = self.discussion_url(project, merge_request, discussion);
+        let response = self
+            .write(Method::PUT, OPERATION, url, Some(&Resolve { resolved }))
+            .await?;
+        refusal(OPERATION, response).await.map(drop)
+    }
+
+    pub async fn add_merge_request_discussion_note(
+        &self,
+        project: u64,
+        merge_request: u64,
+        discussion: &str,
+        body: &str,
+    ) -> Result<(), Error> {
+        const OPERATION: &str = "reply in merge request thread";
+        let mut url = self.discussion_url(project, merge_request, discussion);
+        url.path_segments_mut()
+            .expect("an API URL has a path")
+            .push("notes");
+        let response = self
+            .write(Method::POST, OPERATION, url, Some(&Reply { body }))
+            .await?;
+        refusal(OPERATION, response).await.map(drop)
+    }
+
+    /// `None` comments on the merge request as a whole.
+    pub async fn create_merge_request_discussion(
+        &self,
+        project: u64,
+        merge_request: u64,
+        body: &str,
+        line: Option<&DiffLine>,
+    ) -> Result<(), Error> {
+        const OPERATION: &str = "start merge request thread";
+        let thread = NewDiscussion {
+            body,
+            position: line.map(|line| TextPosition {
+                position_type: "text",
+                line,
+            }),
+        };
+        let path = format!("projects/{project}/merge_requests/{merge_request}/discussions");
+        let response = self.post(OPERATION, &path, Some(&thread)).await?;
+        refusal(OPERATION, response).await.map(drop)
+    }
+
+    pub async fn create_merge_request(
+        &self,
+        project: u64,
+        merge_request: &NewMergeRequest<'_>,
+    ) -> Result<MergeRequest, Error> {
+        const OPERATION: &str = "open merge request";
+        let path = format!("projects/{project}/merge_requests");
+        let response = self.post(OPERATION, &path, Some(merge_request)).await?;
+        decode(OPERATION, refusal(OPERATION, response).await?).await
+    }
+
+    fn discussion_url(&self, project: u64, merge_request: u64, discussion: &str) -> Url {
         let mut url = self.url(&format!(
             "projects/{project}/merge_requests/{merge_request}/discussions"
         ));
@@ -52,10 +111,7 @@ impl Client {
         url.path_segments_mut()
             .expect("an API URL has a path")
             .push(discussion);
-        let response = self
-            .write(Method::PUT, OPERATION, url, Some(&Resolve { resolved }))
-            .await?;
-        refusal(OPERATION, response).await.map(drop)
+        url
     }
 
     pub async fn list_merge_request_diffs(
@@ -188,11 +244,32 @@ pub struct FileDiff {
 }
 
 /// The commits a comment on a diff line has to name.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DiffRefs {
     pub base_sha: String,
     pub head_sha: String,
     pub start_sha: String,
+}
+
+/// An added line has only a new line, a deleted line only an old one, and an unchanged line both.
+#[derive(Debug, Serialize)]
+pub struct DiffLine {
+    #[serde(flatten)]
+    pub diff_refs: DiffRefs,
+    pub old_path: String,
+    pub new_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_line: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NewMergeRequest<'a> {
+    pub title: &'a str,
+    pub source_branch: &'a str,
+    pub target_branch: &'a str,
+    pub description: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -221,4 +298,23 @@ impl PartialDiffRefs {
 #[derive(Serialize)]
 struct Resolve {
     resolved: bool,
+}
+
+#[derive(Serialize)]
+struct Reply<'a> {
+    body: &'a str,
+}
+
+#[derive(Serialize)]
+struct NewDiscussion<'a> {
+    body: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    position: Option<TextPosition<'a>>,
+}
+
+#[derive(Serialize)]
+struct TextPosition<'a> {
+    position_type: &'static str,
+    #[serde(flatten)]
+    line: &'a DiffLine,
 }

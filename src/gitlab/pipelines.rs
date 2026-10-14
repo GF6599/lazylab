@@ -95,6 +95,15 @@ impl Client {
         Ok(bridges)
     }
 
+    pub async fn pipeline_test_report(
+        &self,
+        project: u64,
+        pipeline: u64,
+    ) -> Result<TestReport, Error> {
+        let path = format!("projects/{project}/pipelines/{pipeline}/test_report");
+        self.get_json("get pipeline test report", &path, &[]).await
+    }
+
     /// The log a job has written so far.
     pub async fn job_log(&self, project: u64, job: u64) -> Result<String, Error> {
         const OPERATION: &str = "get job log";
@@ -200,6 +209,86 @@ impl Pipeline {
 fn coverage<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f64>, D::Error> {
     let text: Option<String> = Option::deserialize(deserializer)?;
     Ok(text.and_then(|t| t.parse().ok()))
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct TestReport {
+    #[serde(default)]
+    pub total_time: f64,
+    #[serde(default)]
+    pub total_count: u32,
+    #[serde(default)]
+    pub success_count: u32,
+    #[serde(default)]
+    pub failed_count: u32,
+    #[serde(default)]
+    pub skipped_count: u32,
+    #[serde(default)]
+    pub error_count: u32,
+    #[serde(default)]
+    pub test_suites: Vec<TestSuite>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct TestSuite {
+    pub name: String,
+    #[serde(default)]
+    pub total_time: f64,
+    #[serde(default)]
+    pub total_count: u32,
+    #[serde(default)]
+    pub success_count: u32,
+    #[serde(default)]
+    pub failed_count: u32,
+    #[serde(default)]
+    pub skipped_count: u32,
+    #[serde(default)]
+    pub error_count: u32,
+    #[serde(default)]
+    pub test_cases: Vec<TestCase>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct TestCase {
+    pub status: TestCaseStatus,
+    pub name: String,
+    #[serde(default)]
+    pub classname: String,
+    #[serde(default)]
+    pub file: Option<String>,
+    #[serde(default)]
+    pub execution_time: f64,
+    #[serde(default, deserialize_with = "system_output")]
+    pub system_output: Option<String>,
+    #[serde(default)]
+    pub stack_trace: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestCaseStatus {
+    Success,
+    Failed,
+    Skipped,
+    Error,
+    #[serde(other)]
+    Unknown,
+}
+
+/// GitLab's own Go client types this field as any value, so a list of lines reads as text too.
+fn system_output<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Output {
+        Text(String),
+        Lines(Vec<String>),
+    }
+    Ok(
+        Option::deserialize(deserializer)?.map(|output| match output {
+            Output::Text(text) => text,
+            Output::Lines(lines) => lines.join("\n"),
+        }),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
