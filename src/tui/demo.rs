@@ -1,0 +1,243 @@
+//! Sample data that answers the screen's commands until the GitLab client does. It is written as
+//! GitLab's own JSON and decoded into the client types, so the screen meets the same values a real
+//! answer would give it.
+
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
+use time::format_description::well_known::Rfc3339;
+use time::{Duration, OffsetDateTime};
+
+use super::app::{Cmd, Msg};
+
+const PROJECTS: [(&str, &str, &str); 13] = [
+    (
+        "acme/platform/api",
+        "Public REST API and webhook fan-out",
+        "main",
+    ),
+    ("acme/platform/web", "Customer dashboard", "main"),
+    (
+        "acme/platform/workers",
+        "Queue consumers and scheduled jobs",
+        "main",
+    ),
+    (
+        "acme/infra/terraform",
+        "Cloud accounts, networks and DNS",
+        "main",
+    ),
+    (
+        "acme/infra/helm-charts",
+        "Charts for every deployed service",
+        "main",
+    ),
+    (
+        "acme/infra/runner-images",
+        "Base images for the CI runners",
+        "main",
+    ),
+    (
+        "acme/data/ingest",
+        "Event ingestion and schema registry",
+        "develop",
+    ),
+    (
+        "acme/data/warehouse-models",
+        "Warehouse transformations",
+        "main",
+    ),
+    ("acme/tools/lazylab", "Terminal UI for GitLab", "main"),
+    (
+        "acme/tools/release-bot",
+        "Changelog and tag automation",
+        "main",
+    ),
+    ("acme/mobile/ios-app", "iOS client", "main"),
+    ("acme/mobile/android-app", "Android client", "main"),
+    ("acme/docs/handbook", "Engineering handbook", "main"),
+];
+const FIRST_PROJECT: u64 = 101;
+const PIPELINES_PER_PROJECT: u64 = 14;
+const PIPELINE_ID_STEP: u64 = 7;
+const REFS: [&str; 6] = [
+    "main",
+    "feat/runner-cache",
+    "fix/flaky-e2e",
+    "release/0.4",
+    "feat/sso-login",
+    "chore/bump-deps",
+];
+const AUTHORS: [&str; 5] = ["Dana", "Kofi", "Mei", "Ravi", "Sol"];
+const PATTERN: [&str; 10] = [
+    "running", "success", "failed", "success", "manual", "success", "canceled", "success",
+    "failed", "success",
+];
+const JOB_PLAN: [(&str, &str); 9] = [
+    ("build", "compile"),
+    ("build", "image"),
+    ("test", "unit"),
+    ("test", "integration"),
+    ("test", "lint"),
+    ("security", "sast"),
+    ("security", "dependency-scan"),
+    ("deploy", "staging"),
+    ("deploy", "production"),
+];
+const MERGE_REQUESTS: [(u64, &str, &str); 5] = [
+    (412, "Cache the runner image layers", "feat/runner-cache"),
+    (409, "Retry the flaky checkout step", "fix/flaky-e2e"),
+    (407, "Add SSO login behind a flag", "feat/sso-login"),
+    (401, "Split the e2e suite by shard", "feat/e2e-shards"),
+    (398, "Bump the toolchain", "chore/bump-deps"),
+];
+
+pub fn answer(command: Cmd, now: OffsetDateTime) -> Msg {
+    match command {
+        Cmd::LoadProjects => Msg::ProjectsLoaded(projects(now)),
+        Cmd::LoadPipelines { project } => Msg::PipelinesLoaded {
+            project,
+            pipelines: pipelines(project, now),
+        },
+        Cmd::LoadJobs { project, pipeline } => Msg::JobsLoaded {
+            pipeline,
+            jobs: jobs(project, pipeline),
+        },
+        Cmd::LoadMergeRequests { project } => Msg::MergeRequestsLoaded {
+            project,
+            merge_requests: merge_requests(project, now),
+        },
+    }
+}
+
+fn projects(now: OffsetDateTime) -> Vec<crate::gitlab::Project> {
+    let minutes = [
+        4, 12, 60, 180, 300, 1440, 2880, 2900, 4320, 10080, 10100, 20160, 43200,
+    ];
+    PROJECTS
+        .iter()
+        .zip(minutes)
+        .zip(FIRST_PROJECT..)
+        .map(|(((path, description, branch), minutes), id)| {
+            json!({
+                "id": id,
+                "name": path.rsplit('/').next(),
+                "path_with_namespace": path,
+                "description": description,
+                "web_url": format!("https://gitlab.example.com/{path}"),
+                "default_branch": branch,
+                "last_activity_at": at(now, minutes),
+            })
+        })
+        .map(decode)
+        .collect()
+}
+
+fn pipelines(project: u64, now: OffsetDateTime) -> Vec<crate::gitlab::Pipeline> {
+    let shift = project.saturating_sub(FIRST_PROJECT) as usize;
+    (0..PIPELINES_PER_PROJECT as usize)
+        .map(|i| {
+            let k = i + shift * 3;
+            let git_ref = if i % 3 == 0 {
+                "main"
+            } else {
+                REFS[k % REFS.len()]
+            };
+            let minutes = (i * 37 + shift * 5 + 2) as i64;
+            let source = ["push", "merge_request_event", "schedule"][k % 3];
+            json!({
+                "id": pipeline_id(project, i as u64),
+                "status": pipeline_status(project, i as u64),
+                "ref": git_ref,
+                "sha": format!("{:07x}", 0x3f2a9c1u32.wrapping_mul(k as u32 + 7) & 0x0fff_ffff),
+                "source": source,
+                "created_at": at(now, minutes),
+                "updated_at": at(now, minutes),
+                "duration": (140 + (k * 53) % 600) as f64,
+                "user": {"name": AUTHORS[k % AUTHORS.len()]},
+            })
+        })
+        .map(decode)
+        .collect()
+}
+
+fn pipeline_id(project: u64, index: u64) -> u64 {
+    48_210 + project * 131 - index * PIPELINE_ID_STEP
+}
+
+fn pipeline_status(project: u64, index: u64) -> &'static str {
+    let shift = project.saturating_sub(FIRST_PROJECT);
+    if index == 0 && shift.is_multiple_of(2) {
+        "running"
+    } else {
+        PATTERN[((index + shift * 3) as usize) % PATTERN.len()]
+    }
+}
+
+fn jobs(project: u64, pipeline: u64) -> Vec<crate::gitlab::Job> {
+    let index = pipeline_id(project, 0).saturating_sub(pipeline) / PIPELINE_ID_STEP;
+    let status = pipeline_status(project, index);
+    JOB_PLAN
+        .iter()
+        .zip(0u64..)
+        .map(|(&(stage, name), i)| {
+            json!({
+                "id": pipeline * 10 + i,
+                "name": name,
+                "stage": stage,
+                "status": job_status(status, stage, name),
+                "duration": (20 + (i * 41) % 300) as f64,
+            })
+        })
+        .map(decode)
+        .collect()
+}
+
+fn job_status(pipeline: &str, stage: &str, name: &str) -> &'static str {
+    match (pipeline, stage, name) {
+        ("success", _, "production") => "manual",
+        ("success", _, _) => "success",
+        ("manual", "deploy", _) => "manual",
+        ("manual", _, _) => "success",
+        ("failed", "build", _) => "success",
+        ("failed", "test", "integration") => "failed",
+        ("failed", "test", _) => "success",
+        ("running", "build", _) | ("running", "test", "lint") => "success",
+        ("running", "test", _) => "running",
+        ("canceled", "build", _) => "success",
+        ("canceled", "test", _) => "canceled",
+        ("failed" | "canceled", _, _) => "skipped",
+        _ => "pending",
+    }
+}
+
+fn merge_requests(project: u64, now: OffsetDateTime) -> Vec<crate::gitlab::MergeRequest> {
+    let shift = project.saturating_sub(FIRST_PROJECT) as usize;
+    MERGE_REQUESTS
+        .iter()
+        .zip([120, 360, 1440, 4320, 10080])
+        .enumerate()
+        .map(|(i, (&(iid, title, source), minutes))| {
+            json!({
+                "iid": iid,
+                "title": title,
+                "state": "opened",
+                "author": {"name": AUTHORS[(i + shift) % AUTHORS.len()]},
+                "source_branch": source,
+                "target_branch": "main",
+                "web_url": format!("https://gitlab.example.com/merge_requests/{iid}"),
+                "updated_at": at(now, minutes),
+            })
+        })
+        .map(decode)
+        .collect()
+}
+
+fn at(now: OffsetDateTime, minutes_ago: i64) -> String {
+    (now - Duration::minutes(minutes_ago))
+        .format(&Rfc3339)
+        .expect("a demo time formats")
+}
+
+fn decode<T: DeserializeOwned>(value: Value) -> T {
+    serde_json::from_value(value).expect("the demo data matches the GitLab answer shape")
+}
