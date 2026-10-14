@@ -65,9 +65,10 @@ fn a_search_keeps_the_projects_whose_path_or_name_holds_its_letters_in_order() {
     // Given: the demo projects.
     let mut app = loaded();
 
-    // When: a search for "hlm" is typed.
+    // When: a search for "hlm" is typed, and the cursor rests on what it keeps.
     press(&mut app, KeyCode::Char('/'));
-    let commands = type_text(&mut app, "hlm");
+    let mut commands = type_text(&mut app, "hlm");
+    commands.extend((0..3).flat_map(|_| app.update(Msg::Tick)));
 
     // Then: only the helm charts are left, and their lists are asked for.
     assert_eq!(shown(&app), ["acme/infra/helm-charts"]);
