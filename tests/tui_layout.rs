@@ -7,6 +7,7 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::style::Color;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
@@ -487,4 +488,53 @@ fn row_after(buffer: &Buffer, text: &str, from: u16) -> (u16, String) {
                 .is_some_and(|byte| row[..byte].chars().count() as u16 >= from)
         })
         .expect("a row holding the text")
+}
+
+#[test]
+fn a_job_log_keeps_its_colour_and_shows_what_a_terminal_would() {
+    // Given: the jobs pane, with a log that colours a line red, overwrites a section marker
+    // after a carriage return, and ends a line the Windows way.
+    let mut app = loaded();
+    press(&mut app, '3');
+    let job = app.job().unwrap().id;
+    app.update(Msg::LogLoaded {
+        job,
+        log: "section_start:1700:prepare\r\u{1b}[0Kprepare the runner\n\u{1b}[31mtest failed\u{1b}[0m\nwindows line\r\n".into(),
+    });
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+    let text = screen(&buffer);
+
+    // Then: the marker is gone, the overwriting text and the Windows line show, the failure is
+    // red, and the log follows its end.
+    assert!(!text.contains("section_start"), "{text}");
+    assert!(text.contains("prepare the runner"), "{text}");
+    assert!(text.contains("windows line"), "{text}");
+    let (y, row) = row_after(&buffer, "test failed", 48);
+    assert_eq!(buffer[(column_of(&row, "test failed"), y)].fg, Color::Red);
+    assert!(text.contains("following"), "{text}");
+}
+
+#[test]
+fn a_log_scrolled_to_its_top_moves_down_on_the_next_key() {
+    // Given: the detail pane focused on a job with a log longer than the pane.
+    let mut app = loaded();
+    press(&mut app, '3');
+    let job = app.job().unwrap().id;
+    let log: String = (1..=80).map(|i| format!("log line {i:02}\n")).collect();
+    app.update(Msg::LogLoaded { job, log });
+    press(&mut app, 'l');
+    render(&app, 120, 32);
+
+    // When: g goes to the top, and j moves one line down.
+    press(&mut app, 'g');
+    let top = screen(&render(&app, 120, 32));
+    press(&mut app, 'j');
+    let next = screen(&render(&app, 120, 32));
+
+    // Then: the first line shows at the top, and one key later it has scrolled out.
+    assert!(top.contains("log line 01"), "{top}");
+    assert!(!next.contains("log line 01"), "{next}");
+    assert!(next.contains("log line 02"), "{next}");
 }

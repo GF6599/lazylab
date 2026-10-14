@@ -9,19 +9,71 @@ use super::sidebar::row_status;
 use crate::gitlab::Status;
 use crate::tui::app::{App, Focus, Pane};
 use crate::tui::jobs::JobRow;
-use crate::tui::panel::{block, kv, light_corners};
+use crate::tui::panel::{block, bottom_label, kv, light_corners};
 use crate::tui::text::{age, pad, width as text_width};
 use crate::tui::theme::Theme;
 
 pub(super) fn draw(frame: &mut Frame, app: &App, context: &Context, area: Rect, t: &Theme) {
     let body = block("", true, t).inner(area);
-    let (title, lines) = view(app, context, body.width as usize, t);
-    let frame_block = block(&title, true, t);
+    let (title, lines, label) = match job_view(app, body.height as usize, t) {
+        Some(job) => job,
+        None => {
+            let (title, lines) = view(app, context, body.width as usize, t);
+            (title, lines, None)
+        }
+    };
+    let mut frame_block = block(&title, true, t);
+    if let Some(label) = label {
+        frame_block = frame_block.title_bottom(bottom_label(label, t));
+    }
     frame.render_widget(frame_block, area);
     frame.render_widget(Paragraph::new(lines), body);
     if app.focus == Focus::Detail {
         light_corners(frame.buffer_mut(), area, t);
     }
+}
+
+/// A job shows its status and stage above as much of its log as fits, and the frame says
+/// whether the log follows its end or where in the log the reader is.
+fn job_view(
+    app: &App,
+    height: usize,
+    t: &Theme,
+) -> Option<(String, Vec<Line<'static>>, Option<String>)> {
+    if app.pane != Pane::Jobs {
+        return None;
+    }
+    let job = app.job()?;
+    let (glyph, style) = t.status(job.status, app.tick);
+    let mut lines = vec![
+        kv(
+            "status",
+            vec![Span::styled(
+                format!("{glyph} {}", status_label(job.status)),
+                style,
+            )],
+            t,
+        ),
+        kv("stage", vec![Span::styled(job.stage.clone(), t.body())], t),
+        Line::raw(""),
+    ];
+    let title = format!("job {}", job.name);
+    let room = height.saturating_sub(lines.len());
+    app.log_height.set(room);
+    let Some(log) = app.log.as_ref().filter(|log| log.job == job.id) else {
+        lines.push(Line::styled("loading the log", t.dim()));
+        return Some((title, lines, None));
+    };
+    let len = log.lines.len();
+    let end = len.saturating_sub(app.log_scroll()).max(room.min(len));
+    let start = end.saturating_sub(room);
+    lines.extend(log.lines[start..end].iter().cloned());
+    let label = if app.log_following() {
+        "following".to_string()
+    } else {
+        format!("{end}/{len}")
+    };
+    Some((title, lines, Some(label)))
 }
 
 fn view(app: &App, context: &Context, width: usize, t: &Theme) -> (String, Vec<Line<'static>>) {
@@ -75,13 +127,7 @@ fn view(app: &App, context: &Context, width: usize, t: &Theme) -> (String, Vec<L
             (format!("pipeline #{}", p.id), lines)
         }),
         Pane::Jobs => app.job_rows().get(cursor).and_then(|row| match row {
-            JobRow::Job { job, .. } => Some((
-                format!("job {}", job.name),
-                vec![
-                    kv("status", status(job.status, app.tick), t),
-                    kv("stage", text(job.stage.clone()), t),
-                ],
-            )),
+            JobRow::Job { .. } => None,
             JobRow::Group {
                 name,
                 stage,

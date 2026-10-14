@@ -1,6 +1,7 @@
 //! The state of the screen, and the one place it changes: `update`, which takes a message and
 //! answers with the work the event loop has to start.
 
+use std::cell::Cell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -8,6 +9,7 @@ use std::time::Duration;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::jobs::{self, JobRow, RowKey};
+use super::log::Log;
 use crate::gitlab::{Bridge, Job, MergeRequest, Page, Pipeline, Project, Status};
 use crate::store::CachedProjects;
 
@@ -27,6 +29,7 @@ const REFRESH_TICKS: u64 = (REFRESH.as_millis() / TICK.as_millis()) as u64;
 enum Waiting {
     Project(u64),
     Pipeline { project: u64, pipeline: u64 },
+    Job { project: u64, job: u64 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +119,10 @@ pub enum Msg {
         pipeline: u64,
         jobs: Vec<Job>,
     },
+    LogLoaded {
+        job: u64,
+        log: String,
+    },
     MergeRequestsLoaded {
         project: u64,
         merge_requests: Vec<MergeRequest>,
@@ -163,6 +170,11 @@ pub enum Cmd {
     },
     LoadMergeRequests {
         project: u64,
+    },
+    /// The log of a job, in the project it runs in.
+    LoadLog {
+        project: u64,
+        job: u64,
     },
 }
 
@@ -224,6 +236,12 @@ pub struct App {
     /// The groups and bridges the reader opened, which stay open across a refresh.
     open: HashSet<RowKey>,
     job_rows: Vec<JobRow>,
+    pub log: Option<Log>,
+    log_asked: Option<u64>,
+    /// Lines between the end of the log and the last line in view. Zero follows the end.
+    log_scroll: usize,
+    /// The rows the detail pane gave the log when it last drew, so a scroll stops at the top.
+    pub log_height: Cell<usize>,
     pub merge_requests: Vec<MergeRequest>,
     cursors: [usize; Pane::ALL.len()],
 }
@@ -262,6 +280,10 @@ impl App {
             children_asked: HashSet::new(),
             open: HashSet::new(),
             job_rows: Vec::new(),
+            log: None,
+            log_asked: None,
+            log_scroll: 0,
+            log_height: Cell::new(0),
             merge_requests: Vec::new(),
             cursors: [0; Pane::ALL.len()],
         }
@@ -307,18 +329,93 @@ impl App {
     }
 
     pub fn update(&mut self, msg: Msg) -> Vec<Cmd> {
-        let commands = self.handle(msg);
-        for command in &commands {
+        let mut commands = self.handle(msg);
+        self.note_asked(&commands);
+        let log = self.ask_log();
+        self.note_asked(&log);
+        commands.extend(log);
+        commands
+    }
+
+    /// Notes each load that went out, so the same one does not go out again before it answers.
+    fn note_asked(&mut self, commands: &[Cmd]) {
+        for command in commands {
             match command {
                 Cmd::LoadPipelines { .. } => self.pipelines_asked = true,
                 Cmd::LoadJobs { .. } => self.jobs_asked = true,
                 Cmd::LoadChildJobs { pipeline, .. } => {
                     self.children_asked.insert(*pipeline);
                 }
+                Cmd::LoadLog { job, .. } => self.log_asked = Some(*job),
                 _ => {}
             }
         }
-        commands
+    }
+
+    pub fn log_following(&self) -> bool {
+        self.log_scroll == 0
+    }
+
+    pub fn log_scroll(&self) -> usize {
+        self.log_scroll
+    }
+
+    /// The job whose log the screen wants: the job on the current row of the jobs pane, while
+    /// that pane is in view, and the project it runs in.
+    fn wanted_log(&self) -> Option<(u64, u64)> {
+        if self.pane != Pane::Jobs {
+            return None;
+        }
+        match self.job_rows.get(self.cursor(Pane::Jobs)) {
+            Some(JobRow::Job { job, project, .. }) => Some((*project, job.id)),
+            _ => None,
+        }
+    }
+
+    /// A log loads at once when nothing waits, so a pane switch or a new list shows it, and a
+    /// moving cursor waits like any other selection.
+    fn ask_log(&mut self) -> Vec<Cmd> {
+        let Some((project, job)) = self.wanted_log() else {
+            return Vec::new();
+        };
+        let shown = self.log.as_ref().is_some_and(|log| log.job == job);
+        if shown || self.waiting.is_some() || self.log_asked == Some(job) {
+            return Vec::new();
+        }
+        vec![Cmd::LoadLog { project, job }]
+    }
+
+    fn log_loaded(&mut self, job: u64, text: &str) {
+        if self.log_asked == Some(job) {
+            self.log_asked = None;
+        }
+        if self.wanted_log().map(|(_, wanted)| wanted) != Some(job) {
+            return;
+        }
+        let log = Log::new(job, text);
+        match &self.log {
+            // New lines arrive below, so the lines in view stay in view while the reader is up.
+            Some(old) if old.job == job && self.log_scroll > 0 => {
+                self.log_scroll += log.lines.len().saturating_sub(old.lines.len());
+            }
+            Some(old) if old.job == job => {}
+            _ => self.log_scroll = 0,
+        }
+        self.log = Some(log);
+    }
+
+    fn scroll_log(&mut self, delta: isize) {
+        let Some(log) = &self.log else {
+            return;
+        };
+        let top = log.lines.len().saturating_sub(self.log_height.get());
+        self.log_scroll = if delta < 0 {
+            self.log_scroll
+                .saturating_add(delta.unsigned_abs())
+                .min(top)
+        } else {
+            self.log_scroll.saturating_sub(delta.unsigned_abs())
+        };
     }
 
     fn handle(&mut self, msg: Msg) -> Vec<Cmd> {
@@ -363,6 +460,16 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd: Cmd::LoadLog { job, .. },
+                error,
+            } => {
+                if self.log_asked == Some(job) {
+                    self.log_asked = None;
+                }
+                self.error = Some(error);
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -398,6 +505,10 @@ impl App {
                     self.bridges = bridges;
                     self.rebuild_job_rows();
                 }
+                Vec::new()
+            }
+            Msg::LogLoaded { job, log } => {
+                self.log_loaded(job, &log);
                 Vec::new()
             }
             Msg::ChildJobsLoaded { pipeline, jobs } => {
@@ -669,6 +780,10 @@ impl App {
 
     fn move_by(&mut self, delta: isize) -> Vec<Cmd> {
         let len = self.len(self.pane);
+        if self.focus == Focus::Detail && self.pane == Pane::Jobs {
+            self.scroll_log(delta);
+            return Vec::new();
+        }
         if self.focus == Focus::Detail || len == 0 {
             return Vec::new();
         }
@@ -692,7 +807,15 @@ impl App {
                 }
                 Vec::new()
             }
-            Pane::Jobs | Pane::MergeRequests => Vec::new(),
+            Pane::Jobs => {
+                self.log = None;
+                self.waiting = None;
+                if let Some((project, job)) = self.wanted_log() {
+                    self.wait(Waiting::Job { project, job });
+                }
+                Vec::new()
+            }
+            Pane::MergeRequests => Vec::new(),
         }
     }
 
@@ -738,6 +861,7 @@ impl App {
                 Cmd::LoadMergeRequests { project },
             ],
             Waiting::Pipeline { project, pipeline } => vec![Cmd::LoadJobs { project, pipeline }],
+            Waiting::Job { project, job } => vec![Cmd::LoadLog { project, job }],
         }
     }
 
@@ -791,6 +915,13 @@ impl App {
             && !self.jobs_asked
         {
             commands.push(Cmd::LoadJobs { project, pipeline });
+        }
+        let running = self.job().is_some_and(|job| job.status.is_active());
+        if let Some((project, job)) = self.wanted_log()
+            && running
+            && self.log_asked.is_none()
+        {
+            commands.push(Cmd::LoadLog { project, job });
         }
         let open: Vec<(u64, u64)> = self.child_pipelines().collect();
         for (project, pipeline) in open {
@@ -881,6 +1012,8 @@ impl App {
         self.open.clear();
         self.job_rows.clear();
         self.cursors[Pane::Jobs.index()] = 0;
+        self.log = None;
+        self.log_asked = None;
     }
 
     fn pipeline_changed(&mut self) -> Vec<Cmd> {
