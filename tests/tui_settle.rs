@@ -55,7 +55,7 @@ fn the_first_project_after_a_start_loads_its_lists_at_once() {
     assert_eq!(
         lists(&commands),
         [
-            Cmd::LoadPipelines { project },
+            Cmd::LoadPipelines { project, page: 1 },
             Cmd::LoadMergeRequests { project },
         ]
     );
@@ -90,7 +90,7 @@ fn fast_moves_load_the_lists_of_the_project_the_cursor_stops_on_once() {
     assert_eq!(
         lists(&settled),
         [
-            Cmd::LoadPipelines { project },
+            Cmd::LoadPipelines { project, page: 1 },
             Cmd::LoadMergeRequests { project },
         ]
     );
@@ -135,7 +135,10 @@ fn new_pipelines_load_the_jobs_of_the_first_at_once() {
     let project = app.project().unwrap().id;
 
     // When: its pipelines arrive.
-    let answer = demo::answer(Cmd::LoadPipelines { project }, OffsetDateTime::now_utc());
+    let answer = demo::answer(
+        Cmd::LoadPipelines { project, page: 1 },
+        OffsetDateTime::now_utc(),
+    );
     let commands = app.update(answer.unwrap());
 
     // Then: the newest pipeline's jobs are asked for with no wait, because no cursor moved.

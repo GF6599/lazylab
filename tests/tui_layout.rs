@@ -232,7 +232,7 @@ fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
     let mut app = loaded();
     let project = app.project().unwrap().id;
     app.update(Msg::Failed {
-        cmd: Cmd::LoadPipelines { project },
+        cmd: Cmd::LoadPipelines { project, page: 1 },
         error: "list pipelines: connection refused".into(),
     });
 

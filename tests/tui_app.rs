@@ -80,13 +80,13 @@ fn a_start_loads_the_first_project_its_pipelines_jobs_and_merge_requests() {
     assert_eq!(
         lists,
         [
-            Cmd::LoadPipelines { project },
+            Cmd::LoadPipelines { project, page: 1 },
             Cmd::LoadMergeRequests { project },
         ]
     );
 
     // When: the pipelines arrive.
-    let pipelines = app.update(answer(Cmd::LoadPipelines { project }));
+    let pipelines = app.update(answer(Cmd::LoadPipelines { project, page: 1 }));
 
     // Then: it asks for the jobs of the newest pipeline.
     let pipeline = app.pipeline().unwrap().id;
@@ -110,7 +110,7 @@ fn moving_to_another_project_clears_its_lists_and_asks_for_the_new_ones() {
     assert_eq!(
         commands,
         [
-            Cmd::LoadPipelines { project },
+            Cmd::LoadPipelines { project, page: 1 },
             Cmd::LoadMergeRequests { project },
         ]
     );
@@ -144,7 +144,10 @@ fn an_answer_for_a_project_no_longer_selected_is_dropped() {
 
     // When: the first project's pipelines and merge requests arrive late.
     let late = [
-        answer(Cmd::LoadPipelines { project: first }),
+        answer(Cmd::LoadPipelines {
+            project: first,
+            page: 1,
+        }),
         answer(Cmd::LoadMergeRequests { project: first }),
     ];
     for msg in late {
@@ -155,7 +158,10 @@ fn an_answer_for_a_project_no_longer_selected_is_dropped() {
     assert!(app.pipelines.is_empty() && app.merge_requests.is_empty());
 
     // When: the second project's own pipelines arrive.
-    app.update(answer(Cmd::LoadPipelines { project: second }));
+    app.update(answer(Cmd::LoadPipelines {
+        project: second,
+        page: 1,
+    }));
 
     // Then: they are shown.
     assert!(!app.pipelines.is_empty());
