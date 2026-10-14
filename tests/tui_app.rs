@@ -1,13 +1,15 @@
 use std::time::Duration;
 
 use lazylab::tui::app::{App, Cmd, Focus, Msg, Overlay, Pane};
-use lazylab::tui::{demo, run};
+use lazylab::tui::{Source, demo, run};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tokio::sync::mpsc;
+
+const PAGE_SIZE: u8 = 30;
 
 fn now() -> OffsetDateTime {
     OffsetDateTime::parse("2026-01-15T12:00:00Z", &Rfc3339).unwrap()
@@ -28,12 +30,18 @@ fn ctrl(c: char) -> Msg {
 /// Answers every command from the demo source until none is left, as the event loop does.
 fn settle(app: &mut App, mut commands: Vec<Cmd>) {
     while let Some(command) = commands.pop() {
-        commands.extend(app.update(demo::answer(command, now())));
+        if let Some(msg) = demo::answer(command, now()) {
+            commands.extend(app.update(msg));
+        }
     }
 }
 
+fn answer(command: Cmd) -> Msg {
+    demo::answer(command, now()).expect("the demo answers every load")
+}
+
 fn started() -> App {
-    let mut app = App::new();
+    let mut app = App::new(PAGE_SIZE);
     let commands = app.start();
     settle(&mut app, commands);
     app
@@ -47,16 +55,16 @@ fn press(app: &mut App, msg: Msg) {
 #[test]
 fn a_start_loads_the_first_project_its_pipelines_jobs_and_merge_requests() {
     // Given: a new app.
-    let mut app = App::new();
+    let mut app = App::new(PAGE_SIZE);
 
     // When: it starts.
     let first = app.start();
 
-    // Then: it asks for the projects first.
-    assert_eq!(first, [Cmd::LoadProjects]);
+    // Then: it reads the project cache first.
+    assert_eq!(first, [Cmd::LoadCache]);
 
-    // When: the projects arrive.
-    let projects = demo::answer(Cmd::LoadProjects, now());
+    // When: the cached projects arrive.
+    let projects = answer(Cmd::LoadCache);
     let next = app.update(projects);
 
     // Then: it asks for the pipelines and merge requests of the first project.
@@ -70,7 +78,7 @@ fn a_start_loads_the_first_project_its_pipelines_jobs_and_merge_requests() {
     );
 
     // When: the pipelines arrive.
-    let pipelines = app.update(demo::answer(Cmd::LoadPipelines { project }, now()));
+    let pipelines = app.update(answer(Cmd::LoadPipelines { project }));
 
     // Then: it asks for the jobs of the newest pipeline.
     let pipeline = app.pipeline().unwrap().id;
@@ -126,8 +134,8 @@ fn an_answer_for_a_project_no_longer_selected_is_dropped() {
 
     // When: the first project's pipelines and merge requests arrive late.
     let late = [
-        demo::answer(Cmd::LoadPipelines { project: first }, now()),
-        demo::answer(Cmd::LoadMergeRequests { project: first }, now()),
+        answer(Cmd::LoadPipelines { project: first }),
+        answer(Cmd::LoadMergeRequests { project: first }),
     ];
     for msg in late {
         assert!(app.update(msg).is_empty());
@@ -137,7 +145,7 @@ fn an_answer_for_a_project_no_longer_selected_is_dropped() {
     assert!(app.pipelines.is_empty() && app.merge_requests.is_empty());
 
     // When: the second project's own pipelines arrive.
-    app.update(demo::answer(Cmd::LoadPipelines { project: second }, now()));
+    app.update(answer(Cmd::LoadPipelines { project: second }));
 
     // Then: they are shown.
     assert!(!app.pipelines.is_empty());
@@ -153,13 +161,10 @@ fn jobs_for_a_pipeline_no_longer_selected_are_dropped() {
     app.update(char('j'));
 
     // When: the newest pipeline's jobs arrive late.
-    let late = demo::answer(
-        Cmd::LoadJobs {
-            project,
-            pipeline: newest,
-        },
-        now(),
-    );
+    let late = answer(Cmd::LoadJobs {
+        project,
+        pipeline: newest,
+    });
     app.update(late);
 
     // Then: the selected pipeline does not show them.
@@ -323,7 +328,14 @@ async fn the_loop_runs_each_command_and_feeds_its_answer_back_until_quit() {
     };
 
     // When: the loop runs, for at most five seconds.
-    let running = run(&mut terminal, inbox, outbox, draw);
+    let running = run(
+        &mut terminal,
+        App::new(PAGE_SIZE),
+        Source::Demo,
+        inbox,
+        outbox,
+        draw,
+    );
     let app = tokio::time::timeout(Duration::from_secs(5), running)
         .await
         .expect("the loop ends once q arrives")
