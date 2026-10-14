@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use lazylab::tui::app::{App, Cmd, Focus, Msg, Overlay, Pane};
 use lazylab::tui::{demo, run};
 use ratatui::Terminal;
@@ -320,8 +322,12 @@ async fn the_loop_runs_each_command_and_feeds_its_answer_back_until_quit() {
         }
     };
 
-    // When: the loop runs.
-    let app = run(&mut terminal, inbox, outbox, draw).await.unwrap();
+    // When: the loop runs, for at most five seconds.
+    let running = run(&mut terminal, inbox, outbox, draw);
+    let app = tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("the loop ends once q arrives")
+        .unwrap();
 
     // Then: it loaded the projects, the first project's pipelines and the newest pipeline's jobs.
     assert!(app.quit);
