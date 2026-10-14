@@ -1,3 +1,4 @@
+use lazylab::gitlab::Status;
 use lazylab::tui::app::{App, Cmd, Focus, Msg, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::theme::ROSE_PINE as T;
@@ -159,14 +160,12 @@ fn the_current_project_wears_a_gold_marker_around_an_iris_label() {
     // When: the screen is drawn.
     let buffer = render(&app, 120, 32);
 
-    // Then: on the real cells, the bracket before the path is gold and the path is iris.
-    let (y, row) = (0..32)
-        .map(|y| (y, row_text(&buffer, y)))
-        .find(|(_, row)| row.contains(&format!("[{path}")))
-        .expect("the current project row");
-    let open = row.chars().position(|c| c == '[').unwrap() as u16;
-    assert_eq!(buffer[(open, y)].fg, T.gold);
-    assert_eq!(buffer[(open + 1, y)].fg, T.iris);
+    // Then: on the real cells, the bracket before the status glyph is gold and the path is iris.
+    let (y, row) = sidebar_row(&buffer, path);
+    let at = column_of(&row, path);
+    assert_eq!(buffer[(at - 3, y)].symbol(), "[");
+    assert_eq!(buffer[(at - 3, y)].fg, T.gold);
+    assert_eq!(buffer[(at, y)].fg, T.iris);
 }
 
 #[test]
@@ -213,6 +212,15 @@ fn the_focused_side_lights_its_corners() {
     assert_eq!(app.focus, Focus::Detail);
 }
 
+/// The first list row that holds `text`. A list row opens with the side rule, which tells it from
+/// the prompt and from a frame title, because both of those can name the current project too.
+fn sidebar_row(buffer: &Buffer, text: &str) -> (u16, String) {
+    (0..buffer.area.height)
+        .map(|y| (y, row_text(buffer, y)))
+        .find(|(_, row)| row.starts_with('│') && row.contains(text))
+        .expect("a list row holding the text")
+}
+
 fn column_of(row: &str, text: &str) -> u16 {
     let byte = row.find(text).expect("the text on the row");
     row[..byte].chars().count() as u16
@@ -220,15 +228,12 @@ fn column_of(row: &str, text: &str) -> u16 {
 
 #[test]
 fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
-    // Given: the demo data, and a page load that failed.
+    // Given: the demo data, and a pipeline list for the current project that failed.
     let mut app = loaded();
+    let project = app.project().unwrap().id;
     app.update(Msg::Failed {
-        cmd: Cmd::LoadProjectPage {
-            load: 1,
-            page: 1,
-            per_page: PAGE_SIZE,
-        },
-        error: "list projects: connection refused".into(),
+        cmd: Cmd::LoadPipelines { project },
+        error: "list pipelines: connection refused".into(),
     });
 
     // When: the screen is drawn, and drawn again after a key.
@@ -238,9 +243,9 @@ fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
 
     // Then: the bottom row names the failure in the error colour, until the key.
     let bottom = row_text(&failed, 31);
-    let x = column_of(&bottom, "list projects: connection refused");
+    let x = column_of(&bottom, "list pipelines: connection refused");
     assert_eq!(failed[(x, 31)].fg, T.love);
-    assert!(!row_text(&after, 31).contains("list projects"));
+    assert!(!row_text(&after, 31).contains("list pipelines"));
 }
 
 #[test]
@@ -276,14 +281,13 @@ fn a_favorite_wears_a_gold_star_before_its_path() {
     // When: the screen is drawn.
     let buffer = render(&app, 120, 32);
 
-    // Then: a gold star sits before the favorite's path, and before no other.
-    let rows: Vec<(u16, String)> = (0..32).map(|y| (y, row_text(&buffer, y))).collect();
-    let (y, row) = rows
-        .iter()
-        .find(|(_, row)| row.contains(&format!("★ {path}")))
-        .expect("the favorite row");
-    assert_eq!(buffer[(column_of(row, "★"), *y)].fg, T.gold);
-    assert_eq!(rows.iter().filter(|(_, row)| row.contains('★')).count(), 1);
+    // Then: a gold star sits before the favorite's status glyph, and on no other row.
+    let (y, row) = sidebar_row(&buffer, &path);
+    let star = column_of(&row, &path) - 4;
+    assert_eq!(buffer[(star, y)].symbol(), "★");
+    assert_eq!(buffer[(star, y)].fg, T.gold);
+    let starred = (0..32).filter(|&y| row_text(&buffer, y).contains('★'));
+    assert_eq!(starred.count(), 1);
 }
 
 #[test]
@@ -303,4 +307,39 @@ fn the_projects_pane_names_its_search_and_its_favorites_view() {
     // Then: the pane shows the search as it is typed, and then names the favorites view.
     assert!(searching.contains("/plat_"), "{searching}");
     assert!(favorites.contains("★ favorites"), "{favorites}");
+}
+
+#[test]
+fn each_project_shows_its_latest_pipeline_before_its_path() {
+    // Given: the demo data, with known statuses for three projects and one still loading.
+    let mut app = loaded();
+    let ids: Vec<u64> = app.projects.iter().map(|p| p.id).collect();
+    let paths: Vec<String> = (app.projects.iter())
+        .map(|p| p.path_with_namespace.clone())
+        .collect();
+    app.update(Msg::StatusLoaded {
+        project: ids[0],
+        status: Some(Status::Failed),
+    });
+    app.update(Msg::StatusLoaded {
+        project: ids[1],
+        status: None,
+    });
+    app.update(Msg::Failed {
+        cmd: Cmd::LoadStatus { project: ids[2] },
+        error: "list pipelines: timed out".into(),
+    });
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+
+    // Then: a red cross, the empty set and a question mark sit before those paths.
+    let glyph_before = |path: &str| {
+        let (y, row) = sidebar_row(&buffer, path);
+        let x = column_of(&row, path) - 2;
+        (buffer[(x, y)].symbol().to_string(), buffer[(x, y)].fg)
+    };
+    assert_eq!(glyph_before(&paths[0]), ("✗".into(), T.love));
+    assert_eq!(glyph_before(&paths[1]).0, "∅");
+    assert_eq!(glyph_before(&paths[2]).0, "?");
 }

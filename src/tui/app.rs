@@ -1,11 +1,12 @@
 //! The state of the screen, and the one place it changes: `update`, which takes a message and
 //! answers with the work the event loop has to start.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::gitlab::{Job, MergeRequest, Page, Pipeline, Project};
+use crate::gitlab::{Job, MergeRequest, Page, Pipeline, Project, Status};
 use crate::store::CachedProjects;
 
 const PAGE: isize = 10;
@@ -75,6 +76,11 @@ pub enum Msg {
     Tick,
     CacheLoaded(Option<CachedProjects>),
     FavoritesLoaded(Vec<u64>),
+    /// `None` for a project without a pipeline.
+    StatusLoaded {
+        project: u64,
+        status: Option<Status>,
+    },
     ProjectPageLoaded {
         load: u64,
         page: Page<Project>,
@@ -103,6 +109,10 @@ pub enum Cmd {
     LoadCache,
     LoadFavorites,
     SaveFavorites(Vec<u64>),
+    /// The status of the project's latest pipeline, for the glyph before its path.
+    LoadStatus {
+        project: u64,
+    },
     /// `load` marks each page of one load, so a page from a load that a reload replaced is
     /// dropped instead of mixed into the new list.
     LoadProjectPage {
@@ -124,6 +134,14 @@ pub enum Cmd {
     LoadMergeRequests {
         project: u64,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectStatus {
+    Loading,
+    Pipeline(Status),
+    NoPipeline,
+    Unknown,
 }
 
 #[derive(Debug, Default)]
@@ -150,6 +168,7 @@ pub struct App {
     pub favorites: Vec<u64>,
     pub favorites_only: bool,
     pub search: Search,
+    pub statuses: HashMap<u64, ProjectStatus>,
     page_size: u8,
     load: u64,
     /// The indexes into `projects` of the rows the projects pane shows, in their order.
@@ -176,6 +195,7 @@ impl App {
             favorites: Vec::new(),
             favorites_only: false,
             search: Search::default(),
+            statuses: HashMap::new(),
             page_size,
             load: 0,
             shown: Vec::new(),
@@ -235,10 +255,24 @@ impl App {
             }
             Msg::ProjectPageLoaded { load, page } if load == self.load => self.page_loaded(page),
             Msg::ProjectPageLoaded { .. } => Vec::new(),
+            Msg::StatusLoaded { project, status } => {
+                let status = status.map_or(ProjectStatus::NoPipeline, ProjectStatus::Pipeline);
+                self.statuses.insert(project, status);
+                Vec::new()
+            }
+            Msg::Failed {
+                cmd: Cmd::LoadStatus { project },
+                ..
+            } => {
+                self.statuses.insert(project, ProjectStatus::Unknown);
+                Vec::new()
+            }
+            Msg::Failed {
+                cmd: Cmd::LoadProjectPage { load, .. },
+                ..
+            } if load != self.load => Vec::new(),
             Msg::Failed { cmd, error } => {
-                if let Cmd::LoadProjectPage { load, .. } = cmd
-                    && load == self.load
-                {
+                if let Cmd::LoadProjectPage { .. } = cmd {
                     self.loading = false;
                 }
                 self.error = Some(error);
@@ -407,11 +441,31 @@ impl App {
         let kept = before.and_then(|id| self.shown_projects().position(|p| p.id == id));
         self.cursors[Pane::Projects.index()] =
             kept.unwrap_or_else(|| row.min(self.shown.len().saturating_sub(1)));
-        if self.selected() == before {
+        let mut commands = if self.selected() == before {
             Vec::new()
         } else {
             self.project_changed()
+        };
+        commands.extend(self.ask_statuses());
+        commands
+    }
+
+    /// Asks once for each project within a page of the cursor, as the Go release asks for the
+    /// page in view, because one call for each of thousands of projects would trip GitLab's
+    /// rate limit.
+    fn ask_statuses(&mut self) -> Vec<Cmd> {
+        let cursor = self.cursor(Pane::Projects);
+        let reach = usize::from(self.page_size);
+        let rows = cursor.saturating_sub(reach)..(cursor + reach + 1).min(self.shown.len());
+        let mut commands = Vec::new();
+        for row in rows {
+            let project = self.projects[self.shown[row]].id;
+            if let Entry::Vacant(entry) = self.statuses.entry(project) {
+                entry.insert(ProjectStatus::Loading);
+                commands.push(Cmd::LoadStatus { project });
+            }
         }
+        commands
     }
 
     fn matching(&self) -> Vec<usize> {
@@ -453,6 +507,7 @@ impl App {
 
     fn reload(&mut self) -> Vec<Cmd> {
         self.load += 1;
+        self.statuses.clear();
         vec![self.request(1)]
     }
 
@@ -500,7 +555,11 @@ impl App {
         }
         self.cursors[self.pane.index()] = to;
         match self.pane {
-            Pane::Projects => self.project_changed(),
+            Pane::Projects => {
+                let mut commands = self.project_changed();
+                commands.extend(self.ask_statuses());
+                commands
+            }
             Pane::Pipelines => self.pipeline_changed(),
             Pane::Jobs | Pane::MergeRequests => Vec::new(),
         }

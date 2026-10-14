@@ -6,7 +6,8 @@ use ratatui::widgets::Paragraph;
 use time::OffsetDateTime;
 
 use super::Context;
-use crate::tui::app::{App, Focus, Pane};
+use crate::gitlab::Status;
+use crate::tui::app::{App, Focus, Pane, ProjectStatus};
 use crate::tui::panel::{
     Row, block, bottom_label, folded_rule, label_style, light_corners, marked_line, window_start,
 };
@@ -20,6 +21,8 @@ const BORDERS: u16 = 2;
 /// The Go release names its favorites tab so, and marks each favorite with the same star.
 const FAVORITES_TITLE: &str = "★ favorites";
 const FAVORITE: &str = "★ ";
+/// The Go release's glyph for a project that has never run a pipeline.
+const NO_PIPELINE: &str = "∅";
 
 /// Unfocused panes peek at a few rows while there is room, and fold to a one-row rule when there
 /// is not or when the full-screen mode is on. Every height is a whole row count taken from what
@@ -167,6 +170,18 @@ fn row(app: &App, context: &Context, pane: Pane, i: usize, t: &Theme) -> Row {
             if app.favorites.contains(&p.id) {
                 left.push(Span::styled(FAVORITE, Style::new().fg(t.gold)));
             }
+            let (glyph, style) = match app.statuses.get(&p.id) {
+                Some(ProjectStatus::Pipeline(status)) => t.status(*status, app.tick),
+                Some(ProjectStatus::NoPipeline) => (NO_PIPELINE, Style::new().fg(t.muted)),
+                Some(ProjectStatus::Loading) => {
+                    let (spinner, _) = t.status(Status::Running, app.tick);
+                    (spinner, Style::new().fg(t.subtle))
+                }
+                Some(ProjectStatus::Unknown) => t.status(Status::Unknown, app.tick),
+                None => (" ", Style::new()),
+            };
+            left.push(Span::styled(glyph, style));
+            left.push(Span::raw(" "));
             left.push(Span::styled(p.path_with_namespace.clone(), label));
             Row {
                 left,
