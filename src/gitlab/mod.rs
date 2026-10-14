@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{RequestBuilder, Response, StatusCode, redirect};
+use reqwest::{Method, RequestBuilder, Response, StatusCode, redirect};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -16,9 +16,13 @@ use crate::exit;
 use crate::redact::redact;
 
 mod actions;
+mod merge_requests;
 mod pipelines;
 
 pub use actions::Variable;
+pub use merge_requests::{
+    DiffRefs, Discussion, FileDiff, MergeRequest, MergeRequestState, Note, Position,
+};
 pub use pipelines::{
     Artifact, Bridge, Downstream, Job, LatestPipeline, MAX_JOB_LOG_BYTES, Pipeline, Stage, Status,
     User,
@@ -92,7 +96,18 @@ impl Client {
         path: &str,
         body: Option<&impl Serialize>,
     ) -> Result<Response, Error> {
-        let mut request = self.http.post(self.url(path));
+        self.write(Method::POST, operation, self.url(path), body)
+            .await
+    }
+
+    async fn write(
+        &self,
+        method: Method,
+        operation: &'static str,
+        url: Url,
+        body: Option<&impl Serialize>,
+    ) -> Result<Response, Error> {
+        let mut request = self.http.request(method, url);
         if let Some(body) = body {
             request = request.json(body);
         }

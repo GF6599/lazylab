@@ -1,0 +1,31 @@
+[
+  {
+    "id": "disc-1",
+    "notes": [
+      {
+        "id": 501,
+        "body": "Looks good overall!",
+        "author": {
+          "id": 1,
+          "name": "Reviewer"
+        },
+        "system": false,
+        "resolvable": true,
+        "resolved": false,
+        "created_at": "2025-01-15T13:00:00Z"
+      },
+      {
+        "id": 502,
+        "body": "Thanks for the feedback.",
+        "author": {
+          "id": 2,
+          "name": "Author"
+        },
+        "system": false,
+        "resolvable": true,
+        "resolved": false,
+        "created_at": "2025-01-15T14:00:00Z"
+      }
+    ]
+  }
+]
