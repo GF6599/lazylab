@@ -69,8 +69,8 @@ fn fast_moves_load_the_lists_of_the_project_the_cursor_stops_on_once() {
     // When: the cursor moves down three projects, one tick apart.
     let mut asked = Vec::new();
     for _ in 0..3 {
-        asked.extend(press(&mut app, 'j'));
         asked.extend(ticks(&mut app, 1));
+        asked.extend(press(&mut app, 'j'));
     }
 
     // Then: nothing is asked for while it moves.
