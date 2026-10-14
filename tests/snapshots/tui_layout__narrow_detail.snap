@@ -1,0 +1,28 @@
+---
+source: tests/tui_layout.rs
+expression: screen(&detail)
+---
+ {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
+ 1 projects   2 pipelines  [3 jobs]  4 merge requests
+┌─ job compile ────────────────────────────────────────────────────────────────┐
+│ status     ✓ passed                                                          │
+│ stage      build                                                             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ DETAIL  h back  ? help  q quit

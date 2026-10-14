@@ -1,0 +1,6 @@
+---
+source: tests/tui_layout.rs
+expression: screen(&buffer)
+---
+terminal 30x8
+lazylab needs 40x10

@@ -1,4 +1,5 @@
 use ratatui::text::Span;
+use time::OffsetDateTime;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub fn width(s: &str) -> usize {
@@ -58,4 +59,16 @@ pub fn clamp_spans(spans: Vec<Span<'static>>, max: usize) -> Vec<Span<'static>> 
 
 pub fn pad(n: usize) -> String {
     " ".repeat(n)
+}
+
+/// How long ago `then` was, in the largest whole unit: `4m`, `3h`, `2d`, `1w` or `5mo`.
+pub fn age(now: OffsetDateTime, then: OffsetDateTime) -> String {
+    let minutes = (now - then).whole_minutes().max(0);
+    match minutes {
+        0..60 => format!("{minutes}m"),
+        60..1440 => format!("{}h", minutes / 60),
+        1440..10080 => format!("{}d", minutes / 1440),
+        10080..43200 => format!("{}w", minutes / 10080),
+        _ => format!("{}mo", minutes / 43200),
+    }
 }

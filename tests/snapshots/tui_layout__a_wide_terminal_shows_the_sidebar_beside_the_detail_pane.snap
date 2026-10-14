@@ -1,0 +1,36 @@
+---
+source: tests/tui_layout.rs
+expression: screen(&buffer)
+---
+ {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
+[1 projects]  2 pipelines   3 jobs   4 merge requests
+┌─ projects ───────────────────────────────────┐┌─ acme/platform/api ──────────────────────────────────────────────────┐
+│[acme/platform/api                         4m]││ about      Public REST API and webhook fan-out                       │
+│ acme/platform/web                        12m ││ branch     main                                                      │
+│ acme/platform/workers                     1h ││ active     4m ago                                                    │
+│ acme/infra/terraform                      3h ││ web        https://gitlab.example.com/acme/platform/api              │
+│ acme/infra/helm-charts                    5h ││                                                                      │
+│ acme/infra/runner-images                  1d ││                                                                      │
+│ acme/data/ingest                          2d ││                                                                      │
+│ acme/data/warehouse-models                2d ││                                                                      │
+│ acme/tools/lazylab                        3d ││                                                                      │
+└─────────────────────────────────────── 1/13 ─┘│                                                                      │
+┌─ pipelines ──────────────────────────────────┐│                                                                      │
+│[⠋ #61441 main                             2m]││                                                                      │
+│ ✓ #61434 feat/runner-cache               39m ││                                                                      │
+│ ✗ #61427 fix/flaky-e2e                    1h ││                                                                      │
+│ ✓ #61420 main                             1h ││                                                                      │
+└─────────────────────────────────────── 1/14 ─┘│                                                                      │
+┌─ jobs ───────────────────────────────────────┐│                                                                      │
+│[✓ compile                              build]││                                                                      │
+│ ✓ image                                build ││                                                                      │
+│ ⠋ unit                                  test ││                                                                      │
+│ ⠋ integration                           test ││                                                                      │
+└──────────────────────────────────────── 1/9 ─┘│                                                                      │
+┌─ merge requests ─────────────────────────────┐│                                                                      │
+│[!412 Cache the runner image layers        2h]││                                                                      │
+│ !409 Retry the flaky checkout step        6h ││                                                                      │
+│ !407 Add SSO login behind a flag          1d ││                                                                      │
+│ !401 Split the e2e suite by shard         3d ││                                                                      │
+└──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
+ BROWSE  j/k move  l open  1-4 pane  z zoom  ? help  q quit

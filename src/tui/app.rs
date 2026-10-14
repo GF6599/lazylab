@@ -32,6 +32,19 @@ impl Pane {
         }
     }
 
+    /// The label the pane strip falls back to when the full labels do not fit.
+    pub fn short(self) -> &'static str {
+        match self {
+            Pane::Pipelines => "pipes",
+            Pane::MergeRequests => "mrs",
+            other => other.label(),
+        }
+    }
+
+    pub fn key(self) -> char {
+        char::from(b'1' + self.index() as u8)
+    }
+
     pub fn index(self) -> usize {
         Pane::ALL.iter().position(|&p| p == self).unwrap_or(0)
     }
