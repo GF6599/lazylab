@@ -6,3 +6,4 @@ pub mod gitlab;
 pub mod glab;
 pub mod logging;
 pub mod redact;
+pub mod tui;
