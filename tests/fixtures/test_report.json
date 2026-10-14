@@ -1,0 +1,54 @@
+{
+  "total_time": 12.5,
+  "total_count": 3,
+  "success_count": 2,
+  "failed_count": 1,
+  "skipped_count": 0,
+  "error_count": 0,
+  "test_suites": [
+    {
+      "name": "unit",
+      "total_time": 10.0,
+      "total_count": 2,
+      "success_count": 2,
+      "failed_count": 0,
+      "skipped_count": 0,
+      "error_count": 0,
+      "test_cases": [
+        {
+          "status": "success",
+          "name": "TestAdd",
+          "classname": "math",
+          "file": "math_test.go",
+          "execution_time": 5.0
+        },
+        {
+          "status": "success",
+          "name": "TestSub",
+          "classname": "math",
+          "file": "math_test.go",
+          "execution_time": 5.0
+        }
+      ]
+    },
+    {
+      "name": "integration",
+      "total_time": 2.5,
+      "total_count": 1,
+      "success_count": 0,
+      "failed_count": 1,
+      "skipped_count": 0,
+      "error_count": 0,
+      "test_cases": [
+        {
+          "status": "failed",
+          "name": "TestE2E",
+          "classname": "e2e",
+          "file": "e2e_test.go",
+          "execution_time": 2.5,
+          "stack_trace": "assertion failed at line 42"
+        }
+      ]
+    }
+  ]
+}

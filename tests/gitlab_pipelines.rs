@@ -1,7 +1,7 @@
 mod common;
 
 use common::client_for;
-use lazylab::gitlab::{ErrorKind, MAX_JOB_LOG_BYTES, Stage, Status};
+use lazylab::gitlab::{ErrorKind, MAX_JOB_LOG_BYTES, Stage, Status, TestCaseStatus};
 use serde_json::json;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -12,6 +12,7 @@ const PIPELINES: &str = include_str!("fixtures/pipelines.json");
 const PIPELINE_JOBS: &str = include_str!("fixtures/pipeline_jobs.json");
 const BRIDGES: &str = include_str!("fixtures/bridges.json");
 const BRIDGES_PAGE_2: &str = include_str!("fixtures/bridges_page2.json");
+const TEST_REPORT: &str = include_str!("fixtures/test_report.json");
 
 fn json_body(body: impl Into<String>) -> ResponseTemplate {
     ResponseTemplate::new(200)
@@ -422,4 +423,94 @@ async fn a_next_page_that_does_not_advance_stops_the_list() {
     // Then: the list stops after one request and reports the answer as malformed.
     assert_eq!(error.kind, ErrorKind::Decode);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_test_report_keeps_its_totals_suites_and_cases() {
+    // Given: GitLab answers the test report of pipeline 100, with one failed case.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/pipelines/100/test_report"))
+        .respond_with(json_body(TEST_REPORT))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // When: the test report is read.
+    let report = client_for(&server.uri())
+        .pipeline_test_report(1, 100)
+        .await
+        .unwrap();
+
+    // Then: the totals, both suites and the failed case come back.
+    assert_eq!(
+        (
+            report.total_count,
+            report.success_count,
+            report.failed_count,
+            report.skipped_count,
+            report.error_count,
+        ),
+        (3, 2, 1, 0, 0)
+    );
+    assert_eq!(report.total_time, 12.5);
+    let [unit, integration] = &report.test_suites[..] else {
+        panic!("two suites, got {:?}", report.test_suites);
+    };
+    assert_eq!((unit.name.as_str(), unit.total_count), ("unit", 2));
+    let names: Vec<_> = unit.test_cases.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["TestAdd", "TestSub"]);
+    assert_eq!(unit.test_cases[0].status, TestCaseStatus::Success);
+    assert_eq!(integration.failed_count, 1);
+    let failed = &integration.test_cases[0];
+    assert_eq!(
+        (
+            failed.name.as_str(),
+            failed.status,
+            failed.classname.as_str()
+        ),
+        ("TestE2E", TestCaseStatus::Failed, "e2e")
+    );
+    assert_eq!(failed.file.as_deref(), Some("e2e_test.go"));
+    assert_eq!(failed.execution_time, 2.5);
+    assert_eq!(
+        failed.stack_trace.as_deref(),
+        Some("assertion failed at line 42")
+    );
+}
+
+#[tokio::test]
+async fn a_test_case_output_reads_as_text_whether_gitlab_sends_text_or_lines() {
+    // Given: one case with text output, one with output as lines, and one with none.
+    let server = MockServer::start().await;
+    let case = |name: &str, output| {
+        json!({"status": "success", "name": name, "classname": "c", "execution_time": 0.1,
+               "system_output": output})
+    };
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/pipelines/100/test_report"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": 3,
+            "test_suites": [{"name": "unit", "test_cases": [
+                case("text", json!("one\ntwo")),
+                case("lines", json!(["one", "two"])),
+                case("none", json!(null)),
+            ]}],
+        })))
+        .mount(&server)
+        .await;
+
+    // When: the test report is read.
+    let report = client_for(&server.uri())
+        .pipeline_test_report(1, 100)
+        .await
+        .unwrap();
+
+    // Then: both shapes read as the same text, and a case with no output has none.
+    let outputs: Vec<_> = report.test_suites[0]
+        .test_cases
+        .iter()
+        .map(|c| c.system_output.as_deref())
+        .collect();
+    assert_eq!(outputs, [Some("one\ntwo"), Some("one\ntwo"), None]);
 }

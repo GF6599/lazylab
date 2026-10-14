@@ -1,0 +1,14 @@
+[
+  {
+    "name": "release/v1",
+    "merged": false,
+    "protected": false,
+    "default": false
+  },
+  {
+    "name": "release/v2",
+    "merged": false,
+    "protected": false,
+    "default": false
+  }
+]
