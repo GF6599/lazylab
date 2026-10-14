@@ -381,3 +381,40 @@ fn the_pipelines_pane_names_its_page_once_there_is_more_than_one() {
     assert!(!one_page.contains("· page"), "{one_page}");
     assert!(second.contains("· page 2"), "{second}");
 }
+
+#[test]
+fn an_open_bridge_shows_its_child_pipeline_under_it() {
+    // Given: the jobs pane, with a bridge to child pipeline 900 opened and its job loaded.
+    let mut app = loaded();
+    let pipeline = app.pipeline().unwrap().id;
+    let bridge = serde_json::from_value(serde_json::json!({
+        "id": 4, "name": "docs", "stage": "deploy", "status": "success", "ref": "main",
+        "downstream_pipeline": {"id": 900, "project_id": 77, "status": "failed"},
+    }))
+    .unwrap();
+    let child = serde_json::from_value(serde_json::json!({
+        "id": 901, "name": "e2e", "stage": "test", "status": "failed",
+    }))
+    .unwrap();
+    app.update(Msg::JobsLoaded {
+        pipeline,
+        jobs: Vec::new(),
+        bridges: vec![bridge],
+    });
+    press(&mut app, '3');
+    app.update(Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.update(Msg::ChildJobsLoaded {
+        pipeline: 900,
+        jobs: vec![child],
+    });
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+
+    // Then: the bridge shows its child pipeline's status and number, and its job sits under it.
+    let (y, row) = sidebar_row(&buffer, "docs");
+    assert!(row.contains("✗ ▾ docs #900"), "{row}");
+    assert_eq!(buffer[(column_of(&row, "✗"), y)].fg, T.love);
+    let (child_y, _) = sidebar_row(&buffer, "└ ✗ e2e");
+    assert_eq!(child_y, y + 1);
+}
