@@ -1,7 +1,10 @@
+use std::io;
 use std::process::ExitCode;
+use std::sync::Mutex;
 
 use clap::Parser;
 use lazylab::redact::redact;
+use lazylab::store;
 use lazylab::{config, exit, glab, logging, tui};
 
 #[derive(Parser)]
@@ -30,7 +33,14 @@ fn main() -> ExitCode {
             return ExitCode::from(exit::GENERIC);
         }
     };
-    logging::init(config.log_level);
+    match store::cache_dir().as_deref().map(logging::open) {
+        Some(Ok(file)) => logging::init(config.log_level, Mutex::new(file)),
+        Some(Err(e)) => {
+            eprintln!("warning: {}", redact(&format!("no log file: {e}")));
+            logging::init(config.log_level, io::sink);
+        }
+        None => logging::init(config.log_level, io::sink),
+    }
     if let Some(path) = &config.config_file {
         tracing::debug!(path = %path.display(), "using config file");
     }
