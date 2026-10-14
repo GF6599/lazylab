@@ -119,7 +119,7 @@ fn brackets_stop_at_the_first_and_last_page() {
     let commands = [press(&mut app, '['), press(&mut app, ']')].concat();
 
     // Then: nothing is asked for, and the page stays.
-    assert_eq!(pipeline_requests(&commands), []);
+    assert!(pipeline_requests(&commands).is_empty());
     assert_eq!(ids(&app.pipelines), ids(&all));
 }
 
@@ -151,7 +151,7 @@ fn every_five_seconds_the_page_and_the_jobs_in_view_are_asked_for_again() {
     let due = ticks(&mut app, 1);
 
     // Then: the page and the jobs are asked for when five seconds are up, and not before.
-    assert_eq!(pipeline_requests(&early), []);
+    assert!(pipeline_requests(&early).is_empty());
     assert_eq!(pipeline_requests(&due), [(project, 1)]);
     assert_eq!(job_requests(&due), [pipeline]);
 }
@@ -167,8 +167,8 @@ fn a_refresh_waits_while_the_one_before_is_unanswered() {
     let later = ticks(&mut app, REFRESH_TICKS * 2);
 
     // Then: no second request piles on top of the first.
-    assert_eq!(pipeline_requests(&later), []);
-    assert_eq!(job_requests(&later), []);
+    assert!(pipeline_requests(&later).is_empty());
+    assert!(job_requests(&later).is_empty());
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn a_refresh_keeps_the_cursor_on_the_pipeline_it_was_on() {
     assert_eq!(app.pipeline().unwrap().id, current);
     assert_eq!(app.cursor(lazylab::tui::app::Pane::Pipelines), 2);
     assert_eq!(app.jobs, jobs);
-    assert_eq!(job_requests(&commands), []);
+    assert!(job_requests(&commands).is_empty());
 }
 
 #[test]
@@ -254,4 +254,19 @@ fn the_first_page_sets_the_project_status_from_its_newest_pipeline() {
         app.statuses.get(&project),
         Some(&ProjectStatus::Pipeline(Status::Failed))
     );
+}
+
+#[test]
+fn a_refresh_holds_off_while_the_cursor_moves() {
+    // Given: the projects pane, one tick before a refresh is due.
+    let mut app = on_pipelines();
+    press(&mut app, '1');
+    ticks(&mut app, REFRESH_TICKS - 1);
+
+    // When: the cursor moves to the next project just as the refresh comes due.
+    press(&mut app, 'j');
+    let due = ticks(&mut app, 1);
+
+    // Then: nothing is asked for until the cursor has rested.
+    assert!(pipeline_requests(&due).is_empty(), "{due:?}");
 }
