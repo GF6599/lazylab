@@ -101,6 +101,11 @@ impl Live {
                     bridges,
                 })
             }
+            Cmd::LoadLog { project, job } => self
+                .client
+                .job_log(project, job)
+                .await
+                .map(|log| Msg::LogLoaded { job, log }),
             Cmd::LoadChildJobs { project, pipeline } => self
                 .client
                 .list_pipeline_jobs(project, pipeline)

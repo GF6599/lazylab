@@ -150,6 +150,21 @@ pub enum Status {
 }
 
 impl Status {
+    /// A job in one of these states can still write to its log.
+    pub fn is_active(self) -> bool {
+        matches!(
+            self,
+            Status::Created
+                | Status::WaitingForResource
+                | Status::WaitingForCallback
+                | Status::Preparing
+                | Status::Pending
+                | Status::Scheduled
+                | Status::Running
+                | Status::Canceling
+        )
+    }
+
     /// Lower is more urgent. A group of jobs shows the most urgent status among them.
     pub fn rank(self) -> u8 {
         match self {
