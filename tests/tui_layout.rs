@@ -515,3 +515,26 @@ fn a_job_log_keeps_its_colour_and_shows_what_a_terminal_would() {
     assert_eq!(buffer[(column_of(&row, "test failed"), y)].fg, Color::Red);
     assert!(text.contains("following"), "{text}");
 }
+
+#[test]
+fn a_log_scrolled_to_its_top_moves_down_on_the_next_key() {
+    // Given: the detail pane focused on a job with a log longer than the pane.
+    let mut app = loaded();
+    press(&mut app, '3');
+    let job = app.job().unwrap().id;
+    let log: String = (1..=80).map(|i| format!("log line {i:02}\n")).collect();
+    app.update(Msg::LogLoaded { job, log });
+    press(&mut app, 'l');
+    render(&app, 120, 32);
+
+    // When: g goes to the top, and j moves one line down.
+    press(&mut app, 'g');
+    let top = screen(&render(&app, 120, 32));
+    press(&mut app, 'j');
+    let next = screen(&render(&app, 120, 32));
+
+    // Then: the first line shows at the top, and one key later it has scrolled out.
+    assert!(top.contains("log line 01"), "{top}");
+    assert!(!next.contains("log line 01"), "{next}");
+    assert!(next.contains("log line 02"), "{next}");
+}
