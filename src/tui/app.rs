@@ -3,6 +3,7 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -10,6 +11,19 @@ use crate::gitlab::{Job, MergeRequest, Page, Pipeline, Project, Status};
 use crate::store::CachedProjects;
 
 const PAGE: isize = 10;
+/// The loop sends `Msg::Tick` this often, and a running job's spinner moves one frame on each.
+pub const TICK: Duration = Duration::from_millis(100);
+/// The Go release waits this long after the cursor's last move before it loads the selection's
+/// lists, so holding `j` through a list asks GitLab about the one project it stops on.
+const SETTLE: Duration = Duration::from_millis(300);
+const SETTLE_TICKS: u64 = (SETTLE.as_millis() / TICK.as_millis()) as u64;
+
+/// A selection whose lists load once the cursor has rested on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Waiting {
+    Project(u64),
+    Pipeline { project: u64, pipeline: u64 },
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pane {
@@ -171,6 +185,10 @@ pub struct App {
     pub statuses: HashMap<u64, ProjectStatus>,
     page_size: u8,
     load: u64,
+    /// The selection that waits, and the tick its lists load on.
+    waiting: Option<(Waiting, u64)>,
+    /// The first selection after a start loads at once, because nothing moved the cursor there.
+    lists_asked: bool,
     /// The indexes into `projects` of the rows the projects pane shows, in their order.
     shown: Vec<usize>,
     pub pipelines: Vec<Pipeline>,
@@ -198,6 +216,8 @@ impl App {
             statuses: HashMap::new(),
             page_size,
             load: 0,
+            waiting: None,
+            lists_asked: false,
             shown: Vec::new(),
             pipelines: Vec::new(),
             jobs: Vec::new(),
@@ -245,7 +265,7 @@ impl App {
             Msg::Key(key) => self.on_key(key),
             Msg::Tick => {
                 self.tick += 1;
-                Vec::new()
+                self.settled()
             }
             Msg::CacheLoaded(cached) => self.cache_loaded(cached),
             Msg::FavoritesLoaded(ids) => {
@@ -560,7 +580,14 @@ impl App {
                 commands.extend(self.ask_statuses());
                 commands
             }
-            Pane::Pipelines => self.pipeline_changed(),
+            Pane::Pipelines => {
+                self.jobs.clear();
+                if let (Some(project), Some(pipeline)) = (self.selected(), self.pipeline()) {
+                    let pipeline = pipeline.id;
+                    self.wait(Waiting::Pipeline { project, pipeline });
+                }
+                Vec::new()
+            }
             Pane::Jobs | Pane::MergeRequests => Vec::new(),
         }
     }
@@ -569,16 +596,39 @@ impl App {
         self.pipelines.clear();
         self.jobs.clear();
         self.merge_requests.clear();
-        match self.project() {
-            Some(project) => vec![
-                Cmd::LoadPipelines {
-                    project: project.id,
-                },
-                Cmd::LoadMergeRequests {
-                    project: project.id,
-                },
+        self.waiting = None;
+        let Some(project) = self.selected() else {
+            return Vec::new();
+        };
+        if !self.lists_asked {
+            self.lists_asked = true;
+            return self.lists(Waiting::Project(project));
+        }
+        self.wait(Waiting::Project(project));
+        Vec::new()
+    }
+
+    fn wait(&mut self, selection: Waiting) {
+        self.waiting = Some((selection, self.tick + SETTLE_TICKS));
+    }
+
+    fn settled(&mut self) -> Vec<Cmd> {
+        match self.waiting {
+            Some((selection, due)) if self.tick >= due => {
+                self.waiting = None;
+                self.lists(selection)
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn lists(&self, selection: Waiting) -> Vec<Cmd> {
+        match selection {
+            Waiting::Project(project) => vec![
+                Cmd::LoadPipelines { project },
+                Cmd::LoadMergeRequests { project },
             ],
-            None => Vec::new(),
+            Waiting::Pipeline { project, pipeline } => vec![Cmd::LoadJobs { project, pipeline }],
         }
     }
 

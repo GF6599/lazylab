@@ -36,6 +36,11 @@ fn settle(app: &mut App, mut commands: Vec<Cmd>) {
     }
 }
 
+/// Ticks until the cursor has rested long enough for the lists of its selection to load.
+fn rest(app: &mut App) -> Vec<Cmd> {
+    (0..3).flat_map(|_| app.update(Msg::Tick)).collect()
+}
+
 fn answer(command: Cmd) -> Msg {
     demo::answer(command, now()).expect("the demo answers every load")
 }
@@ -94,8 +99,9 @@ fn moving_to_another_project_clears_its_lists_and_asks_for_the_new_ones() {
     let mut app = started();
     assert!(!app.pipelines.is_empty() && !app.jobs.is_empty());
 
-    // When: the cursor moves down to the second project.
-    let commands = app.update(char('j'));
+    // When: the cursor moves down to the second project, and rests there.
+    let mut commands = app.update(char('j'));
+    commands.extend(rest(&mut app));
 
     // Then: nothing of the first project is left, and the second project's lists are asked for.
     let project = app.project().unwrap().id;
@@ -117,8 +123,9 @@ fn moving_to_another_pipeline_asks_for_its_jobs() {
     press(&mut app, char('2'));
     let project = app.project().unwrap().id;
 
-    // When: the cursor moves down to the second pipeline.
-    let commands = app.update(char('j'));
+    // When: the cursor moves down to the second pipeline, and rests there.
+    let mut commands = app.update(char('j'));
+    commands.extend(rest(&mut app));
 
     // Then: the old jobs are gone, and the second pipeline's jobs are asked for.
     let pipeline = app.pipelines[1].id;

@@ -11,7 +11,6 @@ pub mod view;
 
 use std::io;
 use std::thread;
-use std::time::Duration;
 
 use ratatui::backend::Backend;
 use ratatui::crossterm::event::{self, Event};
@@ -20,12 +19,9 @@ use time::OffsetDateTime;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use url::Url;
 
-use app::{App, Cmd, Msg};
+use app::{App, Cmd, Msg, TICK};
 pub use source::Source;
 use view::Context;
-
-/// A running job's spinner moves on each tick.
-const TICK: Duration = Duration::from_millis(100);
 
 /// Takes the terminal for the session and gives it back as it was, even when the session fails.
 pub fn launch(host: &Url, page_size: u8, source: Source) -> io::Result<()> {
