@@ -23,9 +23,9 @@ expression: screen(&buffer)
 └─────────────────────────────────────── 1/14 ─┘│                                                                      │
 ┌─ jobs ───────────────────────────────────────┐│                                                                      │
 │[✓ compile                              build]││                                                                      │
-│ ✓ image                                build ││                                                                      │
+│ ✓ image                                      ││                                                                      │
 │ ⠋ unit                                  test ││                                                                      │
-│ ⠋ integration                           test ││                                                                      │
+│ ⠋ integration                                ││                                                                      │
 └──────────────────────────────────────── 1/9 ─┘│                                                                      │
 ┌─ merge requests ─────────────────────────────┐│                                                                      │
 │[!412 Cache the runner image layers        2h]││                                                                      │

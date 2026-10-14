@@ -141,6 +141,11 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
         Cmd::LoadJobs { project, pipeline } => Msg::JobsLoaded {
             pipeline,
             jobs: jobs(project, pipeline),
+            bridges: Vec::new(),
+        },
+        Cmd::LoadChildJobs { pipeline, .. } => Msg::ChildJobsLoaded {
+            pipeline,
+            jobs: Vec::new(),
         },
         Cmd::LoadMergeRequests { project } => Msg::MergeRequestsLoaded {
             project,

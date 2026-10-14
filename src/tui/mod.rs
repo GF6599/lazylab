@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod demo;
+pub mod jobs;
 pub mod mark;
 pub mod panel;
 pub mod source;
