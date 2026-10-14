@@ -514,3 +514,31 @@ async fn a_test_case_output_reads_as_text_whether_gitlab_sends_text_or_lines() {
         .collect();
     assert_eq!(outputs, [Some("one\ntwo"), Some("one\ntwo"), None]);
 }
+
+#[tokio::test]
+async fn a_test_case_with_a_status_lazylab_does_not_know_still_reads() {
+    // Given: a test report whose one case has a status a later GitLab could add.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/pipelines/100/test_report"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "test_suites": [{"name": "unit", "test_cases": [
+                {"status": "flaky", "name": "TestRetry", "classname": "c"},
+            ]}],
+        })))
+        .mount(&server)
+        .await;
+
+    // When: the test report is read.
+    let report = client_for(&server.uri())
+        .pipeline_test_report(1, 100)
+        .await
+        .unwrap();
+
+    // Then: the case is kept, with a status that says lazylab does not know it.
+    let case = &report.test_suites[0].test_cases[0];
+    assert_eq!(
+        (case.name.as_str(), case.status),
+        ("TestRetry", TestCaseStatus::Unknown)
+    );
+}
