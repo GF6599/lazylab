@@ -5,7 +5,7 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::sync::Semaphore;
 
-use super::app::{Cmd, Msg};
+use super::app::{Action, Cmd, Msg};
 use super::demo;
 use crate::gitlab::{Client, Error, MergeRequestState};
 use crate::store::Store;
@@ -101,6 +101,7 @@ impl Live {
                     bridges,
                 })
             }
+            Cmd::Act(action) => self.act(action).await,
             Cmd::LoadLog { project, job } => self
                 .client
                 .job_log(project, job)
@@ -127,6 +128,35 @@ impl Live {
                 error: e.to_string(),
             }
         }))
+    }
+
+    async fn act(&self, action: Action) -> Result<Msg, Error> {
+        let client = &self.client;
+        let started = match &action {
+            Action::RetryPipeline {
+                project,
+                pipeline,
+                git_ref,
+            } => Some(
+                client
+                    .retry_pipeline(*project, *pipeline, git_ref)
+                    .await?
+                    .id,
+            ),
+            Action::CancelPipeline { project, pipeline } => {
+                client.cancel_pipeline(*project, *pipeline).await?;
+                None
+            }
+            Action::RetryJob { project, job, .. } => {
+                client.retry_job(*project, *job).await?;
+                None
+            }
+            Action::CancelJob { project, job, .. } => {
+                client.cancel_job(*project, *job).await?;
+                None
+            }
+        };
+        Ok(Msg::Acted { action, started })
     }
 
     /// Favorites that cannot be read are none, so the screen still opens on every project.

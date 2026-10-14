@@ -39,6 +39,8 @@ const HELP: &[(&str, &str)] = &[
     ("{ }", "move a favorite up, down"),
     ("ctrl+r", "reload the projects"),
     ("[ ]", "the page of pipelines before, after"),
+    ("R", "retry the pipeline or job, after a question"),
+    ("C", "cancel the pipeline or job, after a question"),
     ("z", "full screen for the pane in view"),
     ("?", "open or close this help"),
     ("q ctrl+c", "quit"),
@@ -89,6 +91,29 @@ pub fn draw(frame: &mut Frame, app: &App, context: &Context) {
     if app.overlay == Overlay::Help {
         draw_help(frame, area, t);
     }
+    if let (Overlay::Confirm, Some(action)) = (app.overlay, &app.confirm) {
+        draw_confirm(frame, area, &action.question(), action.verb(), t);
+    }
+}
+
+fn draw_confirm(frame: &mut Frame, area: Rect, question: &str, verb: &str, t: &Theme) {
+    let lines = vec![
+        Line::styled(question.to_string(), t.body()),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("y", t.body()),
+            Span::styled(format!(" {verb}   "), t.dim()),
+            Span::styled("n", t.body()),
+            Span::styled(" cancel", t.dim()),
+        ]),
+    ];
+    let inner_width = lines.iter().map(Line::width).max().unwrap_or(0);
+    let rect = centered(area, inner_width + 4, lines.len() + 2);
+    let frame_block = block("confirm", true, t);
+    let inner = frame_block.inner(rect);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(frame_block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_help(frame: &mut Frame, area: Rect, t: &Theme) {
