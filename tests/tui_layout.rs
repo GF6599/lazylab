@@ -160,14 +160,12 @@ fn the_current_project_wears_a_gold_marker_around_an_iris_label() {
     // When: the screen is drawn.
     let buffer = render(&app, 120, 32);
 
-    // Then: on the real cells, the bracket before the path is gold and the path is iris.
-    let (y, row) = (0..32)
-        .map(|y| (y, row_text(&buffer, y)))
-        .find(|(_, row)| row.contains(&format!("[{path}")))
-        .expect("the current project row");
-    let open = row.chars().position(|c| c == '[').unwrap() as u16;
-    assert_eq!(buffer[(open, y)].fg, T.gold);
-    assert_eq!(buffer[(open + 1, y)].fg, T.iris);
+    // Then: on the real cells, the bracket before the status glyph is gold and the path is iris.
+    let (y, row) = sidebar_row(&buffer, path);
+    let at = column_of(&row, path);
+    assert_eq!(buffer[(at - 3, y)].symbol(), "[");
+    assert_eq!(buffer[(at - 3, y)].fg, T.gold);
+    assert_eq!(buffer[(at, y)].fg, T.iris);
 }
 
 #[test]
@@ -212,6 +210,15 @@ fn the_focused_side_lights_its_corners() {
     assert_eq!(sidebar_lit[corner].fg, T.gold);
     assert_ne!(detail_lit[corner].fg, T.gold);
     assert_eq!(app.focus, Focus::Detail);
+}
+
+/// The first list row that holds `text`. A list row opens with the side rule, which tells it from
+/// the prompt and from a frame title, because both of those can name the current project too.
+fn sidebar_row(buffer: &Buffer, text: &str) -> (u16, String) {
+    (0..buffer.area.height)
+        .map(|y| (y, row_text(buffer, y)))
+        .find(|(_, row)| row.starts_with('│') && row.contains(text))
+        .expect("a list row holding the text")
 }
 
 fn column_of(row: &str, text: &str) -> u16 {
@@ -277,14 +284,13 @@ fn a_favorite_wears_a_gold_star_before_its_path() {
     // When: the screen is drawn.
     let buffer = render(&app, 120, 32);
 
-    // Then: a gold star sits before the favorite's path, and before no other.
-    let rows: Vec<(u16, String)> = (0..32).map(|y| (y, row_text(&buffer, y))).collect();
-    let (y, row) = rows
-        .iter()
-        .find(|(_, row)| row.contains(&format!("★ {path}")))
-        .expect("the favorite row");
-    assert_eq!(buffer[(column_of(row, "★"), *y)].fg, T.gold);
-    assert_eq!(rows.iter().filter(|(_, row)| row.contains('★')).count(), 1);
+    // Then: a gold star sits before the favorite's status glyph, and on no other row.
+    let (y, row) = sidebar_row(&buffer, &path);
+    let star = column_of(&row, &path) - 4;
+    assert_eq!(buffer[(star, y)].symbol(), "★");
+    assert_eq!(buffer[(star, y)].fg, T.gold);
+    let starred = (0..32).filter(|&y| row_text(&buffer, y).contains('★'));
+    assert_eq!(starred.count(), 1);
 }
 
 #[test]
@@ -332,10 +338,7 @@ fn each_project_shows_its_latest_pipeline_before_its_path() {
 
     // Then: a red cross, the empty set and a question mark sit before those paths.
     let glyph_before = |path: &str| {
-        let (y, row) = (0..32)
-            .map(|y| (y, row_text(&buffer, y)))
-            .find(|(_, row)| row.contains(path))
-            .expect("the project row");
+        let (y, row) = sidebar_row(&buffer, path);
         let x = column_of(&row, path) - 2;
         (buffer[(x, y)].symbol().to_string(), buffer[(x, y)].fg)
     };

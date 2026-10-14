@@ -69,8 +69,11 @@ fn a_start_loads_the_first_project_its_pipelines_jobs_and_merge_requests() {
 
     // Then: it asks for the pipelines and merge requests of the first project.
     let project = app.project().unwrap().id;
+    let lists: Vec<_> = (next.into_iter())
+        .filter(|c| !matches!(c, Cmd::LoadStatus { .. }))
+        .collect();
     assert_eq!(
-        next,
+        lists,
         [
             Cmd::LoadPipelines { project },
             Cmd::LoadMergeRequests { project },

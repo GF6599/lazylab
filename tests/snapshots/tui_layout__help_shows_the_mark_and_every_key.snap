@@ -5,19 +5,19 @@ expression: screen(&buffer)
  {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
 [1 projects]  2 pipelines   3 jobs   4 merge requests
 ┌─ projects ───────────────────────────────────┐┌─ acme/platform/api ──────────────────────────────────────────────────┐
-│[acme/platform/api                         4m]││ about      Public REST API and webhook fan-out                       │
-│ acme/platform/web                        12m ││ branch     main                                                      │
-│ acme/platform/workers                     1h ││ active     4m ago                                                    │
-│ acme/infra/terraform                      3h ││ web        https://gitlab.example.com/acme/platform/api              │
-│ acme/infra/helm-charts                    5h ││                                                                      │
-│ acme/infra/runner-images ┌─ help ────────────────────────────────────────────────────────┐                           │
-│ acme/data/ingest         │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
-│ acme/data/warehouse-model│ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
-│ acme/tools/lazylab       │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
-│ acme/tools/release-bot   │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
-│ acme/mobile/ios-app      │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
-│ acme/mobile/android-app  │ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
-│ acme/docs/handbook       │                                                               │                           │
+│[⠋ acme/platform/api                       4m]││ about      Public REST API and webhook fan-out                       │
+│ ✓ acme/platform/web                      12m ││ branch     main                                                      │
+│ ⠋ acme/platform/workers                   1h ││ active     4m ago                                                    │
+│ ✓ acme/infra/terraform                    3h ││ web        https://gitlab.example.com/acme/platform/api              │
+│ ⠋ acme/infra/helm-charts                  5h ││                                                                      │
+│ ✓ acme/infra/runner-image┌─ help ────────────────────────────────────────────────────────┐                           │
+│ ⠋ acme/data/ingest       │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
+│ ✓ acme/data/warehouse-mod│ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
+│ ⠋ acme/tools/lazylab     │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
+│ ✓ acme/tools/release-bot │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
+│ ⠋ acme/mobile/ios-app    │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
+│ ✓ acme/mobile/android-app│ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
+│ ⠋ acme/docs/handbook     │                                                               │                           │
 │                          │ j k ↑ ↓     move                                              │                           │
 │                          │ g G         first, last                                       │                           │
 │                          │ ctrl+d u    page down, up                                     │                           │

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use time::OffsetDateTime;
+use tokio::sync::Semaphore;
 
 use super::app::{Cmd, Msg};
 use super::demo;
@@ -11,6 +12,8 @@ use crate::store::Store;
 
 /// Pipelines and merge requests load one page of this size until their panes page through more.
 const FIRST_PAGE: u8 = 20;
+/// The Go release found that more status calls at once tripped GitLab's rate limit.
+const STATUS_CALLS: usize = 5;
 
 #[derive(Clone)]
 pub enum Source {
@@ -21,12 +24,17 @@ pub enum Source {
 pub struct Live {
     client: Client,
     store: Option<Store>,
+    status_calls: Semaphore,
 }
 
 impl Source {
     /// Without a store there is no cache, so every start loads the projects from GitLab.
     pub fn live(client: Client, store: Option<Store>) -> Source {
-        Source::Live(Arc::new(Live { client, store }))
+        Source::Live(Arc::new(Live {
+            client,
+            store,
+            status_calls: Semaphore::new(STATUS_CALLS),
+        }))
     }
 
     /// `None` for a command that answers nothing, such as a save.
@@ -76,6 +84,17 @@ impl Live {
                     project,
                     pipelines: page.items,
                 }),
+            Cmd::LoadStatus { project } => {
+                // The semaphore is never closed, so the permit always comes.
+                let _permit = self.status_calls.acquire().await.ok();
+                self.client
+                    .list_pipelines(project, 1, 1)
+                    .await
+                    .map(|page| Msg::StatusLoaded {
+                        project,
+                        status: page.items.first().map(|p| p.status),
+                    })
+            }
             Cmd::LoadJobs { project, pipeline } => self
                 .client
                 .list_pipeline_jobs(project, pipeline)

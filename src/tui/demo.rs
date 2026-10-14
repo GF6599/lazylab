@@ -116,6 +116,10 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             }
         }
         Cmd::LoadFavorites => Msg::FavoritesLoaded(Vec::new()),
+        Cmd::LoadStatus { project } => Msg::StatusLoaded {
+            project,
+            status: pipelines(project, now).first().map(|p| p.status),
+        },
         Cmd::SaveProjects { .. } | Cmd::SaveFavorites(_) => return None,
         Cmd::LoadPipelines { project } => Msg::PipelinesLoaded {
             project,
