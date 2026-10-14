@@ -267,10 +267,12 @@ impl App {
                 self.statuses.insert(project, ProjectStatus::Unknown);
                 Vec::new()
             }
+            Msg::Failed {
+                cmd: Cmd::LoadProjectPage { load, .. },
+                ..
+            } if load != self.load => Vec::new(),
             Msg::Failed { cmd, error } => {
-                if let Cmd::LoadProjectPage { load, .. } = cmd
-                    && load == self.load
-                {
+                if let Cmd::LoadProjectPage { .. } = cmd {
                     self.loading = false;
                 }
                 self.error = Some(error);
