@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "host": "https://gitlab.example.com",
+  "project_ids": [
+    9002,
+    9001
+  ]
+}
