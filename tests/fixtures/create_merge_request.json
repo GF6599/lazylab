@@ -1,0 +1,13 @@
+{
+  "iid": 99,
+  "title": "Add login feature",
+  "state": "opened",
+  "author": {
+    "id": 1,
+    "name": "Jane Dev"
+  },
+  "source_branch": "feature/login",
+  "target_branch": "main",
+  "web_url": "https://gitlab.com/team/app/-/merge_requests/99",
+  "updated_at": "2025-03-22T10:00:00Z"
+}
