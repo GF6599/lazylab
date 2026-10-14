@@ -184,6 +184,7 @@ fn a_refresh_keeps_the_cursor_on_the_pipeline_it_was_on() {
     app.update(Msg::JobsLoaded {
         pipeline: current,
         jobs: jobs.clone(),
+        bridges: Vec::new(),
     });
 
     // When: a refresh arrives with a new pipeline on top.
@@ -224,18 +225,20 @@ fn refreshed_jobs_keep_the_cursor_on_the_job_it_was_on() {
     press(&mut app, '3');
     press(&mut app, 'j');
     press(&mut app, 'j');
-    let current = app.jobs[2].id;
+    let current = app.job().unwrap().id;
     let pipeline = app.pipeline().unwrap().id;
 
     // When: the jobs come back with the first one gone.
     let jobs = app.jobs[1..].to_vec();
-    app.update(Msg::JobsLoaded { pipeline, jobs });
+    app.update(Msg::JobsLoaded {
+        pipeline,
+        jobs,
+        bridges: Vec::new(),
+    });
 
     // Then: the cursor is still on its job, now one row up.
-    assert_eq!(
-        app.jobs[app.cursor(lazylab::tui::app::Pane::Jobs)].id,
-        current
-    );
+    assert_eq!(app.job().unwrap().id, current);
+    assert_eq!(app.cursor(lazylab::tui::app::Pane::Jobs), 1);
 }
 
 #[test]

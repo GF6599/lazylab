@@ -15,6 +15,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 const PIPELINES: &str = include_str!("fixtures/pipelines.json");
 const PIPELINE_JOBS: &str = include_str!("fixtures/pipeline_jobs.json");
 const MERGE_REQUESTS: &str = include_str!("fixtures/merge_requests.json");
+const BRIDGES: &str = include_str!("fixtures/bridges.json");
 
 fn json_body(body: &str) -> ResponseTemplate {
     ResponseTemplate::new(200)
@@ -148,7 +149,8 @@ async fn a_cache_that_cannot_be_read_or_kept_is_a_miss() {
 
 #[tokio::test]
 async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
-    // Given: GitLab with pipelines, jobs and open merge requests for project 1.
+    // Given: GitLab with pipelines, jobs, bridges and open merge requests for project 1, and a
+    // child pipeline in project 77.
     let server = MockServer::start().await;
     Mock::given(path("/api/v4/projects/1/pipelines"))
         .and(query_param("page", "1"))
@@ -156,6 +158,14 @@ async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
         .mount(&server)
         .await;
     Mock::given(path("/api/v4/projects/1/pipelines/100/jobs"))
+        .respond_with(json_body(PIPELINE_JOBS))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/v4/projects/1/pipelines/100/bridges"))
+        .respond_with(json_body(BRIDGES))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/v4/projects/77/pipelines/900/jobs"))
         .respond_with(json_body(PIPELINE_JOBS))
         .mount(&server)
         .await;
@@ -180,6 +190,12 @@ async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
         })
         .await;
     let merge_requests = source.answer(Cmd::LoadMergeRequests { project: 1 }).await;
+    let child = source
+        .answer(Cmd::LoadChildJobs {
+            project: 77,
+            pipeline: 900,
+        })
+        .await;
 
     // Then: each comes back for the project or pipeline it was asked for.
     assert!(
@@ -187,8 +203,12 @@ async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
         "{pipelines:?}"
     );
     assert!(
-        matches!(&jobs, Some(Msg::JobsLoaded { pipeline: 100, jobs }) if !jobs.is_empty()),
+        matches!(&jobs, Some(Msg::JobsLoaded { pipeline: 100, jobs, bridges }) if !jobs.is_empty() && !bridges.is_empty()),
         "{jobs:?}"
+    );
+    assert!(
+        matches!(&child, Some(Msg::ChildJobsLoaded { pipeline: 900, jobs }) if !jobs.is_empty()),
+        "{child:?}"
     );
     assert!(
         matches!(&merge_requests, Some(Msg::MergeRequestsLoaded { project: 1, merge_requests }) if !merge_requests.is_empty()),

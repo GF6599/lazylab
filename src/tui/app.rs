@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::gitlab::{Job, MergeRequest, Page, Pipeline, Project, Status};
+use super::jobs::{self, JobRow, RowKey};
+use crate::gitlab::{Bridge, Job, MergeRequest, Page, Pipeline, Project, Status};
 use crate::store::CachedProjects;
 
 const PAGE: isize = 10;
@@ -109,6 +110,11 @@ pub enum Msg {
     JobsLoaded {
         pipeline: u64,
         jobs: Vec<Job>,
+        bridges: Vec<Bridge>,
+    },
+    ChildJobsLoaded {
+        pipeline: u64,
+        jobs: Vec<Job>,
     },
     MergeRequestsLoaded {
         project: u64,
@@ -145,7 +151,13 @@ pub enum Cmd {
         project: u64,
         page: u32,
     },
+    /// A pipeline's jobs and bridges, which come together so they describe the same moment.
     LoadJobs {
+        project: u64,
+        pipeline: u64,
+    },
+    /// The jobs of a bridge's child pipeline, in the project it runs in.
+    LoadChildJobs {
         project: u64,
         pipeline: u64,
     },
@@ -205,6 +217,13 @@ pub struct App {
     jobs_asked: bool,
     refreshed_at: u64,
     pub jobs: Vec<Job>,
+    pub bridges: Vec<Bridge>,
+    /// Child pipeline jobs, by the child pipeline's ID.
+    children: HashMap<u64, Vec<Job>>,
+    children_asked: HashSet<u64>,
+    /// The groups and bridges the reader opened, which stay open across a refresh.
+    open: HashSet<RowKey>,
+    job_rows: Vec<JobRow>,
     pub merge_requests: Vec<MergeRequest>,
     cursors: [usize; Pane::ALL.len()],
 }
@@ -238,6 +257,11 @@ impl App {
             jobs_asked: false,
             refreshed_at: 0,
             jobs: Vec::new(),
+            bridges: Vec::new(),
+            children: HashMap::new(),
+            children_asked: HashSet::new(),
+            open: HashSet::new(),
+            job_rows: Vec::new(),
             merge_requests: Vec::new(),
             cursors: [0; Pane::ALL.len()],
         }
@@ -277,7 +301,7 @@ impl App {
         match pane {
             Pane::Projects => self.shown.len(),
             Pane::Pipelines => self.pipelines.len(),
-            Pane::Jobs => self.jobs.len(),
+            Pane::Jobs => self.job_rows.len(),
             Pane::MergeRequests => self.merge_requests.len(),
         }
     }
@@ -288,6 +312,9 @@ impl App {
             match command {
                 Cmd::LoadPipelines { .. } => self.pipelines_asked = true,
                 Cmd::LoadJobs { .. } => self.jobs_asked = true,
+                Cmd::LoadChildJobs { pipeline, .. } => {
+                    self.children_asked.insert(*pipeline);
+                }
                 _ => {}
             }
         }
@@ -328,6 +355,14 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd: Cmd::LoadChildJobs { pipeline, .. },
+                error,
+            } => {
+                self.children_asked.remove(&pipeline);
+                self.error = Some(error);
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -352,13 +387,23 @@ impl App {
                 }
                 self.pipelines_loaded(project, page)
             }
-            Msg::JobsLoaded { pipeline, jobs } => {
+            Msg::JobsLoaded {
+                pipeline,
+                jobs,
+                bridges,
+            } => {
                 self.jobs_asked = false;
                 if self.pipeline().map(|p| p.id) == Some(pipeline) {
-                    let before = self.jobs.get(self.cursor(Pane::Jobs)).map(|j| j.id);
                     self.jobs = jobs;
-                    self.cursors[Pane::Jobs.index()] = keep(&self.jobs, |j| j.id, before, 0);
+                    self.bridges = bridges;
+                    self.rebuild_job_rows();
                 }
+                Vec::new()
+            }
+            Msg::ChildJobsLoaded { pipeline, jobs } => {
+                self.children_asked.remove(&pipeline);
+                self.children.insert(pipeline, jobs);
+                self.rebuild_job_rows();
                 Vec::new()
             }
             Msg::MergeRequestsLoaded {
@@ -403,6 +448,7 @@ impl App {
         let before = self.selected();
         let on_projects = self.pane == Pane::Projects && self.focus == Focus::Sidebar;
         let on_pipelines = self.pane == Pane::Pipelines && self.focus == Focus::Sidebar;
+        let on_jobs = self.pane == Pane::Jobs && self.focus == Focus::Sidebar;
         match key.code {
             KeyCode::Char('/') if on_projects => {
                 self.search = Search {
@@ -436,6 +482,7 @@ impl App {
             }
             KeyCode::Tab => self.pane = self.pane.step(1),
             KeyCode::BackTab => self.pane = self.pane.step(Pane::ALL.len() - 1),
+            KeyCode::Enter if on_jobs && self.opens() => return self.toggle_row(),
             KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => self.focus = Focus::Detail,
             KeyCode::Char('h') | KeyCode::Left | KeyCode::Esc => self.focus = Focus::Sidebar,
             KeyCode::Char('j') | KeyCode::Down => return self.move_by(1),
@@ -638,7 +685,7 @@ impl App {
                 commands
             }
             Pane::Pipelines => {
-                self.jobs.clear();
+                self.clear_jobs();
                 if let (Some(project), Some(pipeline)) = (self.selected(), self.pipeline()) {
                     let pipeline = pipeline.id;
                     self.wait(Waiting::Pipeline { project, pipeline });
@@ -653,7 +700,7 @@ impl App {
         self.pipeline_page = 1;
         self.next_pipeline_page = None;
         self.pipelines.clear();
-        self.jobs.clear();
+        self.clear_jobs();
         self.merge_requests.clear();
         self.waiting = None;
         let Some(project) = self.selected() else {
@@ -719,7 +766,7 @@ impl App {
         self.pipeline_page = page;
         self.next_pipeline_page = None;
         self.pipelines.clear();
-        self.jobs.clear();
+        self.clear_jobs();
         self.cursors[Pane::Pipelines.index()] = 0;
         self.waiting = None;
         vec![Cmd::LoadPipelines { project, page }]
@@ -745,11 +792,99 @@ impl App {
         {
             commands.push(Cmd::LoadJobs { project, pipeline });
         }
+        let open: Vec<(u64, u64)> = self.child_pipelines().collect();
+        for (project, pipeline) in open {
+            if !self.children_asked.contains(&pipeline) {
+                commands.push(Cmd::LoadChildJobs { project, pipeline });
+            }
+        }
         commands
     }
 
-    fn pipeline_changed(&mut self) -> Vec<Cmd> {
+    /// The project and ID of each child pipeline under an open bridge.
+    fn child_pipelines(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        let project = self.selected().unwrap_or_default();
+        self.bridges
+            .iter()
+            .filter(|b| self.open.contains(&RowKey::Bridge(b.id)))
+            .filter_map(move |b| b.downstream_pipeline.as_ref())
+            .map(move |d| (d.project_id.unwrap_or(project), d.id))
+    }
+
+    pub fn job_rows(&self) -> &[JobRow] {
+        &self.job_rows
+    }
+
+    /// The job on the jobs pane's current row, when that row is a job.
+    pub fn job(&self) -> Option<&Job> {
+        match self.job_rows.get(self.cursor(Pane::Jobs)) {
+            Some(JobRow::Job { job, .. }) => Some(job),
+            _ => None,
+        }
+    }
+
+    /// The current row is a group, or a bridge that triggered a child pipeline.
+    fn opens(&self) -> bool {
+        match self.job_rows.get(self.cursor(Pane::Jobs)) {
+            Some(JobRow::Group { .. }) => true,
+            Some(JobRow::Bridge { bridge, .. }) => bridge.downstream_pipeline.is_some(),
+            _ => false,
+        }
+    }
+
+    fn toggle_row(&mut self) -> Vec<Cmd> {
+        let Some(row) = self.job_rows.get(self.cursor(Pane::Jobs)) else {
+            return Vec::new();
+        };
+        let key = row.key();
+        if !self.open.remove(&key) {
+            self.open.insert(key);
+        }
+        self.rebuild_job_rows();
+        let project = self.selected().unwrap_or_default();
+        let wanted = match row_bridge(&self.job_rows, self.cursor(Pane::Jobs)) {
+            Some(bridge) if self.open.contains(&RowKey::Bridge(bridge.id)) => bridge
+                .downstream_pipeline
+                .as_ref()
+                .map(|d| (d.project_id.unwrap_or(project), d.id)),
+            _ => None,
+        };
+        match wanted {
+            Some((project, pipeline))
+                if !self.children.contains_key(&pipeline)
+                    && !self.children_asked.contains(&pipeline) =>
+            {
+                vec![Cmd::LoadChildJobs { project, pipeline }]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn rebuild_job_rows(&mut self) {
+        let row = self.cursor(Pane::Jobs);
+        let before = self.job_rows.get(row).map(JobRow::key);
+        let project = self.selected().unwrap_or_default();
+        self.job_rows = jobs::rows(
+            project,
+            &self.jobs,
+            &self.bridges,
+            &self.children,
+            &self.open,
+        );
+        self.cursors[Pane::Jobs.index()] = keep(&self.job_rows, JobRow::key, before, row);
+    }
+
+    fn clear_jobs(&mut self) {
         self.jobs.clear();
+        self.bridges.clear();
+        self.children.clear();
+        self.open.clear();
+        self.job_rows.clear();
+        self.cursors[Pane::Jobs.index()] = 0;
+    }
+
+    fn pipeline_changed(&mut self) -> Vec<Cmd> {
+        self.clear_jobs();
         match (self.project(), self.pipeline()) {
             (Some(project), Some(pipeline)) => vec![Cmd::LoadJobs {
                 project: project.id,
@@ -768,8 +903,20 @@ fn fuzzy(target: &str, pattern: &str) -> bool {
 
 /// The row of the item that was current, while the list still holds it, and otherwise the same
 /// row, kept inside the list.
-fn keep<T>(items: &[T], id: impl Fn(&T) -> u64, before: Option<u64>, row: usize) -> usize {
+fn keep<T, K: PartialEq>(
+    items: &[T],
+    key: impl Fn(&T) -> K,
+    before: Option<K>,
+    row: usize,
+) -> usize {
     before
-        .and_then(|before| items.iter().position(|item| id(item) == before))
+        .and_then(|before| items.iter().position(|item| key(item) == before))
         .unwrap_or_else(|| row.min(items.len().saturating_sub(1)))
+}
+
+fn row_bridge(rows: &[JobRow], row: usize) -> Option<&Bridge> {
+    match rows.get(row) {
+        Some(JobRow::Bridge { bridge, .. }) => Some(bridge),
+        _ => None,
+    }
 }

@@ -92,11 +92,20 @@ impl Live {
                         status: page.items.first().map(|p| p.status),
                     })
             }
-            Cmd::LoadJobs { project, pipeline } => self
+            Cmd::LoadJobs { project, pipeline } => {
+                let jobs = self.client.list_pipeline_jobs(project, pipeline);
+                let bridges = self.client.list_pipeline_bridges(project, pipeline);
+                tokio::try_join!(jobs, bridges).map(|(jobs, bridges)| Msg::JobsLoaded {
+                    pipeline,
+                    jobs,
+                    bridges,
+                })
+            }
+            Cmd::LoadChildJobs { project, pipeline } => self
                 .client
                 .list_pipeline_jobs(project, pipeline)
                 .await
-                .map(|jobs| Msg::JobsLoaded { pipeline, jobs }),
+                .map(|jobs| Msg::ChildJobsLoaded { pipeline, jobs }),
             Cmd::LoadMergeRequests { project } => self
                 .client
                 .list_merge_requests(project, Some(MergeRequestState::Opened), 1, PAGE_SIZE)

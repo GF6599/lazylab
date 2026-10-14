@@ -4,8 +4,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use super::Context;
+use super::sidebar::row_status;
 use crate::gitlab::Status;
 use crate::tui::app::{App, Focus, Pane};
+use crate::tui::jobs::JobRow;
 use crate::tui::panel::{block, kv, light_corners};
 use crate::tui::text::age;
 use crate::tui::theme::Theme;
@@ -65,12 +67,44 @@ fn view(app: &App, context: &Context, t: &Theme) -> (String, Vec<Line<'static>>)
             ];
             (format!("pipeline #{}", p.id), lines)
         }),
-        Pane::Jobs => app.jobs.get(cursor).map(|j| {
-            let lines = vec![
-                kv("status", status(j.status, app.tick), t),
-                kv("stage", text(j.stage.clone()), t),
-            ];
-            (format!("job {}", j.name), lines)
+        Pane::Jobs => app.job_rows().get(cursor).and_then(|row| match row {
+            JobRow::Job { job, .. } => Some((
+                format!("job {}", job.name),
+                vec![
+                    kv("status", status(job.status, app.tick), t),
+                    kv("stage", text(job.stage.clone()), t),
+                ],
+            )),
+            JobRow::Group {
+                name,
+                stage,
+                status: worst,
+                count,
+                ..
+            } => Some((
+                format!("jobs {name}"),
+                vec![
+                    kv("status", status(*worst, app.tick), t),
+                    kv("stage", text(stage.clone()), t),
+                    kv("jobs", text(count.to_string()), t),
+                ],
+            )),
+            JobRow::Bridge { bridge, .. } => Some((
+                format!("bridge {}", bridge.name),
+                vec![
+                    kv("status", status(row_status(row), app.tick), t),
+                    kv("stage", text(bridge.stage.clone()), t),
+                    kv(
+                        "child",
+                        text(bridge.downstream_pipeline.as_ref().map_or_else(
+                            || "none yet".to_string(),
+                            |child| format!("pipeline #{}", child.id),
+                        )),
+                        t,
+                    ),
+                ],
+            )),
+            JobRow::Waiting { .. } => None,
         }),
         Pane::MergeRequests => app.merge_requests.get(cursor).map(|mr| {
             let lines = vec![

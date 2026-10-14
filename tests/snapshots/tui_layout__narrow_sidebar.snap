@@ -8,14 +8,14 @@ expression: screen(&sidebar)
 ─ pipelines · ⠋ #61441 main ────────────────────────────────────────────────────
 ┌─ jobs ───────────────────────────────────────────────────────────────────────┐
 │[✓ compile                                                              build]│
-│ ✓ image                                                                build │
+│ ✓ image                                                                      │
 │ ⠋ unit                                                                  test │
-│ ⠋ integration                                                           test │
-│ ✓ lint                                                                  test │
+│ ⠋ integration                                                                │
+│ ✓ lint                                                                       │
 │ ◦ sast                                                              security │
-│ ◦ dependency-scan                                                   security │
+│ ◦ dependency-scan                                                            │
 │ ◦ staging                                                             deploy │
-│ ◦ production                                                          deploy │
+│ ◦ production                                                                 │
 │                                                                              │
 │                                                                              │
 │                                                                              │
