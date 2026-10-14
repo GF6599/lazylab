@@ -254,3 +254,31 @@ fn a_failed_page_ends_the_loading_and_shows_the_reason_until_a_key() {
     // Then: the reason is gone.
     assert_eq!(app.error, None);
 }
+
+#[test]
+fn a_failure_from_the_load_before_a_reload_is_dropped() {
+    // Given: a load whose second page is in flight when control r starts another.
+    let all = projects();
+    let mut app = App::new(2);
+    app.start();
+    let (before, ..) = page_request(&app.update(Msg::CacheLoaded(None))).unwrap();
+    app.update(Msg::ProjectPageLoaded {
+        load: before,
+        page: page(&all[..2], 1, Some(2), Some(4)),
+    });
+    app.update(ctrl_r());
+
+    // When: the second page of the load before fails.
+    app.update(Msg::Failed {
+        cmd: Cmd::LoadProjectPage {
+            load: before,
+            page: 2,
+            per_page: 2,
+        },
+        error: "list projects: connection reset".into(),
+    });
+
+    // Then: the new load goes on, and the old failure is not shown.
+    assert!(app.loading);
+    assert_eq!(app.error, None);
+}
