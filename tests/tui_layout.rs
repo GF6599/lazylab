@@ -301,6 +301,6 @@ fn the_projects_pane_names_its_search_and_its_favorites_view() {
     let favorites = screen(&render(&app, 120, 32));
 
     // Then: the pane shows the search as it is typed, and then names the favorites view.
-    assert!(searching.contains("/plat"), "{searching}");
+    assert!(searching.contains("/plat_"), "{searching}");
     assert!(favorites.contains("★ favorites"), "{favorites}");
 }

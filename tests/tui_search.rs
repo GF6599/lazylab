@@ -1,3 +1,5 @@
+use lazylab::gitlab::Project;
+use lazylab::store::CachedProjects;
 use lazylab::tui::app::{App, Cmd, Msg, Pane};
 use lazylab::tui::demo;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -77,6 +79,30 @@ fn a_search_keeps_the_projects_whose_path_or_name_holds_its_letters_in_order() {
 }
 
 #[test]
+fn a_search_finds_a_project_by_a_name_its_path_does_not_hold() {
+    // Given: a project named apart from its path, as GitLab allows.
+    let mut app = App::new(30);
+    app.start();
+    let renamed: Project = serde_json::from_value(serde_json::json!({
+        "id": 7,
+        "name": "Billing Service",
+        "path_with_namespace": "acme/svc-7",
+    }))
+    .unwrap();
+    app.update(Msg::CacheLoaded(Some(CachedProjects {
+        projects: vec![renamed],
+        total: 1,
+    })));
+
+    // When: its name is searched for.
+    press(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "billing");
+
+    // Then: it is found.
+    assert_eq!(shown(&app), ["acme/svc-7"]);
+}
+
+#[test]
 fn a_search_takes_every_letter_as_text_and_backspace_takes_it_back() {
     // Given: a search being typed.
     let mut app = loaded();
@@ -111,13 +137,33 @@ fn enter_keeps_the_search_and_escape_clears_it() {
     assert_eq!(shown_ids(&app), [API, WEB, WORKERS]);
     assert_eq!(app.project().unwrap().id, WEB);
 
-    // When: a new search starts, and escape is pressed.
+    // When: a new search starts.
     press(&mut app, KeyCode::Char('/'));
+
+    // Then: it starts empty, so every project shows.
+    assert_eq!(app.len(Pane::Projects), app.projects.len());
+
+    // When: escape is pressed.
     press(&mut app, KeyCode::Esc);
 
     // Then: every project is back, and the cursor is still on the same project.
     assert_eq!(app.len(Pane::Projects), app.projects.len());
     assert_eq!(app.project().unwrap().id, WEB);
+}
+
+#[test]
+fn escape_while_typing_clears_the_search() {
+    // Given: a search for "plat" being typed.
+    let mut app = loaded();
+    press(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "plat");
+
+    // When: escape is pressed.
+    press(&mut app, KeyCode::Esc);
+
+    // Then: the search is gone, and every project shows.
+    assert!(app.search.query.is_empty() && !app.search.typing);
+    assert_eq!(app.len(Pane::Projects), app.projects.len());
 }
 
 #[test]
