@@ -1,0 +1,44 @@
+---
+source: tests/tui_layout.rs
+expression: screen(&buffer)
+---
+ acme/platform/api ▐ 2 running · 3 failed
+ 1 projects  [2 pipes]  3 jobs   4 mrs
+┌─ pipeline #61441 ────────────────────────┐
+│ status     ⠋ running                     │
+│ ref        main                          │
+│ commit     ba2a447                       │
+│ by         Dana                          │
+│ updated    2m ago                        │
+│                                          │
+│ stages                                   │
+│ build                                    │
+│   ✓ compile                              │
+│   ✓ image                                │
+│ test                                     │
+│   ⠋ unit                                 │
+│   ⠋ integration                          │
+│   ✓ lint                                 │
+│ security                                 │
+│   ◦ sast                                 │
+│   ◦ dependency-scan                      │
+│ deploy                                   │
+│   ◦ staging                              │
+│   ◦ production                           │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+│                                          │
+└──────────────────────────────────────────┘
+ DETAIL  h back  ? help  q quit

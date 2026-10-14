@@ -418,3 +418,73 @@ fn an_open_bridge_shows_its_child_pipeline_under_it() {
     let (child_y, _) = sidebar_row(&buffer, "└ ✗ e2e");
     assert_eq!(child_y, y + 1);
 }
+
+#[test]
+fn a_pipeline_detail_draws_its_stages_side_by_side() {
+    // Given: the pipelines pane of the demo data on a wide terminal.
+    let mut app = loaded();
+    press(&mut app, '2');
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+
+    // Then: the detail pane shows the pipeline's stages as columns of jobs.
+    insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
+fn a_narrow_pipeline_detail_stacks_its_stages() {
+    // Given: the pipeline detail open on a terminal too narrow for the stage columns.
+    let mut app = loaded();
+    press(&mut app, '2');
+    press(&mut app, 'l');
+
+    // When: the screen is drawn at 44 by 40.
+    let buffer = render(&app, 44, 40);
+
+    // Then: each stage is a heading with its jobs under it.
+    insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
+fn a_wide_job_name_keeps_the_next_stage_column_in_line() {
+    // Given: a pipeline whose build stage holds a job named in wide characters.
+    let mut app = loaded();
+    let pipeline = app.pipeline().unwrap().id;
+    let job = |id: u64, stage: &str, name: &str| -> lazylab::gitlab::Job {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "name": name, "stage": stage, "status": "success",
+        }))
+        .unwrap()
+    };
+    app.update(Msg::JobsLoaded {
+        pipeline,
+        jobs: vec![job(1, "build", "ビルド"), job(2, "test", "unit")],
+        bridges: Vec::new(),
+    });
+    press(&mut app, '2');
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+
+    // Then: the test column's heading and its job start in the same cell.
+    let (header_y, header) = row_after(&buffer, "build", 48);
+    // A wide character's second cell holds a space, so the row reads ビ ル ド.
+    let (job_y, job_row) = row_after(&buffer, "ビ", 48);
+    let heading = column_of(&header, "test");
+    let unit = column_of(&job_row, "unit") - 2;
+    assert!(job_y > header_y);
+    assert_eq!(heading, unit);
+}
+
+/// The first row that holds `text` at or after column `from`, so a row of the detail pane is
+/// found past the sidebar beside it.
+fn row_after(buffer: &Buffer, text: &str, from: u16) -> (u16, String) {
+    (0..buffer.area.height)
+        .map(|y| (y, row_text(buffer, y)))
+        .find(|(_, row)| {
+            row.find(text)
+                .is_some_and(|byte| row[..byte].chars().count() as u16 >= from)
+        })
+        .expect("a row holding the text")
+}

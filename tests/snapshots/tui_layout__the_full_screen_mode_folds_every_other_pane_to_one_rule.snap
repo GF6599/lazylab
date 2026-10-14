@@ -11,20 +11,20 @@ expression: screen(&buffer)
 │ ✗ #61427 fix/flaky-e2e            1h ││ by         Dana                                          │
 │ ✓ #61420 main                     1h ││ updated    2m ago                                        │
 │ ► #61413 feat/sso-login           2h ││                                                          │
-│ ✓ #61406 chore/bump-deps          3h ││                                                          │
-│ ⊘ #61399 main                     3h ││                                                          │
-│ ✓ #61392 feat/runner-cache        4h ││                                                          │
-│ ✗ #61385 fix/flaky-e2e            4h ││                                                          │
-│ ✓ #61378 main                     5h ││                                                          │
-│ ⠋ #61371 feat/sso-login           6h ││                                                          │
-│ ✓ #61364 chore/bump-deps          6h ││                                                          │
-│ ✗ #61357 main                     7h ││                                                          │
-│ ✓ #61350 feat/runner-cache        8h ││                                                          │
-│                                      ││                                                          │
-│                                      ││                                                          │
-│                                      ││                                                          │
-│                                      ││                                                          │
-│                                      ││                                                          │
+│ ✓ #61406 chore/bump-deps          3h ││ stages                                                   │
+│ ⊘ #61399 main                     3h ││ build                                                    │
+│ ✓ #61392 feat/runner-cache        4h ││   ✓ compile                                              │
+│ ✗ #61385 fix/flaky-e2e            4h ││   ✓ image                                                │
+│ ✓ #61378 main                     5h ││ test                                                     │
+│ ⠋ #61371 feat/sso-login           6h ││   ⠋ unit                                                 │
+│ ✓ #61364 chore/bump-deps          6h ││   ⠋ integration                                          │
+│ ✗ #61357 main                     7h ││   ✓ lint                                                 │
+│ ✓ #61350 feat/runner-cache        8h ││ security                                                 │
+│                                      ││   ◦ sast                                                 │
+│                                      ││   ◦ dependency-scan                                      │
+│                                      ││ deploy                                                   │
+│                                      ││   ◦ staging                                              │
+│                                      ││   ◦ production                                           │
 │                                      ││                                                          │
 │                                      ││                                                          │
 │                                      ││                                                          │
