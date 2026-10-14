@@ -131,20 +131,46 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
     }
 }
 
+/// The count of a load in progress, which a total of zero leaves out, because the first page has
+/// not said how many projects there are.
+fn progress(app: &App) -> String {
+    match (app.loading, app.total_projects) {
+        (false, _) => String::new(),
+        (true, 0) => "loading projects ".into(),
+        (true, total) => format!("loading projects {}/{total} ", app.projects.len()),
+    }
+}
+
 pub(super) fn draw_status(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
+    let progress = progress(app);
+    let room = (area.width as usize).saturating_sub(width(&progress));
     let mut spans = vec![
         Span::styled(format!(" {} ", mode(app)), t.badge()),
         Span::raw(" "),
     ];
-    for (key, action) in hints(app) {
-        let hint = [
-            Span::styled(*key, t.body()),
-            Span::styled(format!(" {action}  "), t.dim()),
-        ];
-        if spans_width(&spans) + spans_width(&hint) > area.width as usize {
-            break;
+    if let Some(error) = &app.error {
+        let error = fit(error, room.saturating_sub(spans_width(&spans)));
+        spans.push(Span::styled(error, Style::new().fg(t.love)));
+    } else {
+        for (key, action) in hints(app) {
+            let hint = [
+                Span::styled(*key, t.body()),
+                Span::styled(format!(" {action}  "), t.dim()),
+            ];
+            if spans_width(&spans) + spans_width(&hint) > room {
+                break;
+            }
+            spans.extend(hint);
         }
-        spans.extend(hint);
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    let [left, right] = Layout::horizontal([
+        Constraint::Min(0),
+        Constraint::Length(width(&progress) as u16),
+    ])
+    .areas(area);
+    frame.render_widget(Paragraph::new(Line::from(spans)), left);
+    frame.render_widget(
+        Paragraph::new(Line::styled(progress, t.dim()).right_aligned()),
+        right,
+    );
 }
