@@ -228,15 +228,12 @@ fn column_of(row: &str, text: &str) -> u16 {
 
 #[test]
 fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
-    // Given: the demo data, and a page load that failed.
+    // Given: the demo data, and a pipeline list for the current project that failed.
     let mut app = loaded();
+    let project = app.project().unwrap().id;
     app.update(Msg::Failed {
-        cmd: Cmd::LoadProjectPage {
-            load: 1,
-            page: 1,
-            per_page: PAGE_SIZE,
-        },
-        error: "list projects: connection refused".into(),
+        cmd: Cmd::LoadPipelines { project },
+        error: "list pipelines: connection refused".into(),
     });
 
     // When: the screen is drawn, and drawn again after a key.
@@ -246,9 +243,9 @@ fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
 
     // Then: the bottom row names the failure in the error colour, until the key.
     let bottom = row_text(&failed, 31);
-    let x = column_of(&bottom, "list projects: connection refused");
+    let x = column_of(&bottom, "list pipelines: connection refused");
     assert_eq!(failed[(x, 31)].fg, T.love);
-    assert!(!row_text(&after, 31).contains("list projects"));
+    assert!(!row_text(&after, 31).contains("list pipelines"));
 }
 
 #[test]
