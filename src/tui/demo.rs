@@ -115,7 +115,8 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
                 },
             }
         }
-        Cmd::SaveProjects { .. } => return None,
+        Cmd::LoadFavorites => Msg::FavoritesLoaded(Vec::new()),
+        Cmd::SaveProjects { .. } | Cmd::SaveFavorites(_) => return None,
         Cmd::LoadPipelines { project } => Msg::PipelinesLoaded {
             project,
             pipelines: pipelines(project, now),

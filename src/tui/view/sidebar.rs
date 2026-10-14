@@ -1,5 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use time::OffsetDateTime;
@@ -16,6 +17,9 @@ use crate::tui::theme::Theme;
 const PEEK_ROWS: u16 = 4;
 const FOCUS_MIN_ROWS: u16 = 3;
 const BORDERS: u16 = 2;
+/// The Go release names its favorites tab so, and marks each favorite with the same star.
+const FAVORITES_TITLE: &str = "★ favorites";
+const FAVORITE: &str = "★ ";
 
 /// Unfocused panes peek at a few rows while there is room, and fold to a one-row rule when there
 /// is not or when the full-screen mode is on. Every height is a whole row count taken from what
@@ -80,7 +84,19 @@ fn draw_pane(frame: &mut Frame, app: &App, context: &Context, pane: Pane, area: 
     } else {
         format!("{}/{len}", app.cursor(pane) + 1)
     };
-    let frame_block = block(pane.label(), false, t).title_bottom(bottom_label(position, t));
+    let search = &app.search;
+    let label = if pane == Pane::Projects && (search.typing || !search.query.is_empty()) {
+        let caret = if search.typing { "_" } else { "" };
+        format!("/{}{caret}  {position}", search.query)
+    } else {
+        position
+    };
+    let title = if pane == Pane::Projects && app.favorites_only {
+        FAVORITES_TITLE
+    } else {
+        pane.label()
+    };
+    let frame_block = block(title, false, t).title_bottom(bottom_label(label, t));
     let list = frame_block.inner(area);
     frame.render_widget(frame_block, area);
 
@@ -113,8 +129,7 @@ fn summary(app: &App, pane: Pane, t: &Theme) -> Vec<Span<'static>> {
     let cursor = app.cursor(pane);
     match pane {
         Pane::Projects => app
-            .projects
-            .get(cursor)
+            .project()
             .map(|p| vec![Span::styled(p.path_with_namespace.clone(), t.body())]),
         Pane::Pipelines => app.pipelines.get(cursor).map(|p| {
             let (glyph, style) = t.status(p.status, app.tick);
@@ -149,9 +164,16 @@ fn row(app: &App, context: &Context, pane: Pane, i: usize, t: &Theme) -> Row {
     };
     match pane {
         Pane::Projects => {
-            let p = &app.projects[i];
+            let Some(p) = app.shown_project(i) else {
+                return Row::default();
+            };
+            let mut left = Vec::new();
+            if app.favorites.contains(&p.id) {
+                left.push(Span::styled(FAVORITE, Style::new().fg(t.gold)));
+            }
+            left.push(Span::styled(p.path_with_namespace.clone(), label));
             Row {
-                left: vec![Span::styled(p.path_with_namespace.clone(), label)],
+                left,
                 right: when(p.last_activity_at),
             }
         }

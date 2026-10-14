@@ -10,29 +10,29 @@ expression: screen(&buffer)
 │ acme/platform/workers                     1h ││ active     4m ago                                                    │
 │ acme/infra/terraform                      3h ││ web        https://gitlab.example.com/acme/platform/api              │
 │ acme/infra/helm-charts                    5h ││                                                                      │
-│ acme/infra/runner-images                  1d ││                                                                      │
-│ acme/data/ingest                          2d ││                                                                      │
-│ acme/data/warehouse-models                2d ││                                                                      │
-│ acme/tools/lazylab       ┌─ help ────────────────────────────────────────────────────────┐                           │
-│ acme/tools/release-bot   │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
-│ acme/mobile/ios-app      │ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
-│ acme/mobile/android-app  │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
-│ acme/docs/handbook       │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
-│                          │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
-│                          │ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
-│                          │                                                               │                           │
+│ acme/infra/runner-images ┌─ help ────────────────────────────────────────────────────────┐                           │
+│ acme/data/ingest         │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
+│ acme/data/warehouse-model│ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
+│ acme/tools/lazylab       │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
+│ acme/tools/release-bot   │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
+│ acme/mobile/ios-app      │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
+│ acme/mobile/android-app  │ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
+│ acme/docs/handbook       │                                                               │                           │
 │                          │ j k ↑ ↓     move                                              │                           │
-└──────────────────────────│ g G         first, last                                       │                           │
-┌─ pipelines ──────────────│ ctrl+d u    page down, up                                     │                           │
-│[⠋ #61441 main            │ 1-4 tab     choose a pane                                     │                           │
-│ ✓ #61434 feat/runner-cach│ l enter     open the detail pane                              │                           │
-│ ✗ #61427 fix/flaky-e2e   │ h esc       back                                              │                           │
-│ ✓ #61420 main            │ z           full screen for the pane in view                  │                           │
-└──────────────────────────│ ?           open or close this help                           │                           │
-┌─ jobs ───────────────────│ q ctrl+c    quit                                              │                           │
-│[✓ compile                └───────────────────────────────────────────────────────────────┘                           │
-│ ✓ image                                build ││                                                                      │
-│ ⠋ unit                                  test ││                                                                      │
+│                          │ g G         first, last                                       │                           │
+│                          │ ctrl+d u    page down, up                                     │                           │
+│                          │ 1-4 tab     choose a pane                                     │                           │
+└──────────────────────────│ l enter     open the detail pane                              │                           │
+┌─ pipelines ──────────────│ h esc       back                                              │                           │
+│[⠋ #61441 main            │ /           search the projects                               │                           │
+│ ✓ #61434 feat/runner-cach│ f           favorite the project, or not                      │                           │
+│ ✗ #61427 fix/flaky-e2e   │ t           favorites only, or every project                  │                           │
+│ ✓ #61420 main            │ { }         move a favorite up, down                          │                           │
+└──────────────────────────│ ctrl+r      reload the projects                               │                           │
+┌─ jobs ───────────────────│ z           full screen for the pane in view                  │                           │
+│[✓ compile                │ ?           open or close this help                           │                           │
+│ ✓ image                  │ q ctrl+c    quit                                              │                           │
+│ ⠋ unit                   └───────────────────────────────────────────────────────────────┘                           │
 │ ⠋ integration                           test ││                                                                      │
 └──────────────────────────────────────── 1/9 ─┘│                                                                      │
 ┌─ merge requests ─────────────────────────────┐│                                                                      │

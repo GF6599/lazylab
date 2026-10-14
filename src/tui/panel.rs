@@ -71,6 +71,7 @@ pub fn folded_rule(
 
 /// The bracket cells are blank on every row that is not current, so the column holds still as
 /// the cursor travels, and they replace the frame's horizontal padding rather than adding to it.
+#[derive(Default)]
 pub struct Row {
     pub left: Vec<Span<'static>>,
     pub right: Vec<Span<'static>>,
