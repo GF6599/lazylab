@@ -29,11 +29,11 @@ expression: screen(&buffer)
 │ ✗ #61427 fix/flaky-e2e   │ t           favorites only, or every project                  │                           │
 │ ✓ #61420 main            │ { }         move a favorite up, down                          │                           │
 └──────────────────────────│ ctrl+r      reload the projects                               │                           │
-┌─ jobs ───────────────────│ z           full screen for the pane in view                  │                           │
-│[✓ compile                │ ?           open or close this help                           │                           │
-│ ✓ image                  │ q ctrl+c    quit                                              │                           │
-│ ⠋ unit                   └───────────────────────────────────────────────────────────────┘                           │
-│ ⠋ integration                           test ││                                                                      │
+┌─ jobs ───────────────────│ [ ]         the page of pipelines before, after               │                           │
+│[✓ compile                │ z           full screen for the pane in view                  │                           │
+│ ✓ image                  │ ?           open or close this help                           │                           │
+│ ⠋ unit                   │ q ctrl+c    quit                                              │                           │
+│ ⠋ integration            └───────────────────────────────────────────────────────────────┘                           │
 └──────────────────────────────────────── 1/9 ─┘│                                                                      │
 ┌─ merge requests ─────────────────────────────┐│                                                                      │
 │[!412 Cache the runner image layers        2h]││                                                                      │

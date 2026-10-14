@@ -121,10 +121,23 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             status: pipelines(project, now).first().map(|p| p.status),
         },
         Cmd::SaveProjects { .. } | Cmd::SaveFavorites(_) => return None,
-        Cmd::LoadPipelines { project } => Msg::PipelinesLoaded {
-            project,
-            pipelines: pipelines(project, now),
-        },
+        Cmd::LoadPipelines { project, page } => {
+            let items = if page == 1 {
+                pipelines(project, now)
+            } else {
+                Vec::new()
+            };
+            Msg::PipelinesLoaded {
+                project,
+                page: Page {
+                    total_items: Some(PIPELINES_PER_PROJECT),
+                    items,
+                    page,
+                    next_page: None,
+                    total_pages: Some(1),
+                },
+            }
+        }
         Cmd::LoadJobs { project, pipeline } => Msg::JobsLoaded {
             pipeline,
             jobs: jobs(project, pipeline),

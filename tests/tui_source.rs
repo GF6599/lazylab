@@ -167,7 +167,12 @@ async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
     let source = Source::live(client_for(&server.uri()), None);
 
     // When: each list is asked for.
-    let pipelines = source.answer(Cmd::LoadPipelines { project: 1 }).await;
+    let pipelines = source
+        .answer(Cmd::LoadPipelines {
+            project: 1,
+            page: 1,
+        })
+        .await;
     let jobs = source
         .answer(Cmd::LoadJobs {
             project: 1,
@@ -178,7 +183,7 @@ async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
 
     // Then: each comes back for the project or pipeline it was asked for.
     assert!(
-        matches!(&pipelines, Some(Msg::PipelinesLoaded { project: 1, pipelines }) if !pipelines.is_empty()),
+        matches!(&pipelines, Some(Msg::PipelinesLoaded { project: 1, page }) if !page.items.is_empty()),
         "{pipelines:?}"
     );
     assert!(

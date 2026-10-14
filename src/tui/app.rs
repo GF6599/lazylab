@@ -17,6 +17,9 @@ pub const TICK: Duration = Duration::from_millis(100);
 /// lists, so holding `j` through a list asks GitLab about the one project it stops on.
 const SETTLE: Duration = Duration::from_millis(300);
 const SETTLE_TICKS: u64 = (SETTLE.as_millis() / TICK.as_millis()) as u64;
+/// The Go release asks for the pipelines and jobs in view this often.
+const REFRESH: Duration = Duration::from_secs(5);
+const REFRESH_TICKS: u64 = (REFRESH.as_millis() / TICK.as_millis()) as u64;
 
 /// A selection whose lists load once the cursor has rested on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,7 +104,7 @@ pub enum Msg {
     },
     PipelinesLoaded {
         project: u64,
-        pipelines: Vec<Pipeline>,
+        page: Page<Pipeline>,
     },
     JobsLoaded {
         pipeline: u64,
@@ -140,6 +143,7 @@ pub enum Cmd {
     },
     LoadPipelines {
         project: u64,
+        page: u32,
     },
     LoadJobs {
         project: u64,
@@ -192,6 +196,14 @@ pub struct App {
     /// The indexes into `projects` of the rows the projects pane shows, in their order.
     shown: Vec<usize>,
     pub pipelines: Vec<Pipeline>,
+    /// The page of pipelines in view, counted from 1.
+    pub pipeline_page: u32,
+    next_pipeline_page: Option<u32>,
+    /// A refresh waits while a load of the same list is unanswered, so a slow GitLab never
+    /// collects a queue of them.
+    pipelines_asked: bool,
+    jobs_asked: bool,
+    refreshed_at: u64,
     pub jobs: Vec<Job>,
     pub merge_requests: Vec<MergeRequest>,
     cursors: [usize; Pane::ALL.len()],
@@ -220,6 +232,11 @@ impl App {
             lists_asked: false,
             shown: Vec::new(),
             pipelines: Vec::new(),
+            pipeline_page: 1,
+            next_pipeline_page: None,
+            pipelines_asked: false,
+            jobs_asked: false,
+            refreshed_at: 0,
             jobs: Vec::new(),
             merge_requests: Vec::new(),
             cursors: [0; Pane::ALL.len()],
@@ -247,6 +264,11 @@ impl App {
         self.shown.iter().map(|&i| &self.projects[i])
     }
 
+    /// The project's pipelines fill more than one page.
+    pub fn pipelines_paged(&self) -> bool {
+        self.pipeline_page > 1 || self.next_pipeline_page.is_some()
+    }
+
     pub fn pipeline(&self) -> Option<&Pipeline> {
         self.pipelines.get(self.cursor(Pane::Pipelines))
     }
@@ -261,11 +283,25 @@ impl App {
     }
 
     pub fn update(&mut self, msg: Msg) -> Vec<Cmd> {
+        let commands = self.handle(msg);
+        for command in &commands {
+            match command {
+                Cmd::LoadPipelines { .. } => self.pipelines_asked = true,
+                Cmd::LoadJobs { .. } => self.jobs_asked = true,
+                _ => {}
+            }
+        }
+        commands
+    }
+
+    fn handle(&mut self, msg: Msg) -> Vec<Cmd> {
         match msg {
             Msg::Key(key) => self.on_key(key),
             Msg::Tick => {
                 self.tick += 1;
-                self.settled()
+                let mut commands = self.settled();
+                commands.extend(self.refresh());
+                commands
             }
             Msg::CacheLoaded(cached) => self.cache_loaded(cached),
             Msg::FavoritesLoaded(ids) => {
@@ -278,6 +314,17 @@ impl App {
             Msg::StatusLoaded { project, status } => {
                 let status = status.map_or(ProjectStatus::NoPipeline, ProjectStatus::Pipeline);
                 self.statuses.insert(project, status);
+                Vec::new()
+            }
+            Msg::Failed {
+                cmd: cmd @ (Cmd::LoadPipelines { .. } | Cmd::LoadJobs { .. }),
+                error,
+            } => {
+                match cmd {
+                    Cmd::LoadPipelines { .. } => self.pipelines_asked = false,
+                    _ => self.jobs_asked = false,
+                }
+                self.error = Some(error);
                 Vec::new()
             }
             Msg::Failed {
@@ -298,18 +345,19 @@ impl App {
                 self.error = Some(error);
                 Vec::new()
             }
-            Msg::PipelinesLoaded { project, pipelines } => {
-                if self.project().map(|p| p.id) != Some(project) {
+            Msg::PipelinesLoaded { project, page } => {
+                self.pipelines_asked = false;
+                if self.selected() != Some(project) || page.page != self.pipeline_page {
                     return Vec::new();
                 }
-                self.pipelines = pipelines;
-                self.cursors[Pane::Pipelines.index()] = 0;
-                self.pipeline_changed()
+                self.pipelines_loaded(project, page)
             }
             Msg::JobsLoaded { pipeline, jobs } => {
+                self.jobs_asked = false;
                 if self.pipeline().map(|p| p.id) == Some(pipeline) {
+                    let before = self.jobs.get(self.cursor(Pane::Jobs)).map(|j| j.id);
                     self.jobs = jobs;
-                    self.cursors[Pane::Jobs.index()] = 0;
+                    self.cursors[Pane::Jobs.index()] = keep(&self.jobs, |j| j.id, before, 0);
                 }
                 Vec::new()
             }
@@ -354,6 +402,7 @@ impl App {
         }
         let before = self.selected();
         let on_projects = self.pane == Pane::Projects && self.focus == Focus::Sidebar;
+        let on_pipelines = self.pane == Pane::Pipelines && self.focus == Focus::Sidebar;
         match key.code {
             KeyCode::Char('/') if on_projects => {
                 self.search = Search {
@@ -369,6 +418,14 @@ impl App {
             }
             KeyCode::Char('{') if on_projects => return self.move_favorite(-1),
             KeyCode::Char('}') if on_projects => return self.move_favorite(1),
+            KeyCode::Char(']') if on_pipelines => {
+                if let Some(next) = self.next_pipeline_page {
+                    return self.turn_pipeline_page(next);
+                }
+            }
+            KeyCode::Char('[') if on_pipelines && self.pipeline_page > 1 => {
+                return self.turn_pipeline_page(self.pipeline_page - 1);
+            }
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') => self.overlay = Overlay::Help,
             KeyCode::Char('z') => self.zoom = !self.zoom,
@@ -593,6 +650,8 @@ impl App {
     }
 
     fn project_changed(&mut self) -> Vec<Cmd> {
+        self.pipeline_page = 1;
+        self.next_pipeline_page = None;
         self.pipelines.clear();
         self.jobs.clear();
         self.merge_requests.clear();
@@ -625,11 +684,68 @@ impl App {
     fn lists(&self, selection: Waiting) -> Vec<Cmd> {
         match selection {
             Waiting::Project(project) => vec![
-                Cmd::LoadPipelines { project },
+                Cmd::LoadPipelines {
+                    project,
+                    page: self.pipeline_page,
+                },
                 Cmd::LoadMergeRequests { project },
             ],
             Waiting::Pipeline { project, pipeline } => vec![Cmd::LoadJobs { project, pipeline }],
         }
+    }
+
+    fn pipelines_loaded(&mut self, project: u64, page: Page<Pipeline>) -> Vec<Cmd> {
+        if page.page == 1 {
+            let newest = page.items.first().map(|p| p.status);
+            let status = newest.map_or(ProjectStatus::NoPipeline, ProjectStatus::Pipeline);
+            self.statuses.insert(project, status);
+        }
+        let row = self.cursor(Pane::Pipelines);
+        let before = self.pipeline().map(|p| p.id);
+        self.pipelines = page.items;
+        self.next_pipeline_page = page.next_page;
+        self.cursors[Pane::Pipelines.index()] = keep(&self.pipelines, |p| p.id, before, row);
+        if self.pipeline().map(|p| p.id) == before {
+            Vec::new()
+        } else {
+            self.pipeline_changed()
+        }
+    }
+
+    fn turn_pipeline_page(&mut self, page: u32) -> Vec<Cmd> {
+        let Some(project) = self.selected() else {
+            return Vec::new();
+        };
+        self.pipeline_page = page;
+        self.next_pipeline_page = None;
+        self.pipelines.clear();
+        self.jobs.clear();
+        self.cursors[Pane::Pipelines.index()] = 0;
+        self.waiting = None;
+        vec![Cmd::LoadPipelines { project, page }]
+    }
+
+    /// Asks again for the pipelines and the jobs in view, once nothing moves and nothing waits.
+    fn refresh(&mut self) -> Vec<Cmd> {
+        let due = self.tick.saturating_sub(self.refreshed_at) >= REFRESH_TICKS;
+        if !due || self.waiting.is_some() {
+            return Vec::new();
+        }
+        self.refreshed_at = self.tick;
+        let Some(project) = self.selected() else {
+            return Vec::new();
+        };
+        let mut commands = Vec::new();
+        if !self.pipelines_asked {
+            let page = self.pipeline_page;
+            commands.push(Cmd::LoadPipelines { project, page });
+        }
+        if let Some(pipeline) = self.pipeline().map(|p| p.id)
+            && !self.jobs_asked
+        {
+            commands.push(Cmd::LoadJobs { project, pipeline });
+        }
+        commands
     }
 
     fn pipeline_changed(&mut self) -> Vec<Cmd> {
@@ -648,4 +764,12 @@ impl App {
 fn fuzzy(target: &str, pattern: &str) -> bool {
     let mut target = target.chars().flat_map(char::to_lowercase);
     (pattern.chars().flat_map(char::to_lowercase)).all(|c| target.any(|t| t == c))
+}
+
+/// The row of the item that was current, while the list still holds it, and otherwise the same
+/// row, kept inside the list.
+fn keep<T>(items: &[T], id: impl Fn(&T) -> u64, before: Option<u64>, row: usize) -> usize {
+    before
+        .and_then(|before| items.iter().position(|item| id(item) == before))
+        .unwrap_or_else(|| row.min(items.len().saturating_sub(1)))
 }

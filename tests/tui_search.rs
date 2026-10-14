@@ -74,7 +74,7 @@ fn a_search_keeps_the_projects_whose_path_or_name_holds_its_letters_in_order() {
     assert_eq!(shown(&app), ["acme/infra/helm-charts"]);
     let project = app.project().unwrap().id;
     assert!(
-        commands.contains(&Cmd::LoadPipelines { project }),
+        commands.contains(&Cmd::LoadPipelines { project, page: 1 }),
         "{commands:?}"
     );
 }

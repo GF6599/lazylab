@@ -1,4 +1,4 @@
-use lazylab::gitlab::Status;
+use lazylab::gitlab::{Page, Status};
 use lazylab::tui::app::{App, Cmd, Focus, Msg, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::theme::ROSE_PINE as T;
@@ -232,7 +232,7 @@ fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
     let mut app = loaded();
     let project = app.project().unwrap().id;
     app.update(Msg::Failed {
-        cmd: Cmd::LoadPipelines { project },
+        cmd: Cmd::LoadPipelines { project, page: 1 },
         error: "list pipelines: connection refused".into(),
     });
 
@@ -342,4 +342,42 @@ fn each_project_shows_its_latest_pipeline_before_its_path() {
     assert_eq!(glyph_before(&paths[0]), ("✗".into(), T.love));
     assert_eq!(glyph_before(&paths[1]).0, "∅");
     assert_eq!(glyph_before(&paths[2]).0, "?");
+}
+
+#[test]
+fn the_pipelines_pane_names_its_page_once_there_is_more_than_one() {
+    // Given: the pipelines pane, on a project whose pipelines fill one page.
+    let mut app = loaded();
+    press(&mut app, '2');
+    let project = app.project().unwrap().id;
+    let all = app.pipelines.clone();
+    let one_page = screen(&render(&app, 120, 32));
+
+    // When: a second page is shown.
+    app.update(Msg::PipelinesLoaded {
+        project,
+        page: Page {
+            items: all.clone(),
+            page: 1,
+            next_page: Some(2),
+            total_pages: None,
+            total_items: None,
+        },
+    });
+    press(&mut app, ']');
+    app.update(Msg::PipelinesLoaded {
+        project,
+        page: Page {
+            items: all,
+            page: 2,
+            next_page: None,
+            total_pages: None,
+            total_items: None,
+        },
+    });
+    let second = screen(&render(&app, 120, 32));
+
+    // Then: the page is named only once there is more than one.
+    assert!(!one_page.contains("· page"), "{one_page}");
+    assert!(second.contains("· page 2"), "{second}");
 }

@@ -131,6 +131,15 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("?", "help"),
             ("q", "quit"),
         ],
+        (Overlay::None, Focus::Sidebar) if app.pane == Pane::Pipelines => &[
+            ("j/k", "move"),
+            ("l", "open"),
+            ("[ ]", "page"),
+            ("1-4", "pane"),
+            ("z", "zoom"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
         (Overlay::None, Focus::Sidebar) => &[
             ("j/k", "move"),
             ("l", "open"),
