@@ -299,6 +299,10 @@ pub struct Project {
     #[serde(default)]
     pub web_url: String,
     #[serde(default)]
+    pub ssh_url_to_repo: String,
+    #[serde(default)]
+    pub visibility: String,
+    #[serde(default)]
     pub default_branch: Option<String>,
     #[serde(default)]
     pub star_count: u64,

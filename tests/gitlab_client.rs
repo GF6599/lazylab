@@ -31,6 +31,7 @@ async fn projects_are_listed_with_the_go_query_and_the_token_in_a_header() {
             project_page(
                 r#"[{"id":7,"name":"api","path_with_namespace":"acme/api","description":null,
                 "web_url":"https://gitlab.example/acme/api","default_branch":"main",
+                "ssh_url_to_repo":"git@gitlab.example:acme/api.git","visibility":"internal",
                 "star_count":3,"last_activity_at":"2026-10-13T10:00:00.000Z"}]"#,
             )
             .insert_header("X-Total", "137"),
@@ -53,6 +54,13 @@ async fn projects_are_listed_with_the_go_query_and_the_token_in_a_header() {
         (7, "acme/api")
     );
     assert_eq!(project.default_branch.as_deref(), Some("main"));
+    assert_eq!(
+        (
+            project.ssh_url_to_repo.as_str(),
+            project.visibility.as_str()
+        ),
+        ("git@gitlab.example:acme/api.git", "internal")
+    );
     assert_eq!(
         project.last_activity_at.map(|t| t.unix_timestamp()),
         Some(1_791_885_600)
