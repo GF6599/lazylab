@@ -737,3 +737,16 @@ fn the_key_bar_offers_j_and_k_to_scroll_the_diff() {
     let bar = shown.last().unwrap();
     assert!(bar.contains("j/k scroll"), "{bar}");
 }
+
+#[test]
+fn the_info_tab_shows_the_merge_request() {
+    // Given: the demo data on the merge requests pane, on its info tab.
+    let mut app = loaded();
+    press(&mut app, '4');
+
+    // When: the screen is drawn.
+    let buffer = render(&app);
+
+    // Then: the detail shows the title, the branches, the author and the age.
+    insta::assert_snapshot!(screen(&buffer));
+}
