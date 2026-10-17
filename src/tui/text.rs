@@ -36,6 +36,27 @@ pub fn fit(s: &str, max: usize) -> String {
     }
 }
 
+/// Keeps the end of `s` after an ellipsis, so the end of the text being typed stays in view.
+pub fn fit_end(s: &str, max: usize) -> String {
+    if s.width() <= max {
+        return s.to_string();
+    }
+    if max == 0 {
+        return String::new();
+    }
+    let mut kept = Vec::new();
+    let mut used = 0;
+    for c in s.chars().rev() {
+        let w = c.width().unwrap_or(0);
+        if used + w > max - 1 {
+            break;
+        }
+        kept.push(c);
+        used += w;
+    }
+    std::iter::once('…').chain(kept.into_iter().rev()).collect()
+}
+
 pub fn clamp_spans(spans: Vec<Span<'static>>, max: usize) -> Vec<Span<'static>> {
     if spans_width(&spans) <= max {
         return spans;
