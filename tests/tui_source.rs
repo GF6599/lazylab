@@ -539,35 +539,40 @@ async fn the_threads_of_a_merge_request_are_its_discussions() {
 }
 
 #[tokio::test]
-async fn a_resolve_puts_the_new_state_of_the_thread_and_answers_with_it() {
-    // Given: GitLab accepts the resolve of thread d3 on merge request !412 of project 1.
+async fn a_resolve_or_a_reopen_puts_the_new_state_of_the_thread_and_answers_with_it() {
+    // Given: GitLab accepts a resolve and a reopen of thread d3 on merge request !412 of
+    // project 1.
     let server = MockServer::start().await;
-    Mock::given(method("PUT"))
-        .and(path("/api/v4/projects/1/merge_requests/412/discussions/d3"))
-        .and(body_json(serde_json::json!({"resolved": true})))
-        .respond_with(json_body(r#"{"id":"d3","notes":[]}"#))
-        .expect(1)
-        .mount(&server)
-        .await;
+    for resolved in [true, false] {
+        Mock::given(method("PUT"))
+            .and(path("/api/v4/projects/1/merge_requests/412/discussions/d3"))
+            .and(body_json(serde_json::json!({"resolved": resolved})))
+            .respond_with(json_body(r#"{"id":"d3","notes":[]}"#))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
     let source = Source::live(client_for(&server.uri()), None);
 
-    // When: the thread is resolved.
-    let answer = source
-        .answer(Cmd::ResolveThread {
-            project: 1,
-            merge_request: 412,
-            discussion: "d3".into(),
-            resolved: true,
-        })
-        .await;
+    for resolved in [true, false] {
+        // When: the thread is resolved, then reopened.
+        let answer = source
+            .answer(Cmd::ResolveThread {
+                project: 1,
+                merge_request: 412,
+                discussion: "d3".into(),
+                resolved,
+            })
+            .await;
 
-    // Then: the answer says the thread of that merge request is resolved.
-    assert_eq!(
-        answer,
-        Some(Msg::ThreadResolved {
-            project: 1,
-            merge_request: 412,
-            resolved: true,
-        })
-    );
+        // Then: each answer gives the state the thread of that merge request is now in.
+        assert_eq!(
+            answer,
+            Some(Msg::ThreadResolved {
+                project: 1,
+                merge_request: 412,
+                resolved,
+            })
+        );
+    }
 }
