@@ -125,7 +125,7 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
         (Overlay::Help, _) => &[("esc", "close")],
         (Overlay::Confirm, _) => &[("y", "yes"), ("n", "no")],
         (Overlay::Form, _) if app.form.as_ref().is_some_and(|f| !f.takes_variables()) => {
-            &[("enter", "send"), ("esc", "close")]
+            &[("ctrl+s", "send"), ("enter", "new line"), ("esc", "close")]
         }
         (Overlay::Form, _) => &[
             ("enter", "send"),

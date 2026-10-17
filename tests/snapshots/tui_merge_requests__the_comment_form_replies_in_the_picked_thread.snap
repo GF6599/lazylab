@@ -13,4 +13,4 @@ expression: "screen(&render_at(&app, 12))"
 │ !407 Add SSO login behind a flag          1d ││                                                                      │
 │ !401 Split the e2e suite by shard         3d ││   Dana · 2h ago                                                      │
 └──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
- FORM  enter send  esc close
+ FORM  ctrl+s send  enter new line  esc close

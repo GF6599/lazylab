@@ -1136,13 +1136,11 @@ impl App {
         }
     }
 
-    /// A paste goes only into a field being typed, so it can never act as keys. A field is one
-    /// line, so a newline in the paste is dropped and cannot send the form.
+    /// A paste goes only into a field being typed, so it can never act as keys.
     fn on_paste(&mut self, text: &str) -> Vec<Cmd> {
-        let text: String = text.chars().filter(|c| !matches!(c, '\r' | '\n')).collect();
         if self.overlay == Overlay::Form {
             if let Some(form) = self.form.as_mut() {
-                form.paste(&text);
+                form.paste(text);
             }
             return Vec::new();
         }
@@ -1150,7 +1148,7 @@ impl App {
             return Vec::new();
         }
         let before = self.selected();
-        self.search.query.push_str(&text);
+        (self.search.query).extend(text.chars().filter(|c| !matches!(c, '\r' | '\n')));
         self.reshow(before)
     }
 

@@ -17,7 +17,7 @@ use super::app::{App, Focus, Overlay};
 use super::form::{Field, Form};
 use super::mark;
 use super::panel::block;
-use super::text::{fit, fit_end, pad, width};
+use super::text::{expand_tabs, fit, fit_end, pad, width};
 use super::theme::{ROSE_PINE, Theme};
 
 const MIN_WIDTH: u16 = 40;
@@ -109,6 +109,7 @@ pub fn draw(frame: &mut Frame, app: &App, context: &Context) {
 const FORM_WIDTH: usize = 62;
 const FORM_LABEL: usize = 10;
 const FORM_KEY_BOX: usize = 18;
+const COMMENT_ROWS: usize = 8;
 const EQUALS: &str = " = ";
 
 /// One input: a filled box between the marker cells, which show only on the field being typed.
@@ -135,17 +136,17 @@ fn input(value: &str, box_width: usize, active: bool, t: &Theme) -> (Vec<Span<'s
 /// The terminal's cursor sits after the text of the field being typed.
 fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
     let inner_width = FORM_WIDTH.min((area.width as usize).saturating_sub(4));
-    let head_box = inner_width.saturating_sub(FORM_LABEL + 2);
+    let ref_box = inner_width.saturating_sub(FORM_LABEL + 2);
     let value_box = inner_width.saturating_sub(FORM_LABEL + FORM_KEY_BOX + 4 + EQUALS.len());
     let current = form.current();
     let mut lines = Vec::new();
     let mut cursor = None;
-    let head = (form.git_ref.as_ref().map(|text| ("ref", text, Field::Ref)))
-        .or_else(|| (form.body.as_ref()).map(|text| ("comment", text, Field::Body)));
-    if let Some((label, text, field)) = head {
-        let active = current == Some(field);
-        let (spans, typed) = input(text, head_box, active, t);
-        let mut line = vec![Span::styled(format!("{label:<FORM_LABEL$}"), t.dim())];
+    if let Some(body) = &form.body {
+        cursor = Some(comment_lines(body, ref_box, &mut lines, t));
+    } else if let Some(git_ref) = &form.git_ref {
+        let active = current == Some(Field::Ref);
+        let (spans, typed) = input(git_ref, ref_box, active, t);
+        let mut line = vec![Span::styled(format!("{:<FORM_LABEL$}", "ref"), t.dim())];
         line.extend(spans);
         if active {
             cursor = Some((FORM_LABEL + 1 + typed, lines.len()));
@@ -192,6 +193,32 @@ fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
             frame.set_cursor_position(Position { x, y });
         }
     }
+}
+
+/// The box grows with the comment up to `COMMENT_ROWS` lines, and then shows the last ones. The
+/// answer is the cursor, after the last line, because typing only adds at the end.
+fn comment_lines(
+    body: &str,
+    box_width: usize,
+    lines: &mut Vec<Line<'static>>,
+    t: &Theme,
+) -> (usize, usize) {
+    let all: Vec<&str> = body.split('\n').collect();
+    let shown = &all[all.len().saturating_sub(COMMENT_ROWS)..];
+    let mut cursor = (0, 0);
+    for (row, text) in shown.iter().enumerate() {
+        let label = if row == 0 { "comment" } else { "" };
+        let mut text = expand_tabs(text);
+        if row + 1 < shown.len() {
+            text = fit(&text, box_width.saturating_sub(1));
+        }
+        let (spans, typed) = input(&text, box_width, true, t);
+        cursor = (FORM_LABEL + 1 + typed, lines.len());
+        let mut line = vec![Span::styled(format!("{label:<FORM_LABEL$}"), t.dim())];
+        line.extend(spans);
+        lines.push(Line::from(line));
+    }
+    cursor
 }
 
 fn draw_confirm(frame: &mut Frame, area: Rect, question: &str, verb: &str, t: &Theme) {

@@ -1,5 +1,5 @@
 //! The run and play forms: a ref for a new pipeline, and CI variables as rows of a key and a value.
-//! The comment form: one line of text for a merge request.
+//! The comment form: the text of a comment on a merge request, in one or more lines.
 
 use std::fmt;
 
@@ -112,7 +112,7 @@ impl Form {
     }
 
     pub fn takes_variables(&self) -> bool {
-        self.body.is_none()
+        !matches!(self.purpose, Purpose::Comment { .. })
     }
 
     fn first_row_field(&self) -> usize {
@@ -151,9 +151,15 @@ impl Form {
         }
     }
 
+    /// A field of one line drops each line break, so a paste cannot send the form.
     pub fn paste(&mut self, text: &str) {
+        let text = if self.current() == Some(Field::Body) {
+            text.replace("\r\n", "\n").replace('\r', "\n")
+        } else {
+            text.replace(['\r', '\n'], "")
+        };
         if let Some(field) = self.text() {
-            field.push_str(text);
+            field.push_str(&text);
         }
     }
 
@@ -161,6 +167,7 @@ impl Form {
         let fields = self.fields();
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
+                KeyCode::Char('s') if !self.takes_variables() => return self.send(),
                 KeyCode::Char('n') if self.takes_variables() => {
                     self.variables.push((String::new(), String::new()));
                     self.field = self.fields() - 2;
@@ -176,7 +183,12 @@ impl Form {
             return Outcome::Open;
         }
         match key.code {
-            KeyCode::Enter => return self.send(),
+            KeyCode::Enter if self.takes_variables() => return self.send(),
+            KeyCode::Enter => {
+                if let Some(text) = self.text() {
+                    text.push('\n');
+                }
+            }
             KeyCode::Esc => return Outcome::Closed,
             KeyCode::Tab if fields > 0 => self.field = (self.field + 1) % fields,
             KeyCode::BackTab if fields > 0 => self.field = (self.field + fields - 1) % fields,
