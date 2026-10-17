@@ -167,6 +167,14 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             merge_request,
             discussions: threads(now),
         },
+        Cmd::LoadDiff {
+            project,
+            merge_request,
+        } => Msg::DiffLoaded {
+            project,
+            merge_request,
+            files: diffs(),
+        },
         Cmd::ResolveThread {
             project,
             merge_request,
@@ -344,6 +352,45 @@ fn threads(now: OffsetDateTime) -> Vec<crate::gitlab::Discussion> {
             resolvable(note(7, "Dana", "Yes, it lives on the host volume.", 45), false),
             resolvable(note(8, "Sol", "Thanks.", 30), false),
         ]}),
+    ]
+    .into_iter()
+    .map(decode)
+    .collect()
+}
+
+fn diffs() -> Vec<crate::gitlab::FileDiff> {
+    let file =
+        |old: &str, new: &str, diff: &str| json!({"old_path": old, "new_path": new, "diff": diff});
+    let mut renamed = file(
+        "ci/cache.sh",
+        "ci/layers.sh",
+        "@@ -1,3 +1,3 @@\n #!/bin/sh\n-restore_cache\n+restore_layers\n echo done\n\\ No newline at end of file\n",
+    );
+    renamed["renamed_file"] = json!(true);
+    let mut created = file(
+        "Makefile",
+        "Makefile",
+        "@@ -0,0 +1,3 @@\n+ci:\tbuild\n+build:\n+\tjust ci-compile\n",
+    );
+    created["new_file"] = json!(true);
+    let mut deleted = file(
+        "db/old-cache.sql",
+        "db/old-cache.sql",
+        "@@ -1,2 +0,0 @@\n--- old cache table\n-DROP TABLE cache;\n",
+    );
+    deleted["deleted_file"] = json!(true);
+    let mut large = file("vendor/bundle.js", "vendor/bundle.js", "");
+    large["too_large"] = json!(true);
+    [
+        file(
+            ".gitlab-ci.yml",
+            ".gitlab-ci.yml",
+            "@@ -12,6 +12,13 @@ default:\n   image: registry.example.com/ci/base:2026.10\n   interruptible: true\n+  cache:\n+    key:\n+      files: [ci/base.digest]\n+    paths: [.layers/]\n+    policy: pull-push\n \n stages: [build, test, security, deploy]\n-compile:\n-  script: just ci-compile\n+compile:\n+  script:\n+    - just restore-layers\n+    - just ci-compile\n",
+        ),
+        renamed,
+        created,
+        deleted,
+        large,
     ]
     .into_iter()
     .map(decode)

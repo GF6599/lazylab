@@ -132,6 +132,18 @@ impl Live {
                     merge_request,
                     discussions,
                 }),
+            Cmd::LoadDiff {
+                project,
+                merge_request,
+            } => self
+                .client
+                .list_merge_request_diffs(project, merge_request)
+                .await
+                .map(|files| Msg::DiffLoaded {
+                    project,
+                    merge_request,
+                    files,
+                }),
             Cmd::ResolveThread {
                 project,
                 merge_request,

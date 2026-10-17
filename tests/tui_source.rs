@@ -576,3 +576,43 @@ async fn a_resolve_or_a_reopen_puts_the_new_state_of_the_thread_and_answers_with
         );
     }
 }
+
+#[tokio::test]
+async fn the_diff_of_a_merge_request_is_its_changed_files() {
+    // Given: GitLab with one changed file on merge request !412 of project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/merge_requests/412/diffs"))
+        .respond_with(json_body(
+            r#"[{"old_path":"a.rs","new_path":"a.rs","diff":"@@ -1 +1 @@\n-a\n+b\n"}]"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the diff is asked for.
+    let answer = source
+        .answer(Cmd::LoadDiff {
+            project: 1,
+            merge_request: 412,
+        })
+        .await;
+
+    // Then: the changed file comes back for that merge request.
+    let Some(Msg::DiffLoaded {
+        project: 1,
+        merge_request: 412,
+        files,
+    }) = answer
+    else {
+        panic!("a diff, got {answer:?}");
+    };
+    assert_eq!(
+        files
+            .iter()
+            .map(|f| f.new_path.as_str())
+            .collect::<Vec<_>>(),
+        ["a.rs"]
+    );
+}
