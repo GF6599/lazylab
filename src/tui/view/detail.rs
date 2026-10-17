@@ -1,16 +1,17 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use super::Context;
 use super::sidebar::row_name;
 use super::sidebar::row_status;
-use crate::gitlab::Status;
+use crate::gitlab::{Discussion, Status};
 use crate::tui::app::{App, Focus, MrTab, Pane};
 use crate::tui::jobs::JobRow;
 use crate::tui::panel::{block, bottom_label, kv, light_corners};
-use crate::tui::text::{age, pad, width as text_width};
+use crate::tui::text::{age, clamp_spans, fit, pad, width as text_width};
 use crate::tui::theme::Theme;
 
 pub(super) fn draw(frame: &mut Frame, app: &App, context: &Context, area: Rect, t: &Theme) {
@@ -25,7 +26,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App, context: &Context, area: Rect, 
     let (title, lines, label) = match job_view(app, body.height as usize, t) {
         Some(job) => job,
         None => {
-            let (title, lines) = view(app, context, body.width as usize, t);
+            let (title, lines) = view(app, context, body, t);
             (title, lines, None)
         }
     };
@@ -86,7 +87,8 @@ fn job_view(
     Some((title, lines, Some(label)))
 }
 
-fn view(app: &App, context: &Context, width: usize, t: &Theme) -> (String, Vec<Line<'static>>) {
+fn view(app: &App, context: &Context, body: Rect, t: &Theme) -> (String, Vec<Line<'static>>) {
+    let width = body.width as usize;
     let text = |s: String| vec![Span::styled(s, t.body())];
     let ago = |at: Option<time::OffsetDateTime>| {
         text(
@@ -170,29 +172,136 @@ fn view(app: &App, context: &Context, width: usize, t: &Theme) -> (String, Vec<L
             JobRow::Waiting { .. } => None,
         }),
         Pane::MergeRequests => app.merge_requests.get(cursor).map(|mr| {
-            if app.mr_tab != MrTab::Info {
-                return (format!("merge request !{}", mr.iid), Vec::new());
-            }
-            let lines = vec![
-                kv("title", text(mr.title.clone()), t),
-                kv("from", text(mr.source_branch.clone()), t),
-                kv("into", text(mr.target_branch.clone()), t),
-                kv(
-                    "by",
-                    text(
-                        mr.author
-                            .as_ref()
-                            .map(|a| a.name.clone())
-                            .unwrap_or_default(),
+            let lines = match app.mr_tab {
+                MrTab::Info => vec![
+                    kv("title", text(mr.title.clone()), t),
+                    kv("from", text(mr.source_branch.clone()), t),
+                    kv("into", text(mr.target_branch.clone()), t),
+                    kv(
+                        "by",
+                        text(
+                            mr.author
+                                .as_ref()
+                                .map(|a| a.name.clone())
+                                .unwrap_or_default(),
+                        ),
+                        t,
                     ),
-                    t,
-                ),
-                kv("updated", ago(mr.updated_at), t),
-            ];
+                    kv("updated", ago(mr.updated_at), t),
+                ],
+                MrTab::Threads => threads(app, context, width, body.height as usize, t),
+                MrTab::Diff => Vec::new(),
+            };
             (format!("merge request !{}", mr.iid), lines)
         }),
     }
     .unwrap_or_else(|| (app.pane.label().to_string(), Vec::new()))
+}
+
+const THREAD_RULE: usize = 40;
+
+/// The picked thread shows whole when it fits, and from its first line when it does not.
+fn threads(
+    app: &App,
+    context: &Context,
+    width: usize,
+    height: usize,
+    t: &Theme,
+) -> Vec<Line<'static>> {
+    let Some(threads) = app.shown_threads() else {
+        return vec![Line::styled("loading the threads", t.dim())];
+    };
+    let Some(discussions) = &threads.discussions else {
+        return vec![Line::styled("the threads did not load", t.dim())];
+    };
+    if discussions.is_empty() {
+        return vec![Line::styled("no threads", t.dim())];
+    }
+    let mut lines = Vec::new();
+    let mut picked = 0..0;
+    for (row, discussion) in discussions.iter().enumerate() {
+        if row > 0 {
+            lines.push(Line::styled("─".repeat(THREAD_RULE.min(width)), t.border()));
+            lines.push(Line::raw(""));
+        }
+        let start = lines.len();
+        let on = row == app.thread_row();
+        lines.extend(thread(discussion, on, context, width, t));
+        if on {
+            picked = start..lines.len();
+        }
+    }
+    let top = picked.end.saturating_sub(height).min(picked.start);
+    lines.split_off(top)
+}
+
+/// A note's first body line hangs from the tree, and its other lines continue the tree.
+fn thread(
+    discussion: &Discussion,
+    on: bool,
+    context: &Context,
+    width: usize,
+    t: &Theme,
+) -> Vec<Line<'static>> {
+    let notes: Vec<_> = discussion.notes.iter().filter(|n| !n.system).collect();
+    let mut lines = Vec::new();
+    for (i, note) in notes.iter().enumerate() {
+        let (first, last) = (i == 0, i + 1 == notes.len());
+        let author = note.author.as_ref().map_or("", |a| a.name.as_str());
+        let mut header = if first {
+            let (open, close) = if on { ("[", "]") } else { (" ", " ") };
+            vec![
+                Span::styled(open, t.marker()),
+                Span::styled(author.to_string(), if on { t.marked() } else { t.title() }),
+                Span::styled(close, t.marker()),
+            ]
+        } else {
+            vec![
+                Span::raw(pad(2)),
+                Span::styled(author.to_string(), t.title()),
+            ]
+        };
+        if let Some(at) = note.created_at {
+            header.push(Span::styled(
+                format!(" · {} ago", age(context.now, at)),
+                t.dim(),
+            ));
+        }
+        if first && note.resolvable {
+            let (badge, colour) = if note.resolved {
+                ("resolved", t.pine)
+            } else {
+                ("unresolved", t.love)
+            };
+            header.push(Span::raw(pad(2)));
+            header.push(Span::styled(badge, Style::new().fg(colour)));
+        }
+        lines.push(Line::from(clamp_spans(header, width)));
+        if first
+            && let Some(position) = &note.position
+            && let (Some(path), Some(line)) = (position.path(), position.line())
+        {
+            lines.push(Line::styled(
+                fit(&format!("  {path}:{line}"), width),
+                t.dim(),
+            ));
+        }
+        let (hang, carry) = match (first, last) {
+            (_, true) => ("└ ", "  "),
+            (true, false) => ("│ ", "│ "),
+            (false, false) => ("├ ", "│ "),
+        };
+        let room = width.saturating_sub(4);
+        for (n, text) in note.body.lines().enumerate() {
+            lines.push(Line::from(vec![
+                Span::raw(pad(2)),
+                Span::styled(if n == 0 { hang } else { carry }, t.border()),
+                Span::styled(fit(text, room), t.body()),
+            ]));
+        }
+        lines.push(Line::raw(""));
+    }
+    lines
 }
 
 /// The other tabs keep blank cells where the marker goes, so no label moves when the tab changes.

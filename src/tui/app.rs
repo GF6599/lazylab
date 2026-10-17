@@ -11,7 +11,9 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use super::form::{Form, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
-use crate::gitlab::{Bridge, Job, MergeRequest, Page, Pipeline, Project, Status, Variable};
+use crate::gitlab::{
+    Bridge, Discussion, Job, MergeRequest, Page, Pipeline, Project, Status, Variable,
+};
 use crate::store::CachedProjects;
 
 const PAGE: isize = 10;
@@ -31,6 +33,7 @@ enum Waiting {
     Project(u64),
     Pipeline { project: u64, pipeline: u64 },
     Job { project: u64, job: u64 },
+    MergeRequest,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,6 +245,11 @@ pub enum Msg {
         project: u64,
         merge_requests: Vec<MergeRequest>,
     },
+    ThreadsLoaded {
+        project: u64,
+        merge_request: u64,
+        discussions: Vec<Discussion>,
+    },
     /// The reason is already fit to show, with any credential redacted.
     Failed {
         cmd: Cmd,
@@ -286,6 +294,11 @@ pub enum Cmd {
     LoadMergeRequests {
         project: u64,
     },
+    /// `merge_request` is the number GitLab shows as `!42`.
+    LoadThreads {
+        project: u64,
+        merge_request: u64,
+    },
     Act(Action),
     /// The log of a job, in the project it runs in.
     LoadLog {
@@ -300,6 +313,14 @@ pub enum ProjectStatus {
     Pipeline(Status),
     NoPipeline,
     Unknown,
+}
+
+#[derive(Debug)]
+pub struct Threads {
+    pub project: u64,
+    pub merge_request: u64,
+    /// `None` when the load failed, which stops a retry until the cursor moves.
+    pub discussions: Option<Vec<Discussion>>,
 }
 
 #[derive(Debug, Default)]
@@ -367,6 +388,9 @@ pub struct App {
     pub merge_requests: Vec<MergeRequest>,
     /// The same tab stays in view from one merge request to the next.
     pub mr_tab: MrTab,
+    threads: Option<Threads>,
+    threads_asked: Option<(u64, u64)>,
+    thread_row: usize,
     cursors: [usize; Pane::ALL.len()],
 }
 
@@ -413,6 +437,9 @@ impl App {
             log_height: Cell::new(0),
             merge_requests: Vec::new(),
             mr_tab: MrTab::Info,
+            threads: None,
+            threads_asked: None,
+            thread_row: 0,
             cursors: [0; Pane::ALL.len()],
         }
     }
@@ -459,9 +486,10 @@ impl App {
     pub fn update(&mut self, msg: Msg) -> Vec<Cmd> {
         let mut commands = self.handle(msg);
         self.note_asked(&commands);
-        let log = self.ask_log();
-        self.note_asked(&log);
-        commands.extend(log);
+        let mut asks = self.ask_log();
+        asks.extend(self.ask_threads());
+        self.note_asked(&asks);
+        commands.extend(asks);
         commands
     }
 
@@ -475,6 +503,10 @@ impl App {
                     self.children_asked.insert(*pipeline);
                 }
                 Cmd::LoadLog { job, .. } => self.log_asked = Some(*job),
+                Cmd::LoadThreads {
+                    project,
+                    merge_request,
+                } => self.threads_asked = Some((*project, *merge_request)),
                 _ => {}
             }
         }
@@ -530,6 +562,81 @@ impl App {
             _ => self.log_scroll = 0,
         }
         self.log = Some(log);
+    }
+
+    fn wanted_threads(&self) -> Option<(u64, u64)> {
+        if self.pane != Pane::MergeRequests || self.mr_tab != MrTab::Threads {
+            return None;
+        }
+        let project = self.selected()?;
+        let merge_request = self.merge_requests.get(self.cursor(Pane::MergeRequests))?;
+        Some((project, merge_request.iid))
+    }
+
+    /// The threads of the merge request in view, once they loaded or failed to.
+    pub fn shown_threads(&self) -> Option<&Threads> {
+        let wanted = self.wanted_threads()?;
+        (self.threads.as_ref()).filter(|t| (t.project, t.merge_request) == wanted)
+    }
+
+    pub fn thread_row(&self) -> usize {
+        self.thread_row
+    }
+
+    fn ask_threads(&mut self) -> Vec<Cmd> {
+        let Some((project, merge_request)) = self.wanted_threads() else {
+            return Vec::new();
+        };
+        let asked = self.threads_asked == Some((project, merge_request));
+        if self.shown_threads().is_some() || self.waiting.is_some() || asked {
+            return Vec::new();
+        }
+        vec![Cmd::LoadThreads {
+            project,
+            merge_request,
+        }]
+    }
+
+    /// A discussion of system notes only, such as "added 1 commit", is not a thread.
+    fn threads_loaded(&mut self, key: (u64, u64), discussions: Option<Vec<Discussion>>) {
+        if self.threads_asked == Some(key) {
+            self.threads_asked = None;
+        }
+        if self.wanted_threads() != Some(key) {
+            return;
+        }
+        let discussions = discussions.map(|all| {
+            (all.into_iter())
+                .filter(|d| d.notes.iter().any(|n| !n.system))
+                .collect::<Vec<_>>()
+        });
+        let before = (self.shown_threads())
+            .and_then(|t| t.discussions.as_ref())
+            .and_then(|d| d.get(self.thread_row))
+            .map(|d| d.id.clone());
+        if let Some(list) = &discussions {
+            self.thread_row = keep(list, |d| d.id.clone(), before, self.thread_row);
+        }
+        let (project, merge_request) = key;
+        self.threads = Some(Threads {
+            project,
+            merge_request,
+            discussions,
+        });
+    }
+
+    fn move_thread(&mut self, delta: isize) {
+        let len = (self.shown_threads())
+            .and_then(|t| t.discussions.as_ref())
+            .map_or(0, Vec::len);
+        if len > 0 {
+            self.thread_row = self.thread_row.saturating_add_signed(delta).min(len - 1);
+        }
+    }
+
+    fn clear_threads(&mut self) {
+        self.threads = None;
+        self.thread_row = 0;
     }
 
     fn scroll_log(&mut self, delta: isize) {
@@ -599,6 +706,18 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd:
+                    Cmd::LoadThreads {
+                        project,
+                        merge_request,
+                    },
+                error,
+            } => {
+                self.threads_loaded((project, merge_request), None);
+                self.error = Some(error);
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -657,7 +776,16 @@ impl App {
                 if self.project().map(|p| p.id) == Some(project) {
                     self.merge_requests = merge_requests;
                     self.cursors[Pane::MergeRequests.index()] = 0;
+                    self.clear_threads();
                 }
+                Vec::new()
+            }
+            Msg::ThreadsLoaded {
+                project,
+                merge_request,
+                discussions,
+            } => {
+                self.threads_loaded((project, merge_request), Some(discussions));
                 Vec::new()
             }
         }
@@ -1085,6 +1213,10 @@ impl App {
             self.scroll_log(delta);
             return Vec::new();
         }
+        if self.focus == Focus::Detail && self.wanted_threads().is_some() {
+            self.move_thread(delta);
+            return Vec::new();
+        }
         if self.focus == Focus::Detail || len == 0 {
             return Vec::new();
         }
@@ -1116,7 +1248,13 @@ impl App {
                 }
                 Vec::new()
             }
-            Pane::MergeRequests => Vec::new(),
+            Pane::MergeRequests => {
+                self.clear_threads();
+                if self.wanted_threads().is_some() {
+                    self.wait(Waiting::MergeRequest);
+                }
+                Vec::new()
+            }
         }
     }
 
@@ -1126,6 +1264,7 @@ impl App {
         self.pipelines.clear();
         self.clear_jobs();
         self.merge_requests.clear();
+        self.clear_threads();
         self.waiting = None;
         let Some(project) = self.selected() else {
             return Vec::new();
@@ -1163,6 +1302,8 @@ impl App {
             ],
             Waiting::Pipeline { project, pipeline } => vec![Cmd::LoadJobs { project, pipeline }],
             Waiting::Job { project, job } => vec![Cmd::LoadLog { project, job }],
+            // `ask_threads` asks for the threads in the update that ends the wait.
+            Waiting::MergeRequest => Vec::new(),
         }
     }
 

@@ -120,6 +120,18 @@ impl Live {
                     project,
                     merge_requests: page.items,
                 }),
+            Cmd::LoadThreads {
+                project,
+                merge_request,
+            } => self
+                .client
+                .list_merge_request_discussions(project, merge_request)
+                .await
+                .map(|discussions| Msg::ThreadsLoaded {
+                    project,
+                    merge_request,
+                    discussions,
+                }),
         };
         Some(result.unwrap_or_else(|e: Error| {
             tracing::warn!(error = %e, "GitLab call failed");
