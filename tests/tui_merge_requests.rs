@@ -1,4 +1,4 @@
-use lazylab::tui::app::{App, Cmd, Msg};
+use lazylab::tui::app::{App, Cmd, Msg, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::theme::ROSE_PINE as T;
 use lazylab::tui::view::{Context, draw};
@@ -24,11 +24,43 @@ fn loaded() -> App {
     app
 }
 
-fn press(app: &mut App, c: char) {
+fn press(app: &mut App, c: char) -> Vec<Cmd> {
     app.update(Msg::Key(KeyEvent::new(
         KeyCode::Char(c),
         KeyModifiers::NONE,
-    )));
+    )))
+}
+
+fn ticks(app: &mut App, n: usize) -> Vec<Cmd> {
+    (0..n).flat_map(|_| app.update(Msg::Tick)).collect()
+}
+
+fn answer(app: &mut App, mut commands: Vec<Cmd>) {
+    while let Some(command) = commands.pop() {
+        if let Some(msg) = demo::answer(command, now()) {
+            commands.extend(app.update(msg));
+        }
+    }
+}
+
+fn threads_asked(commands: &[Cmd]) -> Vec<(u64, u64)> {
+    (commands.iter())
+        .filter_map(|c| match c {
+            Cmd::LoadThreads {
+                project,
+                merge_request,
+            } => Some((*project, *merge_request)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn on_threads() -> App {
+    let mut app = loaded();
+    press(&mut app, '4');
+    let commands = press(&mut app, ']');
+    answer(&mut app, commands);
+    app
 }
 
 fn render(app: &App) -> Buffer {
@@ -49,6 +81,25 @@ fn rows(buffer: &Buffer) -> Vec<String> {
                 .collect()
         })
         .collect()
+}
+
+fn screen(buffer: &Buffer) -> String {
+    (rows(buffer).iter())
+        .map(|row| row.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn marked_thread(buffer: &Buffer) -> String {
+    let shown = rows(buffer);
+    let marked: Vec<_> = ["Dana", "Kofi", "Mei", "Ravi", "Sol"]
+        .into_iter()
+        .filter(|author| shown.iter().any(|row| row.contains(&format!("[{author}]"))))
+        .collect();
+    let [author] = marked[..] else {
+        panic!("one marked thread, got {marked:?} in\n{}", shown.join("\n"));
+    };
+    author.to_string()
 }
 
 fn marked_tab(buffer: &Buffer) -> String {
@@ -133,4 +184,185 @@ fn the_key_bar_offers_the_brackets_on_the_merge_requests_pane() {
     // Then: the key bar at the bottom offers `[ ]` to turn the tab.
     let bar = shown.last().unwrap();
     assert!(bar.contains("[ ]") && bar.contains("tab"), "{bar}");
+}
+
+/// Three ticks of 100 ms, the wait before a moved cursor loads.
+const SETTLE_TICKS: usize = 3;
+const PROJECT: u64 = 101;
+
+#[test]
+fn the_threads_tab_loads_the_threads_of_the_merge_request_the_cursor_rests_on() {
+    // Given: the demo data on the merge requests pane, on its info tab.
+    let mut app = loaded();
+    let on_info = press(&mut app, '4');
+
+    // When: the threads tab opens.
+    let opened = press(&mut app, ']');
+
+    // Then: the threads of the first merge request are asked for at once, and not before.
+    assert_eq!(threads_asked(&on_info), []);
+    assert_eq!(threads_asked(&opened), [(PROJECT, 412)]);
+
+    // When: the cursor moves down two merge requests, then rests.
+    let moving = [press(&mut app, 'j'), press(&mut app, 'j')].concat();
+    let settled = ticks(&mut app, SETTLE_TICKS);
+
+    // Then: only the threads of the merge request it stopped on are asked for, once it rests.
+    assert_eq!(threads_asked(&moving), []);
+    assert_eq!(threads_asked(&settled), [(PROJECT, 407)]);
+}
+
+#[test]
+fn no_threads_are_asked_for_while_the_threads_tab_is_out_of_view() {
+    // Given: the demo data on the merge requests pane, on its info tab.
+    let mut app = loaded();
+    press(&mut app, '4');
+
+    // When: the cursor moves to the next merge request, and rests well past the wait.
+    let commands = [press(&mut app, 'j'), ticks(&mut app, SETTLE_TICKS * 3)].concat();
+
+    // Then: no threads are asked for.
+    assert_eq!(threads_asked(&commands), []);
+}
+
+#[test]
+fn the_threads_tab_shows_each_thread_with_its_replies() {
+    // Given: the threads of the first merge request, loaded from the demo data.
+    let app = on_threads();
+
+    // When: the screen is drawn.
+    let buffer = render(&app);
+    let shown = rows(&buffer);
+    let has = |text: &str| shown.iter().any(|row| row.contains(text));
+
+    // Then: a thread shows its author, its age, whether it is resolved, the line it is on, and
+    // its notes on a tree, while a discussion of system notes only stays out.
+    assert!(has("[Kofi] · 3h ago  resolved"), "{}", screen(&buffer));
+    assert!(has(".gitlab-ci.yml:14"));
+    assert!(has("│ Does the cache key change"));
+    assert!(has("Dana · 2h ago"));
+    assert!(has("└ No, the key is the digest"));
+    assert!(has("Mei · 2h ago  unresolved"));
+    assert!(!has("added 1 commit"));
+
+    // And: the unresolved badge is in the palette's love, the resolved one in its pine.
+    let (y, row) = (shown.iter().enumerate())
+        .find(|(_, row)| row.contains("unresolved"))
+        .unwrap();
+    let x = row[..row.find("unresolved").unwrap()].chars().count() as u16;
+    assert_eq!(buffer[(x, y as u16)].fg, T.love);
+    let (y, row) = (shown.iter().enumerate())
+        .find(|(_, row)| row.contains("  resolved"))
+        .unwrap();
+    let x = row[..row.find("  resolved").unwrap()].chars().count() as u16 + 2;
+    assert_eq!(buffer[(x, y as u16)].fg, T.pine);
+    insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
+fn j_and_k_in_the_detail_pick_a_thread() {
+    // Given: the threads of the first merge request, with the detail pane focused.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+
+    // Then: the first thread is picked, with a gold marker around an iris author.
+    let buffer = render(&app);
+    assert_eq!(marked_thread(&buffer), "Kofi");
+    let shown = rows(&buffer);
+    let (y, row) = (shown.iter().enumerate())
+        .find(|(_, row)| row.contains("[Kofi]"))
+        .unwrap();
+    let x = row[..row.find("[Kofi]").unwrap()].chars().count() as u16;
+    assert_eq!(buffer[(x, y as u16)].fg, T.gold);
+    assert_eq!(buffer[(x + 1, y as u16)].fg, T.iris);
+
+    // When: `j` is pressed. Then: the next thread is picked, and the merge request stays.
+    press(&mut app, 'j');
+    assert_eq!(marked_thread(&render(&app)), "Mei");
+    assert_eq!(app.cursor(Pane::MergeRequests), 0);
+
+    // When: `G`, then `j` past the end, then `k`. Then: the last thread, still, then the one
+    // before it.
+    press(&mut app, 'G');
+    assert_eq!(marked_thread(&render(&app)), "Sol");
+    press(&mut app, 'j');
+    assert_eq!(marked_thread(&render(&app)), "Sol");
+    press(&mut app, 'k');
+    assert_eq!(marked_thread(&render(&app)), "Ravi");
+}
+
+#[test]
+fn the_picked_thread_stays_in_view() {
+    // Given: the threads of the first merge request, with the detail pane focused.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+
+    // When: the last thread is picked.
+    press(&mut app, 'G');
+
+    // Then: its header and its last reply show, though the threads before it fill the pane.
+    let shown = rows(&render(&app));
+    assert!(shown.iter().any(|row| row.contains("[Sol]")));
+    assert!(shown.iter().any(|row| row.contains("└ Thanks.")));
+}
+
+#[test]
+fn threads_for_a_merge_request_the_cursor_left_are_dropped() {
+    // Given: the threads tab, with the first merge request's threads asked for.
+    let mut app = loaded();
+    press(&mut app, '4');
+    let asked = press(&mut app, ']');
+
+    // When: the cursor moves on before they arrive, and then they arrive.
+    press(&mut app, 'j');
+    answer(&mut app, asked);
+
+    // Then: the detail does not show them, and waits for the threads of the new merge request.
+    let shown = rows(&render(&app));
+    assert!(!shown.iter().any(|row| row.contains("Kofi")));
+    assert!(shown.iter().any(|row| row.contains("loading the threads")));
+}
+
+#[test]
+fn a_failed_load_says_so_and_is_not_asked_again_until_the_cursor_moves() {
+    // Given: the threads tab, with the first merge request's threads asked for.
+    let mut app = loaded();
+    press(&mut app, '4');
+    let cmd = press(&mut app, ']').pop().unwrap();
+
+    // When: the load fails, and time passes.
+    let failed = app.update(Msg::Failed {
+        cmd,
+        error: "403 Forbidden".into(),
+    });
+    let waited = ticks(&mut app, SETTLE_TICKS * 3);
+
+    // Then: the detail says the threads did not load, and they are not asked for again.
+    assert!(
+        rows(&render(&app))
+            .iter()
+            .any(|row| row.contains("the threads did not load"))
+    );
+    assert_eq!(threads_asked(&[failed, waited].concat()), []);
+
+    // When: the cursor moves to the next merge request and rests. Then: its threads load.
+    press(&mut app, 'j');
+    assert_eq!(
+        threads_asked(&ticks(&mut app, SETTLE_TICKS)),
+        [(PROJECT, 409)]
+    );
+}
+
+#[test]
+fn the_key_bar_offers_j_and_k_to_pick_a_thread() {
+    // Given: the threads tab, with the detail pane focused.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+
+    // When: the screen is drawn.
+    let shown = rows(&render(&app));
+
+    // Then: the key bar offers `j/k` to pick a thread.
+    let bar = shown.last().unwrap();
+    assert!(bar.contains("j/k") && bar.contains("thread"), "{bar}");
 }
