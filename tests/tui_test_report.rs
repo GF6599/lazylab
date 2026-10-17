@@ -168,17 +168,19 @@ fn a_late_test_report_for_a_pipeline_the_cursor_left_is_dropped() {
     let mut app = on_pipelines();
     let late = press(&mut app, 'T');
 
-    // When: the cursor moves to the next pipeline and rests, and the first report arrives.
+    // When: the cursor moves to the next pipeline, whose report loads, and then the first
+    // report arrives.
     press(&mut app, 'j');
-    let asked = reports_asked(&ticks(&mut app, SETTLE_TICKS));
+    let settled = ticks(&mut app, SETTLE_TICKS);
     let next = app.pipeline().unwrap().id;
+    assert_eq!(reports_asked(&settled), [(PROJECT, next)]);
+    answer(&mut app, settled);
     let late = demo::answer(late.into_iter().next().unwrap(), now()).unwrap();
     let commands = app.update(late);
 
-    // Then: the next pipeline's report is asked for once, and the detail still waits for it.
-    assert_eq!(asked, [(PROJECT, next)]);
+    // Then: the next pipeline's report stays in view, and is not asked for again.
+    assert!(detail(&render_at(&app, 24)).contains("suites"));
     assert_eq!(reports_asked(&commands), []);
-    assert!(detail(&render_at(&app, 10)).contains("loading the test report"));
 }
 
 #[test]
@@ -203,7 +205,7 @@ fn a_failed_test_report_is_not_asked_again_until_the_pipeline_changes_or_t_asks(
     press(&mut app, 'T');
     assert_eq!(reports_asked(&press(&mut app, 'T')), [(PROJECT, first)]);
 
-    // When: that load fails too, and the cursor moves to the next pipeline and rests.
+    // When: that load fails too, and the cursor moves to the next pipeline and back, and rests.
     app.update(Msg::Failed {
         cmd: Cmd::LoadTestReport {
             project: PROJECT,
@@ -212,13 +214,11 @@ fn a_failed_test_report_is_not_asked_again_until_the_pipeline_changes_or_t_asks(
         error: "500 Internal Server Error".into(),
     });
     press(&mut app, 'j');
+    press(&mut app, 'k');
     let asked = ticks(&mut app, SETTLE_TICKS);
 
-    // Then: the next pipeline's report is asked for.
-    assert_eq!(
-        reports_asked(&asked),
-        [(PROJECT, app.pipeline().unwrap().id)]
-    );
+    // Then: the report is asked for again.
+    assert_eq!(reports_asked(&asked), [(PROJECT, first)]);
 }
 
 #[test]
