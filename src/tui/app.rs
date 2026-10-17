@@ -412,6 +412,8 @@ pub struct App {
     pub mr_tab: MrTab,
     threads: Option<Threads>,
     threads_asked: Option<(u64, u64)>,
+    /// A resolve answered while a reload was out, which that reload may not show.
+    threads_reload_due: bool,
     thread_row: usize,
     diff: Option<Diff>,
     diff_asked: Option<(u64, u64)>,
@@ -467,6 +469,7 @@ impl App {
             mr_tab: MrTab::Info,
             threads: None,
             threads_asked: None,
+            threads_reload_due: false,
             thread_row: 0,
             diff: None,
             diff_asked: None,
@@ -695,13 +698,18 @@ impl App {
     }
 
     /// A discussion of system notes only, such as "added 1 commit", is not a thread.
-    fn threads_loaded(&mut self, key: (u64, u64), discussions: Option<Vec<Discussion>>) {
+    fn threads_loaded(
+        &mut self,
+        key: (u64, u64),
+        discussions: Option<Vec<Discussion>>,
+    ) -> Vec<Cmd> {
         if self.threads_asked == Some(key) {
             self.threads_asked = None;
         }
         if self.wanted_threads() != Some(key) {
-            return;
+            return Vec::new();
         }
+        let reload = std::mem::take(&mut self.threads_reload_due);
         let discussions = discussions.map(|all| {
             (all.into_iter())
                 .filter(|d| d.notes.iter().any(|n| !n.system))
@@ -720,6 +728,13 @@ impl App {
             merge_request,
             discussions,
         });
+        if !reload {
+            return Vec::new();
+        }
+        vec![Cmd::LoadThreads {
+            project,
+            merge_request,
+        }]
     }
 
     fn picked_thread(&self) -> Option<&Discussion> {
@@ -752,7 +767,11 @@ impl App {
     fn thread_resolved(&mut self, key: (u64, u64), resolved: bool) -> Vec<Cmd> {
         let done = if resolved { "Resolved" } else { "Reopened" };
         self.notice = Some(format!("{done} the thread"));
-        if self.wanted_threads() != Some(key) || self.threads_asked == Some(key) {
+        if self.wanted_threads() != Some(key) {
+            return Vec::new();
+        }
+        if self.threads_asked == Some(key) {
+            self.threads_reload_due = true;
             return Vec::new();
         }
         let (project, merge_request) = key;
@@ -773,6 +792,7 @@ impl App {
 
     fn clear_threads(&mut self) {
         self.threads = None;
+        self.threads_reload_due = false;
         self.thread_row = 0;
     }
 
@@ -850,9 +870,8 @@ impl App {
                     },
                 error,
             } => {
-                self.threads_loaded((project, merge_request), None);
                 self.error = Some(error);
-                Vec::new()
+                self.threads_loaded((project, merge_request), None)
             }
             Msg::Failed {
                 cmd:
@@ -934,10 +953,7 @@ impl App {
                 project,
                 merge_request,
                 discussions,
-            } => {
-                self.threads_loaded((project, merge_request), Some(discussions));
-                Vec::new()
-            }
+            } => self.threads_loaded((project, merge_request), Some(discussions)),
             Msg::ThreadResolved {
                 project,
                 merge_request,
