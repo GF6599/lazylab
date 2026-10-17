@@ -497,3 +497,43 @@ async fn a_refused_run_answers_without_the_variable_value_it_echoed() {
     assert!(error.starts_with("create pipeline"), "{error}");
     assert!(!error.contains("s3cr3t-value-9f2"), "{error}");
 }
+
+#[tokio::test]
+async fn the_threads_of_a_merge_request_are_its_discussions() {
+    // Given: GitLab with one discussion on merge request !412 of project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/merge_requests/412/discussions"))
+        .respond_with(json_body(
+            r#"[{"id":"d1","notes":[{"id":1,"body":"Why?","author":{"name":"Kofi"}}]}]"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the threads are asked for.
+    let answer = source
+        .answer(Cmd::LoadThreads {
+            project: 1,
+            merge_request: 412,
+        })
+        .await;
+
+    // Then: the discussion comes back for that merge request.
+    let Some(Msg::ThreadsLoaded {
+        project: 1,
+        merge_request: 412,
+        discussions,
+    }) = answer
+    else {
+        panic!("threads, got {answer:?}");
+    };
+    assert_eq!(
+        discussions
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect::<Vec<_>>(),
+        ["d1"]
+    );
+}
