@@ -64,7 +64,11 @@ fn on_threads() -> App {
 }
 
 fn render(app: &App) -> Buffer {
-    let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    render_at(app, 32)
+}
+
+fn render_at(app: &App, height: u16) -> Buffer {
+    let mut terminal = Terminal::new(TestBackend::new(120, height)).unwrap();
     let context = Context {
         host: "gitlab.example.com".into(),
         now: now(),
@@ -525,4 +529,210 @@ fn the_key_bar_offers_r_to_resolve_a_thread() {
     // Then: the key bar offers `r` to resolve the thread.
     let bar = shown.last().unwrap();
     assert!(bar.contains("r resolve"), "{bar}");
+}
+
+fn diffs_asked(commands: &[Cmd]) -> Vec<(u64, u64)> {
+    (commands.iter())
+        .filter_map(|c| match c {
+            Cmd::LoadDiff {
+                project,
+                merge_request,
+            } => Some((*project, *merge_request)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn on_diff() -> App {
+    let mut app = loaded();
+    press(&mut app, '4');
+    let commands = press(&mut app, '[');
+    answer(&mut app, commands);
+    app
+}
+
+fn shows(buffer: &Buffer, text: &str) -> bool {
+    rows(buffer).iter().any(|row| row.contains(text))
+}
+
+fn colour_of(buffer: &Buffer, text: &str) -> ratatui::style::Color {
+    let shown = rows(buffer);
+    let (y, row) = (shown.iter().enumerate())
+        .find(|(_, row)| row.contains(text))
+        .unwrap_or_else(|| panic!("no {text:?} in\n{}", shown.join("\n")));
+    let x = row[..row.find(text).unwrap()].chars().count() as u16;
+    buffer[(x, y as u16)].fg
+}
+
+#[test]
+fn the_diff_tab_loads_the_diff_of_the_merge_request_the_cursor_rests_on() {
+    // Given: the demo data on the merge requests pane, on its info tab.
+    let mut app = loaded();
+    press(&mut app, '4');
+
+    // When: the diff tab opens.
+    let opened = press(&mut app, '[');
+
+    // Then: the diff of the first merge request is asked for at once, and no threads.
+    assert_eq!(diffs_asked(&opened), [(PROJECT, 412)]);
+    assert_eq!(threads_asked(&opened), []);
+
+    // When: the cursor moves down two merge requests, then rests.
+    let moving = [press(&mut app, 'j'), press(&mut app, 'j')].concat();
+    let settled = ticks(&mut app, SETTLE_TICKS);
+
+    // Then: only the diff of the merge request it stopped on is asked for, once it rests.
+    assert_eq!(diffs_asked(&moving), []);
+    assert_eq!(diffs_asked(&settled), [(PROJECT, 407)]);
+}
+
+#[test]
+fn no_diff_is_asked_for_while_the_diff_tab_is_out_of_view() {
+    // Given: the demo data on the threads tab of the merge requests pane.
+    let mut app = on_threads();
+
+    // When: the cursor moves to the next merge request, and rests well past the wait.
+    let commands = [press(&mut app, 'j'), ticks(&mut app, SETTLE_TICKS * 3)].concat();
+
+    // Then: no diff is asked for.
+    assert_eq!(diffs_asked(&commands), []);
+}
+
+#[test]
+fn the_diff_tab_shows_each_file_with_its_lines_in_the_palette_colours() {
+    // Given: the diff of the first merge request, loaded from the demo data.
+    let app = on_diff();
+
+    // When: the screen is drawn tall enough for the whole diff.
+    let buffer = render_at(&app, 60);
+
+    // Then: each file says how it changed, and a file too large for GitLab says so.
+    assert!(
+        shows(&buffer, "modified: .gitlab-ci.yml"),
+        "{}",
+        screen(&buffer)
+    );
+    assert!(shows(&buffer, "renamed: ci/cache.sh → ci/layers.sh"));
+    assert!(shows(&buffer, "new file: Makefile"));
+    assert!(shows(&buffer, "deleted: db/old-cache.sql"));
+    assert!(shows(&buffer, "modified: vendor/bundle.js"));
+    assert!(shows(&buffer, "too large to show"));
+
+    // And: a tab in the code reaches the next stop of four columns.
+    assert!(shows(&buffer, "+all:    build"));
+    assert!(shows(&buffer, "+    just ci-compile"));
+
+    // And: added lines are pine, removed lines love, hunk headers foam, the rest plain text,
+    // and a removed line that starts with dashes is still a removed line.
+    assert_eq!(colour_of(&buffer, "+  cache:"), T.pine);
+    assert_eq!(colour_of(&buffer, "-compile:"), T.love);
+    assert_eq!(colour_of(&buffer, "--- old"), T.love);
+    assert_eq!(colour_of(&buffer, "@@ -12,6 +12,13 @@"), T.foam);
+    assert_eq!(colour_of(&buffer, "   interruptible: true"), T.text);
+    insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
+fn j_and_k_in_the_detail_scroll_the_diff() {
+    // Given: the diff of the first merge request, taller than the detail pane, focused.
+    let mut app = on_diff();
+    press(&mut app, 'l');
+
+    // Then: the diff shows from its first file.
+    let top = render(&app);
+    assert!(shows(&top, "modified: .gitlab-ci.yml"));
+    assert!(!shows(&top, "too large to show"));
+
+    // When: `j` is pressed. Then: the diff moves up a line, and the merge request stays.
+    press(&mut app, 'j');
+    assert!(!shows(&render(&app), "modified: .gitlab-ci.yml"));
+    assert_eq!(app.cursor(Pane::MergeRequests), 0);
+
+    // When: `G`, then `j` past the end. Then: the last line shows at the bottom, still.
+    press(&mut app, 'G');
+    let bottom = render(&app);
+    assert!(shows(&bottom, "too large to show"));
+    press(&mut app, 'j');
+    assert_eq!(screen(&render(&app)), screen(&bottom));
+
+    // When: `g`, then `k` past the top. Then: the diff shows from its first file again.
+    press(&mut app, 'g');
+    press(&mut app, 'k');
+    assert_eq!(screen(&render(&app)), screen(&top));
+}
+
+#[test]
+fn another_merge_request_opens_at_the_top_of_its_diff() {
+    // Given: the end of the first merge request's diff in view.
+    let mut app = on_diff();
+    press(&mut app, 'l');
+    press(&mut app, 'G');
+
+    // When: the cursor moves to the next merge request, and its diff loads.
+    press(&mut app, 'h');
+    press(&mut app, 'j');
+    let asked = ticks(&mut app, SETTLE_TICKS);
+    answer(&mut app, asked);
+
+    // Then: its diff shows from its first file.
+    assert!(shows(&render(&app), "modified: .gitlab-ci.yml"));
+}
+
+#[test]
+fn a_diff_for_a_merge_request_the_cursor_left_is_dropped() {
+    // Given: the diff tab, with the first merge request's diff asked for.
+    let mut app = loaded();
+    press(&mut app, '4');
+    let asked = press(&mut app, '[');
+
+    // When: the cursor moves on before it arrives, and then it arrives.
+    press(&mut app, 'j');
+    let late = demo::answer(asked.into_iter().next().unwrap(), now()).unwrap();
+    let commands = app.update(late);
+
+    // Then: the detail waits for the diff of the new merge request, and asks for nothing yet.
+    let buffer = render(&app);
+    assert!(!shows(&buffer, "modified: .gitlab-ci.yml"));
+    assert!(shows(&buffer, "loading the diff"));
+    assert_eq!(diffs_asked(&commands), []);
+}
+
+#[test]
+fn a_failed_diff_load_says_so_and_is_not_asked_again_until_the_cursor_moves() {
+    // Given: the diff tab, with the first merge request's diff asked for.
+    let mut app = loaded();
+    press(&mut app, '4');
+    let cmd = press(&mut app, '[').pop().unwrap();
+
+    // When: the load fails, and time passes.
+    let failed = app.update(Msg::Failed {
+        cmd,
+        error: "403 Forbidden".into(),
+    });
+    let waited = ticks(&mut app, SETTLE_TICKS * 3);
+
+    // Then: the detail says the diff did not load, and it is not asked for again.
+    assert!(shows(&render(&app), "the diff did not load"));
+    assert_eq!(diffs_asked(&[failed, waited].concat()), []);
+
+    // When: the cursor moves to the next merge request and rests. Then: its diff loads.
+    press(&mut app, 'j');
+    assert_eq!(
+        diffs_asked(&ticks(&mut app, SETTLE_TICKS)),
+        [(PROJECT, 409)]
+    );
+}
+
+#[test]
+fn the_key_bar_offers_j_and_k_to_scroll_the_diff() {
+    // Given: the diff tab, with the detail pane focused.
+    let mut app = on_diff();
+    press(&mut app, 'l');
+
+    // When: the screen is drawn.
+    let shown = rows(&render(&app));
+
+    // Then: the key bar offers `j/k` to scroll.
+    let bar = shown.last().unwrap();
+    assert!(bar.contains("j/k scroll"), "{bar}");
 }
