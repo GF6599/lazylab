@@ -87,6 +87,30 @@ pub enum Focus {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MrTab {
+    Info,
+    Threads,
+    Diff,
+}
+
+impl MrTab {
+    pub const ALL: [MrTab; 3] = [MrTab::Info, MrTab::Threads, MrTab::Diff];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MrTab::Info => "info",
+            MrTab::Threads => "threads",
+            MrTab::Diff => "diff",
+        }
+    }
+
+    fn step(self, delta: usize) -> MrTab {
+        let index = MrTab::ALL.iter().position(|&tab| tab == self).unwrap_or(0);
+        MrTab::ALL[(index + delta) % MrTab::ALL.len()]
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlay {
     None,
     Help,
@@ -341,6 +365,8 @@ pub struct App {
     /// The rows the detail pane gave the log when it last drew, so a scroll stops at the top.
     pub log_height: Cell<usize>,
     pub merge_requests: Vec<MergeRequest>,
+    /// The same tab stays in view from one merge request to the next.
+    pub mr_tab: MrTab,
     cursors: [usize; Pane::ALL.len()],
 }
 
@@ -386,6 +412,7 @@ impl App {
             log_scroll: 0,
             log_height: Cell::new(0),
             merge_requests: Vec::new(),
+            mr_tab: MrTab::Info,
             cursors: [0; Pane::ALL.len()],
         }
     }
@@ -706,6 +733,12 @@ impl App {
             }
             KeyCode::Char('{') if on_projects => return self.move_favorite(-1),
             KeyCode::Char('}') if on_projects => return self.move_favorite(1),
+            KeyCode::Char(']') if self.pane == Pane::MergeRequests => {
+                self.mr_tab = self.mr_tab.step(1);
+            }
+            KeyCode::Char('[') if self.pane == Pane::MergeRequests => {
+                self.mr_tab = self.mr_tab.step(MrTab::ALL.len() - 1);
+            }
             KeyCode::Char(']') if on_pipelines => {
                 if let Some(next) = self.next_pipeline_page {
                     return self.turn_pipeline_page(next);

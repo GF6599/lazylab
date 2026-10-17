@@ -7,27 +7,27 @@ expression: screen(&buffer)
 ┌─ projects ───────────────────────────────────┐┌─ acme/platform/api ──────────────────────────────────────────────────┐
 │[⠋ acme/platform/api                       4m]││ about      Public REST API and webhook fan-out                       │
 │ ✓ acme/platform/web                      12m ││ branch     main                                                      │
-│ ⠋ acme/platform/workers                   1h ││ active     4m ago                                                    │
-│ ✓ acme/infra/terraform   ┌─ help ────────────────────────────────────────────────────────┐/platform/api              │
-│ ⠋ acme/infra/helm-charts │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
-│ ✓ acme/infra/runner-image│ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
-│ ⠋ acme/data/ingest       │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
-│ ✓ acme/data/warehouse-mod│ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
-│ ⠋ acme/tools/lazylab     │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
-│ ✓ acme/tools/release-bot │ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
-│ ⠋ acme/mobile/ios-app    │                                                               │                           │
-│ ✓ acme/mobile/android-app│ j k ↑ ↓     move                                              │                           │
-│ ⠋ acme/docs/handbook     │ g G         first, last                                       │                           │
-│                          │ ctrl+d u    page down, up                                     │                           │
+│ ⠋ acme/platform/workers  ┌─ help ────────────────────────────────────────────────────────┐                           │
+│ ✓ acme/infra/terraform   │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │/platform/api              │
+│ ⠋ acme/infra/helm-charts │ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
+│ ✓ acme/infra/runner-image│ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
+│ ⠋ acme/data/ingest       │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
+│ ✓ acme/data/warehouse-mod│ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
+│ ⠋ acme/tools/lazylab     │ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
+│ ✓ acme/tools/release-bot │                                                               │                           │
+│ ⠋ acme/mobile/ios-app    │ j k ↑ ↓     move                                              │                           │
+│ ✓ acme/mobile/android-app│ g G         first, last                                       │                           │
+│ ⠋ acme/docs/handbook     │ ctrl+d u    page down, up                                     │                           │
 │                          │ 1-4 tab     choose a pane                                     │                           │
 │                          │ l enter     open the detail pane                              │                           │
 │                          │ h esc       back                                              │                           │
-└──────────────────────────│ /           search the projects                               │                           │
-┌─ pipelines ──────────────│ f           favorite the project, or not                      │                           │
-│[⠋ #61441 main            │ t           favorites only, or every project                  │                           │
-│ ✓ #61434 feat/runner-cach│ { }         move a favorite up, down                          │                           │
-│ ✗ #61427 fix/flaky-e2e   │ ctrl+r      reload the projects                               │                           │
-│ ✓ #61420 main            │ [ ]         the page of pipelines before, after               │                           │
+│                          │ /           search the projects                               │                           │
+└──────────────────────────│ f           favorite the project, or not                      │                           │
+┌─ pipelines ──────────────│ t           favorites only, or every project                  │                           │
+│[⠋ #61441 main            │ { }         move a favorite up, down                          │                           │
+│ ✓ #61434 feat/runner-cach│ ctrl+r      reload the projects                               │                           │
+│ ✗ #61427 fix/flaky-e2e   │ [ ]         the page of pipelines before, after               │                           │
+│ ✓ #61420 main            │ [ ]         the merge request tab before, after               │                           │
 └──────────────────────────│ R           retry the pipeline or job, after a question       │                           │
 ┌─ jobs ───────────────────│ C           cancel the pipeline or job, after a question      │                           │
 │[✓ compile                │ N           run a pipeline, with variables                    │                           │
