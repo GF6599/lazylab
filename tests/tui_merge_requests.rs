@@ -57,9 +57,14 @@ fn marked_tab(buffer: &Buffer) -> String {
         .iter()
         .find(|row| row.contains("info") && row.contains("threads") && row.contains("diff"))
         .unwrap_or_else(|| panic!("no tab strip in\n{}", rows.join("\n")));
-    let open = strip.find('[').expect("a marked tab");
-    let close = strip[open..].find(']').expect("a closed marker") + open;
-    strip[open + 1..close].to_string()
+    let marked: Vec<_> = ["info", "threads", "diff"]
+        .into_iter()
+        .filter(|tab| strip.contains(&format!("[{tab}]")))
+        .collect();
+    let [tab] = marked[..] else {
+        panic!("one marked tab, got {marked:?} in {strip}");
+    };
+    tab.to_string()
 }
 
 #[test]
@@ -68,6 +73,9 @@ fn the_brackets_turn_the_merge_request_detail_through_its_tabs() {
     let mut app = loaded();
     press(&mut app, '4');
     let source_branch = app.merge_requests[0].source_branch.clone();
+    let shows_branch = |buffer: &Buffer| {
+        (rows(buffer).iter()).any(|row| row.contains("from") && row.contains(&source_branch))
+    };
 
     // Then: the detail opens on the info tab, marked with a gold bracket around an iris label,
     // and shows the merge request's branches.
@@ -80,13 +88,13 @@ fn the_brackets_turn_the_merge_request_detail_through_its_tabs() {
     let at = strip[..strip.find("[info]").unwrap()].chars().count() as u16;
     assert_eq!(buffer[(at, y as u16)].fg, T.gold);
     assert_eq!(buffer[(at + 1, y as u16)].fg, T.iris);
-    assert!(shown.join("\n").contains(&source_branch));
+    assert!(shows_branch(&buffer));
 
     // When: `]` is pressed. Then: the threads tab is marked, and the info is gone.
     press(&mut app, ']');
     let buffer = render(&app);
     assert_eq!(marked_tab(&buffer), "threads");
-    assert!(!rows(&buffer).join("\n").contains(&source_branch));
+    assert!(!shows_branch(&buffer));
 
     // When: `]` is pressed twice more. Then: the diff tab, and then the info tab again.
     press(&mut app, ']');
