@@ -354,4 +354,11 @@ fn a_value_wider_than_its_box_shows_its_end_with_the_cursor_after_it() {
     assert_eq!(cells[at - 1], "Z", "{row}");
     assert_eq!(cells[at], " ", "{row}");
     assert!(cells[at + 1..].contains(&"]"), "{row}");
+
+    // When: the cursor moves back to the key.
+    key(&mut app, KeyCode::BackTab);
+
+    // Then: the value is no longer typed, so it shows from its start.
+    let shown = screen(&app);
+    assert!(shown.contains("0123456789abcdefghijklmnop…"), "{shown}");
 }
