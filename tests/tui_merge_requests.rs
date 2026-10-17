@@ -292,6 +292,23 @@ fn j_and_k_in_the_detail_pick_a_thread() {
 }
 
 #[test]
+fn another_merge_request_opens_on_its_first_thread() {
+    // Given: the last thread of the first merge request picked.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    press(&mut app, 'G');
+
+    // When: the cursor moves to the next merge request, and its threads load.
+    press(&mut app, 'h');
+    press(&mut app, 'j');
+    let asked = ticks(&mut app, SETTLE_TICKS);
+    answer(&mut app, asked);
+
+    // Then: its first thread is picked.
+    assert_eq!(marked_thread(&render(&app)), "Kofi");
+}
+
+#[test]
 fn the_picked_thread_stays_in_view() {
     // Given: the threads of the first merge request, with the detail pane focused.
     let mut app = on_threads();
