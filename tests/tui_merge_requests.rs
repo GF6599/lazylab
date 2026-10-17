@@ -324,6 +324,29 @@ fn threads_for_a_merge_request_the_cursor_left_are_dropped() {
 }
 
 #[test]
+fn a_late_answer_for_another_merge_request_leaves_the_picked_thread_alone() {
+    // Given: the second merge request's threads, with its last thread picked, while the first
+    // merge request's threads are still on their way.
+    let mut app = loaded();
+    press(&mut app, '4');
+    let late = press(&mut app, ']');
+    press(&mut app, 'j');
+    let asked = ticks(&mut app, SETTLE_TICKS);
+    answer(&mut app, asked);
+    press(&mut app, 'l');
+    press(&mut app, 'G');
+
+    // When: the first merge request's threads arrive.
+    let late = demo::answer(late.into_iter().next().unwrap(), now()).unwrap();
+    let commands = app.update(late);
+
+    // Then: the last thread of the second merge request is still picked, and its threads are
+    // not asked for again.
+    assert_eq!(marked_thread(&render(&app)), "Sol");
+    assert_eq!(threads_asked(&commands), []);
+}
+
+#[test]
 fn a_failed_load_says_so_and_is_not_asked_again_until_the_cursor_moves() {
     // Given: the threads tab, with the first merge request's threads asked for.
     let mut app = loaded();
