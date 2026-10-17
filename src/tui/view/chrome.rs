@@ -6,7 +6,7 @@ use ratatui::widgets::Paragraph;
 
 use super::Context;
 use crate::gitlab::Status;
-use crate::tui::app::{App, Focus, Overlay, Pane};
+use crate::tui::app::{App, Focus, MrTab, Overlay, Pane};
 use crate::tui::text::{fit, spans_width, width};
 use crate::tui::theme::Theme;
 
@@ -131,6 +131,17 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("ctrl+n", "add a variable"),
             ("ctrl+d", "remove it"),
         ],
+        (Overlay::None, Focus::Detail)
+            if app.pane == Pane::MergeRequests && app.mr_tab == MrTab::Threads =>
+        {
+            &[
+                ("j/k", "thread"),
+                ("[ ]", "tab"),
+                ("h", "back"),
+                ("?", "help"),
+                ("q", "quit"),
+            ]
+        }
         (Overlay::None, Focus::Detail) if app.pane == Pane::MergeRequests => {
             &[("[ ]", "tab"), ("h", "back"), ("?", "help"), ("q", "quit")]
         }

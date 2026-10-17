@@ -159,6 +159,14 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             project,
             merge_requests: merge_requests(project, now),
         },
+        Cmd::LoadThreads {
+            project,
+            merge_request,
+        } => Msg::ThreadsLoaded {
+            project,
+            merge_request,
+            discussions: threads(now),
+        },
     };
     Some(msg)
 }
@@ -284,6 +292,52 @@ fn merge_requests(project: u64, now: OffsetDateTime) -> Vec<crate::gitlab::Merge
         })
         .map(decode)
         .collect()
+}
+
+fn threads(now: OffsetDateTime) -> Vec<crate::gitlab::Discussion> {
+    let note = |id: u64, author: &str, body: &str, minutes: i64| {
+        json!({
+            "id": id,
+            "author": {"name": author},
+            "body": body,
+            "created_at": at(now, minutes),
+        })
+    };
+    let on_line = |mut note: Value, path: &str, line: u32, resolved: bool| {
+        note["resolvable"] = json!(true);
+        note["resolved"] = json!(resolved);
+        note["position"] = json!({"old_path": path, "new_path": path, "new_line": line});
+        note
+    };
+    let resolvable = |mut note: Value, resolved: bool| {
+        note["resolvable"] = json!(true);
+        note["resolved"] = json!(resolved);
+        note
+    };
+    let mut system = note(2, "Dana", "added 1 commit", 170);
+    system["system"] = json!(true);
+    [
+        json!({"id": "d1", "notes": [
+            on_line(
+                note(1, "Kofi", "Does the cache key change when the base image is retagged but not rebuilt?", 180),
+                ".gitlab-ci.yml", 14, true,
+            ),
+            resolvable(note(3, "Dana", "No, the key is the digest, so a retag reuses the same layers.", 120), true),
+        ]}),
+        json!({"id": "d2", "notes": [system]}),
+        json!({"id": "d3", "notes": [
+            resolvable(note(4, "Mei", "Please add the eviction size to the runner config docs.", 150), false),
+        ]}),
+        json!({"id": "d4", "notes": [note(5, "Ravi", "Looks good to me.\nOne nit below.", 90)]}),
+        json!({"id": "d5", "notes": [
+            on_line(note(6, "Sol", "Should the cache survive a runner restart?", 70), "ci/runner.toml", 8, false),
+            resolvable(note(7, "Dana", "Yes, it lives on the host volume.", 45), false),
+            resolvable(note(8, "Sol", "Thanks.", 30), false),
+        ]}),
+    ]
+    .into_iter()
+    .map(decode)
+    .collect()
 }
 
 fn at(now: OffsetDateTime, minutes_ago: i64) -> String {
