@@ -226,9 +226,10 @@ fn a_failed_log_is_not_asked_for_again_until_the_cursor_moves() {
     press(&mut app, KeyCode::Char('k'));
     let back = ticks(&mut app, SETTLE_TICKS);
 
-    // Then: each log is asked for, the failed one again too.
+    // Then: each log is asked for, the failed one again too, and the detail waits for it.
     assert_eq!(log_requests(&second), [(PROJECT, 2)]);
     assert_eq!(log_requests(&back), [(PROJECT, 1)]);
+    assert!(shown(&app).contains("loading the log"));
 }
 
 #[test]
@@ -241,7 +242,35 @@ fn a_failed_log_of_a_running_job_loads_again_when_the_refresh_comes_due() {
     let failing = app.update(failed(1));
     let refreshed = ticks(&mut app, REFRESH_TICKS);
 
-    // Then: the log is asked for again once, at the refresh.
+    // Then: the log is asked for again once, at the refresh, and the detail waits for it.
     assert_eq!(log_requests(&failing), []);
     assert_eq!(log_requests(&refreshed), [(PROJECT, 1)]);
+    assert!(shown(&app).contains("loading the log"));
+}
+
+#[test]
+fn a_failed_log_is_asked_for_again_when_its_pipeline_is_chosen_again() {
+    // Given: the first job's log failed to load, on the newest pipeline.
+    let mut app = with_jobs(vec![job(1, "success"), job(2, "success")]);
+    press(&mut app, KeyCode::Char('3'));
+    app.update(failed(1));
+    let pipeline = app.pipeline().unwrap().id;
+
+    // When: the next pipeline is chosen, then this one again, and its jobs arrive.
+    press(&mut app, KeyCode::Char('2'));
+    press(&mut app, KeyCode::Char('j'));
+    ticks(&mut app, SETTLE_TICKS);
+    press(&mut app, KeyCode::Char('k'));
+    ticks(&mut app, SETTLE_TICKS);
+    app.update(Msg::JobsLoaded {
+        pipeline,
+        jobs: vec![job(1, "success"), job(2, "success")],
+        bridges: Vec::new(),
+    });
+
+    // Then: the jobs pane asks for the first job's log at once.
+    assert_eq!(
+        log_requests(&press(&mut app, KeyCode::Char('3'))),
+        [(PROJECT, 1)]
+    );
 }
