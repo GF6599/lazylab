@@ -242,7 +242,7 @@ fn the_threads_tab_shows_each_thread_with_its_replies() {
     assert!(has("│ Does the cache key change"));
     assert!(has("Dana · 2h ago"));
     assert!(has("└ No, the key is the digest"));
-    assert!(has("Mei · 2h ago  unresolved"));
+    assert!(has(" Mei  · 2h ago  unresolved"));
     assert!(!has("added 1 commit"));
 
     // And: the unresolved badge is in the palette's love, the resolved one in its pine.
