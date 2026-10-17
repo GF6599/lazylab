@@ -321,3 +321,37 @@ fn a_paste_is_never_a_command() {
     assert!(acts(&commands).is_empty());
     assert_eq!(app.overlay, Overlay::Confirm);
 }
+
+#[test]
+fn a_value_wider_than_its_box_shows_its_end_with_the_cursor_after_it() {
+    // Given: the run form, on the value of a variable row.
+    let mut app = loaded();
+    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('N'));
+    ctrl(&mut app, 'n');
+    type_text(&mut app, "TOKEN");
+    key(&mut app, KeyCode::Tab);
+
+    // When: a value of 40 characters is typed, and the form is drawn.
+    type_text(&mut app, "0123456789abcdefghijklmnopqrstuvwxyzWXYZ");
+    let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    let context = Context {
+        host: "gitlab.example.com".into(),
+        now: OffsetDateTime::now_utc(),
+    };
+    terminal.draw(|frame| draw(frame, &app, &context)).unwrap();
+    let cursor = terminal.get_cursor_position().unwrap();
+    let buffer = terminal.backend().buffer();
+    let cells: Vec<&str> = (0..buffer.area.width)
+        .map(|x| buffer[(x, cursor.y)].symbol())
+        .collect();
+    let row = cells.concat();
+    let at = usize::from(cursor.x);
+
+    // Then: the row shows the end of the value after an ellipsis, and the cursor sits after the
+    // last character typed, inside the box, before its closing marker.
+    assert!(row.contains("…") && row.contains("uvwxyzWXYZ"), "{row}");
+    assert_eq!(cells[at - 1], "Z", "{row}");
+    assert_eq!(cells[at], " ", "{row}");
+    assert!(cells[at + 1..].contains(&"]"), "{row}");
+}
