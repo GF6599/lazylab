@@ -177,6 +177,8 @@ impl Action {
 #[derive(Debug, PartialEq)]
 pub enum Msg {
     Key(KeyEvent),
+    /// Text the terminal pasted, as one piece and not as keys.
+    Paste(String),
     Tick,
     CacheLoaded(Option<CachedProjects>),
     FavoritesLoaded(Vec<u64>),
@@ -520,6 +522,7 @@ impl App {
     fn handle(&mut self, msg: Msg) -> Vec<Cmd> {
         match msg {
             Msg::Key(key) => self.on_key(key),
+            Msg::Paste(text) => self.on_paste(&text),
             Msg::Tick => {
                 self.tick += 1;
                 let mut commands = self.settled();
@@ -631,6 +634,24 @@ impl App {
                 Vec::new()
             }
         }
+    }
+
+    /// A paste goes only into a field being typed, so it can never act as keys. A field is one
+    /// line, so a newline in the paste is dropped and cannot send the form.
+    fn on_paste(&mut self, text: &str) -> Vec<Cmd> {
+        let text: String = text.chars().filter(|c| !matches!(c, '\r' | '\n')).collect();
+        if self.overlay == Overlay::Form {
+            if let Some(form) = self.form.as_mut() {
+                form.paste(&text);
+            }
+            return Vec::new();
+        }
+        if !self.search.typing {
+            return Vec::new();
+        }
+        let before = self.selected();
+        self.search.query.push_str(&text);
+        self.reshow(before)
     }
 
     fn on_key(&mut self, key: KeyEvent) -> Vec<Cmd> {

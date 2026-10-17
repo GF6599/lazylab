@@ -13,10 +13,12 @@ pub mod theme;
 pub mod view;
 
 use std::io;
+use std::panic;
 use std::thread;
 
 use ratatui::backend::Backend;
-use ratatui::crossterm::event::{self, Event};
+use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event};
+use ratatui::crossterm::execute;
 use ratatui::{DefaultTerminal, Frame, Terminal};
 use time::OffsetDateTime;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -32,9 +34,21 @@ pub fn launch(host: &Url, page_size: u8, source: Source) -> io::Result<()> {
         .enable_all()
         .build()?;
     let mut terminal = ratatui::try_init()?;
-    let ended = runtime.block_on(session(&mut terminal, host, App::new(page_size), source));
+    let restore = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        paste_off();
+        restore(info);
+    }));
+    let ended = execute!(io::stdout(), EnableBracketedPaste)
+        .and_then(|()| runtime.block_on(session(&mut terminal, host, App::new(page_size), source)));
+    paste_off();
     ratatui::restore();
     ended
+}
+
+/// The shell after lazylab would otherwise get every paste wrapped in escape codes.
+fn paste_off() {
+    let _ = execute!(io::stdout(), DisableBracketedPaste);
 }
 
 async fn session(
@@ -44,7 +58,7 @@ async fn session(
     source: Source,
 ) -> io::Result<()> {
     let (outbox, inbox) = mpsc::unbounded_channel();
-    read_keys(outbox.clone());
+    read_input(outbox.clone());
     tick(outbox.clone());
     let mut context = Context {
         host: host.host_str().unwrap_or_default().to_string(),
@@ -58,13 +72,16 @@ async fn session(
     Ok(())
 }
 
-/// Reading a key blocks, so it runs on a thread of its own. The thread ends with the process.
-fn read_keys(outbox: UnboundedSender<Msg>) {
+/// Reading the terminal blocks, so it runs on a thread of its own. The thread ends with the process.
+fn read_input(outbox: UnboundedSender<Msg>) {
     thread::spawn(move || {
         while let Ok(event) = event::read() {
-            if let Event::Key(key) = event
-                && outbox.send(Msg::Key(key)).is_err()
-            {
+            let msg = match event {
+                Event::Key(key) => Msg::Key(key),
+                Event::Paste(text) => Msg::Paste(text),
+                _ => continue,
+            };
+            if outbox.send(msg).is_err() {
                 return;
             }
         }
