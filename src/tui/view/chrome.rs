@@ -111,6 +111,7 @@ fn mode(app: &App) -> &'static str {
         _ if app.search.typing => "SEARCH",
         (Overlay::Help, _) => "HELP",
         (Overlay::Confirm, _) => "CONFIRM",
+        (Overlay::Form, _) => "FORM",
         (Overlay::None, Focus::Detail) => "DETAIL",
         (Overlay::None, Focus::Sidebar) => "BROWSE",
     }
@@ -123,6 +124,13 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
         _ if app.search.typing => &[("enter", "keep"), ("esc", "clear")],
         (Overlay::Help, _) => &[("esc", "close")],
         (Overlay::Confirm, _) => &[("y", "yes"), ("n", "no")],
+        (Overlay::Form, _) => &[
+            ("enter", "send"),
+            ("esc", "close"),
+            ("tab", "next field"),
+            ("ctrl+n", "add a variable"),
+            ("ctrl+d", "remove it"),
+        ],
         (Overlay::None, Focus::Detail) => &[("h", "back"), ("?", "help"), ("q", "quit")],
         (Overlay::None, Focus::Sidebar) if app.pane == Pane::Projects => &[
             ("j/k", "move"),

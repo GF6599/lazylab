@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+use super::form::{Form, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
-use crate::gitlab::{Bridge, Job, MergeRequest, Page, Pipeline, Project, Status};
+use crate::gitlab::{Bridge, Job, MergeRequest, Page, Pipeline, Project, Status, Variable};
 use crate::store::CachedProjects;
 
 const PAGE: isize = 10;
@@ -91,6 +92,8 @@ pub enum Overlay {
     Help,
     /// A question before the action in `App::confirm` goes out.
     Confirm,
+    /// The run or play form in `App::form`, which takes every key until it closes.
+    Form,
 }
 
 /// A change to a pipeline or a job. Each names the project it acts in, which for a job of a
@@ -117,6 +120,17 @@ pub enum Action {
         job: u64,
         name: String,
     },
+    RunPipeline {
+        project: u64,
+        git_ref: String,
+        variables: Vec<Variable>,
+    },
+    PlayJob {
+        project: u64,
+        job: u64,
+        name: String,
+        variables: Vec<Variable>,
+    },
 }
 
 impl Action {
@@ -126,6 +140,8 @@ impl Action {
             Action::CancelPipeline { pipeline, .. } => format!("Cancel pipeline #{pipeline}?"),
             Action::RetryJob { job, name, .. } => format!("Retry job {name} (#{job})?"),
             Action::CancelJob { job, name, .. } => format!("Cancel job {name} (#{job})?"),
+            Action::RunPipeline { git_ref, .. } => format!("Run a pipeline on {git_ref}?"),
+            Action::PlayJob { job, name, .. } => format!("Play job {name} (#{job})?"),
         }
     }
 
@@ -133,6 +149,8 @@ impl Action {
         match self {
             Action::RetryPipeline { .. } | Action::RetryJob { .. } => "retry",
             Action::CancelPipeline { .. } | Action::CancelJob { .. } => "cancel",
+            Action::RunPipeline { .. } => "run",
+            Action::PlayJob { .. } => "play",
         }
     }
 
@@ -147,6 +165,11 @@ impl Action {
             Action::CancelPipeline { pipeline, .. } => format!("Canceled pipeline #{pipeline}"),
             Action::RetryJob { name, .. } => format!("Retried job {name}"),
             Action::CancelJob { name, .. } => format!("Canceled job {name}"),
+            Action::RunPipeline { git_ref, .. } => match started {
+                Some(new) => format!("Started pipeline #{new} on {git_ref}"),
+                None => format!("Started a pipeline on {git_ref}"),
+            },
+            Action::PlayJob { name, .. } => format!("Played job {name}"),
         }
     }
 }
@@ -277,6 +300,8 @@ pub struct App {
     pub notice: Option<String>,
     /// The action the open question asks about.
     pub confirm: Option<Action>,
+    /// Variable values live here while the form is open, and nowhere once it closes.
+    pub form: Option<Form>,
     /// In the order the user set, which the favorites view keeps.
     pub favorites: Vec<u64>,
     pub favorites_only: bool,
@@ -332,6 +357,7 @@ impl App {
             error: None,
             notice: None,
             confirm: None,
+            form: None,
             favorites: Vec::new(),
             favorites_only: false,
             search: Search::default(),
@@ -616,6 +642,9 @@ impl App {
         if self.overlay == Overlay::Confirm {
             return self.on_confirm_key(key);
         }
+        if self.overlay == Overlay::Form {
+            return self.on_form_key(key);
+        }
         if self.search.typing {
             return self.on_search_key(key);
         }
@@ -664,6 +693,8 @@ impl App {
             KeyCode::Char('[') if on_pipelines && self.pipeline_page > 1 => {
                 return self.turn_pipeline_page(self.pipeline_page - 1);
             }
+            KeyCode::Char('N') if self.pane == Pane::Pipelines => return self.open_run_form(),
+            KeyCode::Char('P') if self.pane == Pane::Jobs => return self.open_play_form(),
             KeyCode::Char('R') => return self.propose(true),
             KeyCode::Char('C') => return self.propose(false),
             KeyCode::Char('q') => self.quit = true,
@@ -764,6 +795,60 @@ impl App {
             }
             _ => Vec::new(),
         }
+    }
+
+    fn on_form_key(&mut self, key: KeyEvent) -> Vec<Cmd> {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.quit = true;
+            return Vec::new();
+        }
+        let Some(form) = self.form.as_mut() else {
+            self.overlay = Overlay::None;
+            return Vec::new();
+        };
+        match form.key(key) {
+            Outcome::Open => Vec::new(),
+            Outcome::Send(action) => {
+                self.close_form();
+                vec![Cmd::Act(action)]
+            }
+            Outcome::Closed => {
+                self.close_form();
+                Vec::new()
+            }
+        }
+    }
+
+    fn close_form(&mut self) {
+        self.form = None;
+        self.overlay = Overlay::None;
+    }
+
+    fn open_run_form(&mut self) -> Vec<Cmd> {
+        let Some(project) = self.project() else {
+            return Vec::new();
+        };
+        let git_ref = (self.pipeline().map(|p| p.git_ref.clone()))
+            .or_else(|| project.default_branch.clone())
+            .unwrap_or_default();
+        self.form = Some(Form::run(project.id, git_ref));
+        self.overlay = Overlay::Form;
+        Vec::new()
+    }
+
+    fn open_play_form(&mut self) -> Vec<Cmd> {
+        match self.job_rows.get(self.cursor(Pane::Jobs)) {
+            Some(JobRow::Job { job, project, .. }) if job.status == Status::Manual => {
+                self.form = Some(Form::play(*project, job.id, job.name.clone()));
+                self.overlay = Overlay::Form;
+            }
+            Some(JobRow::Job { .. }) => {
+                self.notice = Some("Only a manual job can be played".to_string());
+            }
+            Some(_) => self.notice = Some("Select a single job to play".to_string()),
+            None => {}
+        }
+        Vec::new()
     }
 
     /// Asks before a retry or a cancel, or says why there is nothing to do, as the Go release

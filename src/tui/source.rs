@@ -155,6 +155,25 @@ impl Live {
                 client.cancel_job(*project, *job).await?;
                 None
             }
+            Action::RunPipeline {
+                project,
+                git_ref,
+                variables,
+            } => Some(
+                client
+                    .create_pipeline(*project, git_ref, variables)
+                    .await?
+                    .id,
+            ),
+            Action::PlayJob {
+                project,
+                job,
+                variables,
+                ..
+            } => {
+                client.play_job(*project, *job, variables).await?;
+                None
+            }
         };
         Ok(Msg::Acted { action, started })
     }
