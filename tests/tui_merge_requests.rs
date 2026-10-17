@@ -1,6 +1,7 @@
 use lazylab::gitlab::Discussion;
 use lazylab::tui::app::{App, Cmd, Msg, Overlay, Pane};
 use lazylab::tui::demo;
+use lazylab::tui::form::Purpose;
 use lazylab::tui::theme::ROSE_PINE as T;
 use lazylab::tui::view::{Context, draw};
 use ratatui::Terminal;
@@ -1047,7 +1048,7 @@ fn a_thread_started_from_the_info_tab_shows_once_the_threads_tab_opens() {
 }
 
 #[test]
-fn a_failed_comment_shows_the_error_and_loads_nothing() {
+fn a_refused_reply_opens_its_form_again_with_its_text() {
     // Given: a reply sent in the first thread.
     let mut app = on_threads();
     press(&mut app, 'l');
@@ -1059,11 +1060,53 @@ fn a_failed_comment_shows_the_error_and_loads_nothing() {
         error: "reply in merge request thread: 403 Forbidden".into(),
     });
 
-    // Then: the status bar shows the error, no form is open, and nothing loads again.
+    // Then: the status bar shows the error, the reply form to the same thread is open with the
+    // text, and nothing loads again.
     let bar = rows(&render(&app)).last().unwrap().clone();
     assert!(bar.contains("403 Forbidden"), "{bar}");
-    assert_eq!(app.overlay, Overlay::None);
+    assert_eq!(app.overlay, Overlay::Form);
+    let form = app.form.as_ref().unwrap();
+    assert_eq!(
+        form.purpose,
+        Purpose::Comment {
+            project: PROJECT,
+            merge_request: 412,
+            discussion: Some("d1".into()),
+        }
+    );
+    assert_eq!(body(&app), "Thanks");
     assert_eq!(commands, []);
+
+    // When: more text is typed, and the reply is sent again.
+    press(&mut app, '!');
+    let again = key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+
+    // Then: the text goes on from its end.
+    assert!(
+        matches!(&comments(&again)[..], [Cmd::Comment { body, .. }] if body == "Thanks!"),
+        "{again:?}"
+    );
+}
+
+#[test]
+fn a_comment_refused_while_another_form_is_open_leaves_that_form() {
+    // Given: a reply sent, and then the run form open on the pipelines pane.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    let sent = comment(&mut app, "Thanks");
+    press(&mut app, '2');
+    press(&mut app, 'N');
+
+    // When: GitLab refuses the reply.
+    app.update(Msg::Failed {
+        cmd: comments(&sent).remove(0),
+        error: "reply in merge request thread: 403 Forbidden".into(),
+    });
+
+    // Then: the status bar shows the error, and the run form is still open.
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    assert!(bar.contains("403 Forbidden"), "{bar}");
+    assert_eq!(app.form.as_ref().unwrap().title(), "run pipeline");
 }
 
 #[test]
