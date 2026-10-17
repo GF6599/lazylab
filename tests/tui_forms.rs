@@ -93,10 +93,12 @@ fn on_job(status: &str) -> App {
 
 #[test]
 fn n_runs_a_pipeline_on_the_selected_ref_with_the_variables_typed() {
-    // Given: the pipelines pane.
+    // Given: the pipelines pane, on a pipeline that ran on a branch that is not the default.
     let mut app = loaded();
     key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('j'));
     let git_ref = app.pipeline().unwrap().git_ref.clone();
+    assert_ne!(git_ref, "main");
 
     // When: N opens the form, a variable is added and typed, and enter is pressed.
     key(&mut app, KeyCode::Char('N'));
@@ -129,9 +131,11 @@ fn the_ref_can_be_edited_and_rows_without_a_key_are_left_out() {
     key(&mut app, KeyCode::Char('N'));
 
     // When: the ref is cleared and typed again, and an empty row is added.
-    while app.form.as_ref().unwrap().git_ref.as_deref() != Some("") {
+    let seeded = app.form.as_ref().unwrap().git_ref.clone().unwrap();
+    for _ in seeded.chars() {
         key(&mut app, KeyCode::Backspace);
     }
+    assert_eq!(app.form.as_ref().unwrap().git_ref.as_deref(), Some(""));
     type_text(&mut app, "release/1.0");
     ctrl(&mut app, 'n');
     let sent = key(&mut app, KeyCode::Enter);
@@ -228,34 +232,47 @@ fn p_on_a_job_that_is_not_manual_says_so() {
 
 #[test]
 fn a_variable_value_shows_only_in_the_open_form() {
-    // Given: the run form with a secret typed as a value.
-    let mut app = loaded();
-    key(&mut app, KeyCode::Char('2'));
-    key(&mut app, KeyCode::Char('N'));
-    ctrl(&mut app, 'n');
-    type_text(&mut app, "TOKEN");
-    key(&mut app, KeyCode::Tab);
-    type_text(&mut app, SECRET);
+    let run = || {
+        let mut app = loaded();
+        key(&mut app, KeyCode::Char('2'));
+        key(&mut app, KeyCode::Char('N'));
+        app
+    };
+    let play = || {
+        let mut app = on_job("manual");
+        key(&mut app, KeyCode::Char('P'));
+        app
+    };
+    for open in [run, play] {
+        // Given: a run or play form with a secret typed as a value.
+        let mut app = open();
+        ctrl(&mut app, 'n');
+        type_text(&mut app, "TOKEN");
+        key(&mut app, KeyCode::Tab);
+        type_text(&mut app, SECRET);
 
-    // Then: the form shows it while it is typed.
-    assert!(screen(&app).contains(SECRET));
+        // Then: the form shows it while it is typed, and a debug print of the form does not.
+        assert!(screen(&app).contains(SECRET));
+        let form = format!("{:?}", app.form);
+        assert!(!form.contains(SECRET), "{form}");
 
-    // When: the form is sent, GitLab answers, and later a run fails.
-    let action = acts(&key(&mut app, KeyCode::Enter)).remove(0);
-    app.update(Msg::Acted {
-        action: action.clone(),
-        started: Some(1),
-    });
-    let notice = app.notice.clone().unwrap_or_default();
-    let done = screen(&app);
-    app.update(Msg::Failed {
-        cmd: Cmd::Act(action.clone()),
-        error: "create pipeline: 400 Bad Request: [REDACTED]".into(),
-    });
-    let failed = screen(&app);
+        // When: the form is sent, GitLab answers, and later the action fails.
+        let action = acts(&key(&mut app, KeyCode::Enter)).remove(0);
+        app.update(Msg::Acted {
+            action: action.clone(),
+            started: Some(1),
+        });
+        let notice = app.notice.clone().unwrap_or_default();
+        let done = screen(&app);
+        app.update(Msg::Failed {
+            cmd: Cmd::Act(action.clone()),
+            error: "create pipeline: 400 Bad Request: [REDACTED]".into(),
+        });
+        let failed = screen(&app);
 
-    // Then: no notice, screen or debug print carries the value.
-    for text in [notice, done, failed, format!("{action:?}")] {
-        assert!(!text.contains(SECRET), "{text}");
+        // Then: no notice, screen or debug print carries the value.
+        for text in [notice, done, failed, format!("{action:?}")] {
+            assert!(!text.contains(SECRET), "{text}");
+        }
     }
 }

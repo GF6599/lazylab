@@ -430,6 +430,42 @@ async fn a_retry_answers_with_the_pipeline_it_started_and_a_cancel_goes_to_its_p
 }
 
 #[tokio::test]
+async fn a_play_goes_to_the_manual_job_in_its_project() {
+    // Given: GitLab plays manual job 9 of project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/jobs/9/play"))
+        .respond_with(json_body(
+            r#"{"id":9,"name":"deploy","stage":"deploy","status":"pending"}"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+    let play = Action::PlayJob {
+        project: 1,
+        job: 9,
+        name: "deploy".into(),
+        variables: vec![lazylab::gitlab::Variable {
+            key: "DEPLOY".into(),
+            value: "yes".into(),
+        }],
+    };
+
+    // When: the play is sent.
+    let answer = source.answer(Cmd::Act(play.clone())).await;
+
+    // Then: it answers for the job.
+    assert_eq!(
+        answer,
+        Some(Msg::Acted {
+            action: play,
+            started: None
+        })
+    );
+}
+
+#[tokio::test]
 async fn a_refused_run_answers_without_the_variable_value_it_echoed() {
     // Given: GitLab refuses a pipeline and quotes the variable value in its reason.
     let server = MockServer::start().await;
