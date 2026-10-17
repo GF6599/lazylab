@@ -10,10 +10,10 @@ default:
 # The token is deliberately not a recipe argument, because a command line is
 # visible to every local user.
 
-# Run against a GitLab host, reading GITLAB_TOKEN from the environment or .env
+# Run the Rust version against a GitLab host, reading GITLAB_TOKEN from the environment or .env
 [group('run')]
 run HOST="https://gitlab.com":
-	go run ./cmd/lazylab --host {{HOST}}
+	cargo run --locked -- --host {{HOST}}
 
 # Run the Go tests with the race detector, then the Rust tests
 [group('dev')]
