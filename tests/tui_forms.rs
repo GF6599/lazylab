@@ -276,3 +276,48 @@ fn a_variable_value_shows_only_in_the_open_form() {
         }
     }
 }
+
+#[test]
+fn a_paste_types_into_the_field_without_its_newlines_and_the_form_stays_open() {
+    // Given: the play form on a manual job, on the value of a variable row.
+    let mut app = on_job("manual");
+    key(&mut app, KeyCode::Char('P'));
+    ctrl(&mut app, 'n');
+    type_text(&mut app, "TOKEN");
+    key(&mut app, KeyCode::Tab);
+
+    // When: a value with a line break in it and a newline at its end is pasted.
+    let commands = app.update(Msg::Paste("abc\r\ndef\n".into()));
+
+    // Then: nothing is sent, the form is still open, and the value holds the text alone.
+    assert!(acts(&commands).is_empty());
+    assert_eq!(app.overlay, Overlay::Form);
+    assert_eq!(
+        app.form.as_ref().unwrap().variables,
+        [("TOKEN".to_string(), "abcdef".to_string())]
+    );
+}
+
+#[test]
+fn a_paste_is_never_a_command() {
+    // Given: the pipelines pane.
+    let mut app = loaded();
+    key(&mut app, KeyCode::Char('2'));
+
+    // When: text that holds the keys to quit and to run a pipeline is pasted.
+    let commands = app.update(Msg::Paste("qN\n".into()));
+
+    // Then: nothing happens.
+    assert!(commands.is_empty());
+    assert!(!app.quit);
+    assert_eq!(app.overlay, Overlay::None);
+
+    // When: the question to cancel opens on a running job, and y is pasted.
+    let mut app = on_job("running");
+    key(&mut app, KeyCode::Char('C'));
+    let commands = app.update(Msg::Paste("y".into()));
+
+    // Then: nothing is sent, and the question is still open.
+    assert!(acts(&commands).is_empty());
+    assert_eq!(app.overlay, Overlay::Confirm);
+}
