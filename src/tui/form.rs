@@ -112,6 +112,12 @@ impl Form {
         }
     }
 
+    pub fn paste(&mut self, text: &str) {
+        if let Some(field) = self.text() {
+            field.push_str(text);
+        }
+    }
+
     pub fn key(&mut self, key: KeyEvent) -> Outcome {
         let fields = self.fields();
         if key.modifiers.contains(KeyModifiers::CONTROL) {

@@ -274,3 +274,18 @@ fn the_project_keys_do_nothing_in_another_pane() {
     assert!(app.favorites.is_empty() && !app.favorites_only);
     assert!(saved_favorites(&commands).is_none());
 }
+
+#[test]
+fn a_paste_into_a_search_takes_its_text_without_the_newline() {
+    // Given: a search being typed.
+    let mut app = loaded();
+    press(&mut app, KeyCode::Char('/'));
+
+    // When: "plat" is pasted with a newline at its end.
+    app.update(Msg::Paste("plat\n".into()));
+
+    // Then: the search is still being typed, and it keeps the projects that match "plat".
+    assert!(app.search.typing);
+    assert_eq!(app.search.query, "plat");
+    assert_eq!(shown_ids(&app), [API, WEB, WORKERS]);
+}
