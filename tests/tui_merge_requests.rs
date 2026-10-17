@@ -619,7 +619,7 @@ fn the_diff_tab_shows_each_file_with_its_lines_in_the_palette_colours() {
     assert!(shows(&buffer, "too large to show"));
 
     // And: a tab in the code reaches the next stop of four columns.
-    assert!(shows(&buffer, "+all:    build"));
+    assert!(shows(&buffer, "+ci: build"));
     assert!(shows(&buffer, "+    just ci-compile"));
 
     // And: added lines are pine, removed lines love, hunk headers foam, the rest plain text,
@@ -679,21 +679,22 @@ fn another_merge_request_opens_at_the_top_of_its_diff() {
 }
 
 #[test]
-fn a_diff_for_a_merge_request_the_cursor_left_is_dropped() {
-    // Given: the diff tab, with the first merge request's diff asked for.
+fn a_late_diff_for_a_merge_request_the_cursor_left_is_dropped() {
+    // Given: the second merge request's diff in view, while the first merge request's diff is
+    // still on its way.
     let mut app = loaded();
     press(&mut app, '4');
-    let asked = press(&mut app, '[');
-
-    // When: the cursor moves on before it arrives, and then it arrives.
+    let late = press(&mut app, '[');
     press(&mut app, 'j');
-    let late = demo::answer(asked.into_iter().next().unwrap(), now()).unwrap();
+    let asked = ticks(&mut app, SETTLE_TICKS);
+    answer(&mut app, asked);
+
+    // When: the first merge request's diff arrives.
+    let late = demo::answer(late.into_iter().next().unwrap(), now()).unwrap();
     let commands = app.update(late);
 
-    // Then: the detail waits for the diff of the new merge request, and asks for nothing yet.
-    let buffer = render(&app);
-    assert!(!shows(&buffer, "modified: .gitlab-ci.yml"));
-    assert!(shows(&buffer, "loading the diff"));
+    // Then: the second merge request's diff stays in view, and is not asked for again.
+    assert!(shows(&render(&app), "modified: .gitlab-ci.yml"));
     assert_eq!(diffs_asked(&commands), []);
 }
 

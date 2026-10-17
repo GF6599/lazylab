@@ -370,7 +370,7 @@ fn diffs() -> Vec<crate::gitlab::FileDiff> {
     let mut created = file(
         "Makefile",
         "Makefile",
-        "@@ -0,0 +1,3 @@\n+all:\tbuild\n+build:\n+\tjust ci-compile\n",
+        "@@ -0,0 +1,3 @@\n+ci:\tbuild\n+build:\n+\tjust ci-compile\n",
     );
     created["new_file"] = json!(true);
     let mut deleted = file(

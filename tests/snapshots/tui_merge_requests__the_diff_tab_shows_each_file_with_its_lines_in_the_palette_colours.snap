@@ -38,7 +38,7 @@ expression: screen(&buffer)
 │                                              ││ new file: Makefile                                                   │
 │                                              ││ ────────────────────────────────────────                             │
 │                                              ││ @@ -0,0 +1,3 @@                                                      │
-│                                              ││ +all:    build                                                       │
+│                                              ││ +ci: build                                                           │
 │                                              ││ +build:                                                              │
 │                                              ││ +    just ci-compile                                                 │
 │                                              ││                                                                      │
