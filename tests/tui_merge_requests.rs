@@ -869,14 +869,41 @@ fn comments(commands: &[Cmd]) -> Vec<Cmd> {
         .collect()
 }
 
-/// Presses `c`, types the text, and presses enter.
+fn key(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Vec<Cmd> {
+    app.update(Msg::Key(KeyEvent::new(code, modifiers)))
+}
+
+/// Presses `c`, types the text, and presses ctrl+s.
 fn comment(app: &mut App, text: &str) -> Vec<Cmd> {
     let mut commands = press(app, 'c');
     for c in text.chars() {
         commands.extend(press(app, c));
     }
-    commands.extend(app.update(Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))));
+    commands.extend(key(app, KeyCode::Char('s'), KeyModifiers::CONTROL));
     commands
+}
+
+fn body(app: &App) -> String {
+    (app.form.as_ref())
+        .and_then(|form| form.body.clone())
+        .unwrap_or_default()
+}
+
+/// The info tab with the comment form open, and the lines typed with enter between them.
+fn typed_lines(lines: &[&str]) -> App {
+    let mut app = loaded();
+    press(&mut app, '4');
+    press(&mut app, 'l');
+    press(&mut app, 'c');
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        }
+        for c in line.chars() {
+            press(&mut app, c);
+        }
+    }
+    app
 }
 
 fn commented(reply: bool) -> Msg {
@@ -1084,4 +1111,91 @@ fn the_key_bar_offers_c_on_the_info_and_threads_tabs() {
     // Then: the info tab offers a comment, and the threads tab a reply.
     assert!(bar(&info).contains("c comment"), "{}", bar(&info));
     assert!(bar(&threads).contains("c reply"), "{}", bar(&threads));
+}
+
+#[test]
+fn enter_adds_a_line_and_ctrl_s_sends_the_comment_with_it() {
+    // Given: a comment of two lines typed, with enter between them.
+    let mut app = typed_lines(&["First", "Second"]);
+
+    // Then: enter sent nothing, and the form is still open.
+    assert_eq!(app.overlay, Overlay::Form);
+
+    // When: ctrl+s is pressed.
+    let sent = key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+
+    // Then: the comment goes with its line break.
+    assert!(
+        matches!(&comments(&sent)[..], [Cmd::Comment { body, .. }] if body == "First\nSecond"),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn a_paste_keeps_its_line_breaks_in_a_comment() {
+    // Given: the comment form.
+    let mut app = typed_lines(&[]);
+
+    // When: text with each kind of line break is pasted.
+    app.update(Msg::Paste("a\r\nb\rc\nd".into()));
+
+    // Then: each break is a new line, and the form is still open.
+    assert_eq!(body(&app), "a\nb\nc\nd");
+    assert_eq!(app.overlay, Overlay::Form);
+}
+
+#[test]
+fn backspace_at_the_start_of_a_line_joins_it_to_the_line_above() {
+    // Given: a comment with an empty second line.
+    let mut app = typed_lines(&["First", ""]);
+
+    // When: backspace is pressed, and more text is typed.
+    key(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+    press(&mut app, '!');
+
+    // Then: the text is one line again.
+    assert_eq!(body(&app), "First!");
+}
+
+#[test]
+fn the_comment_form_grows_with_its_lines() {
+    // Given: the comment form, with a line typed and two lines pasted, one indented with a tab.
+    let mut app = typed_lines(&["Ship it"]);
+    app.update(Msg::Paste("\r\n\tafter the docs\r\nthanks".into()));
+
+    // Then: the body keeps the tab, and the box shows three lines with the tab expanded.
+    assert_eq!(body(&app), "Ship it\n\tafter the docs\nthanks");
+    insta::assert_snapshot!(screen(&render_at(&app, 14)));
+}
+
+#[test]
+fn a_comment_longer_than_the_box_shows_its_last_lines() {
+    // Given: a comment of twelve lines.
+    let lines: Vec<String> = (1..=12).map(|n| format!("line {n}")).collect();
+    let app = typed_lines(&lines.iter().map(String::as_str).collect::<Vec<_>>());
+
+    // Then: the box shows the last eight lines.
+    insta::assert_snapshot!(screen(&render_at(&app, 20)));
+}
+
+#[test]
+fn the_cursor_sits_after_the_last_character_of_the_last_line() {
+    // Given: a comment of three lines.
+    let app = typed_lines(&["one", "two", "three"]);
+
+    // When: the screen is drawn.
+    let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    let context = Context {
+        host: "gitlab.example.com".into(),
+        now: now(),
+    };
+    terminal.draw(|frame| draw(frame, &app, &context)).unwrap();
+    let cursor = terminal.get_cursor_position().unwrap();
+    let buffer = terminal.backend().buffer();
+
+    // Then: the cursor is on the row of the last line, right after its last character.
+    let row = &rows(buffer)[usize::from(cursor.y)];
+    assert!(row.contains("three"), "{row}");
+    assert_eq!(buffer[(cursor.x - 1, cursor.y)].symbol(), "e", "{row}");
+    assert_eq!(buffer[(cursor.x, cursor.y)].symbol(), " ", "{row}");
 }
