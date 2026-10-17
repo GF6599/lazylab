@@ -1039,6 +1039,23 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd:
+                    Cmd::Comment {
+                        project,
+                        merge_request,
+                        discussion,
+                        body,
+                    },
+                error,
+            } => {
+                self.error = Some(error);
+                if self.overlay == Overlay::None {
+                    self.form = Some(Form::comment(project, merge_request, discussion, body));
+                    self.overlay = Overlay::Form;
+                }
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -1368,9 +1385,11 @@ impl App {
     fn open_comment_form(&mut self) -> Vec<Cmd> {
         let picked = self.picked_thread().map(|thread| thread.id.clone());
         let form = match (self.wanted(MrTab::Info), self.wanted_threads(), picked) {
-            (Some((project, merge_request)), ..) => Form::comment(project, merge_request, None),
+            (Some((project, merge_request)), ..) => {
+                Form::comment(project, merge_request, None, String::new())
+            }
             (_, Some((project, merge_request)), Some(thread)) => {
-                Form::comment(project, merge_request, Some(thread))
+                Form::comment(project, merge_request, Some(thread), String::new())
             }
             _ => return Vec::new(),
         };

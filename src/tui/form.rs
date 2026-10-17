@@ -86,7 +86,12 @@ impl Form {
         }
     }
 
-    pub fn comment(project: u64, merge_request: u64, discussion: Option<String>) -> Form {
+    pub fn comment(
+        project: u64,
+        merge_request: u64,
+        discussion: Option<String>,
+        body: String,
+    ) -> Form {
         Form {
             purpose: Purpose::Comment {
                 project,
@@ -94,7 +99,7 @@ impl Form {
                 discussion,
             },
             git_ref: None,
-            body: Some(String::new()),
+            body: Some(body),
             variables: Vec::new(),
             field: 0,
         }
