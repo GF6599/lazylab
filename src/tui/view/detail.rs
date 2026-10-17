@@ -12,7 +12,7 @@ use crate::tui::app::{App, Focus, MrTab, Pane};
 use crate::tui::diff::Kind;
 use crate::tui::jobs::JobRow;
 use crate::tui::panel::{block, bottom_label, kv, light_corners};
-use crate::tui::text::{age, clamp_spans, fit, pad, width as text_width};
+use crate::tui::text::{age, clamp_spans, expand_tabs, fit, pad, width as text_width};
 use crate::tui::theme::Theme;
 
 pub(super) fn draw(frame: &mut Frame, app: &App, context: &Context, area: Rect, t: &Theme) {
@@ -325,7 +325,7 @@ fn thread(
             lines.push(Line::from(vec![
                 Span::raw(pad(2)),
                 Span::styled(if n == 0 { hang } else { carry }, t.border()),
-                Span::styled(fit(text, room), t.body()),
+                Span::styled(fit(&expand_tabs(text), room), t.body()),
             ]));
         }
         lines.push(Line::raw(""));
