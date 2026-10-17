@@ -9,7 +9,7 @@ use lazylab::store::Store;
 use lazylab::tui::Source;
 use lazylab::tui::app::{Action, Cmd, Msg};
 use url::Url;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const PIPELINES: &str = include_str!("fixtures/pipelines.json");
@@ -535,5 +535,39 @@ async fn the_threads_of_a_merge_request_are_its_discussions() {
             .map(|d| d.id.as_str())
             .collect::<Vec<_>>(),
         ["d1"]
+    );
+}
+
+#[tokio::test]
+async fn a_resolve_puts_the_new_state_of_the_thread_and_answers_with_it() {
+    // Given: GitLab accepts the resolve of thread d3 on merge request !412 of project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path("/api/v4/projects/1/merge_requests/412/discussions/d3"))
+        .and(body_json(serde_json::json!({"resolved": true})))
+        .respond_with(json_body(r#"{"id":"d3","notes":[]}"#))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the thread is resolved.
+    let answer = source
+        .answer(Cmd::ResolveThread {
+            project: 1,
+            merge_request: 412,
+            discussion: "d3".into(),
+            resolved: true,
+        })
+        .await;
+
+    // Then: the answer says the thread of that merge request is resolved.
+    assert_eq!(
+        answer,
+        Some(Msg::ThreadResolved {
+            project: 1,
+            merge_request: 412,
+            resolved: true,
+        })
     );
 }
