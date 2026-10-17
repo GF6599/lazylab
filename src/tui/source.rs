@@ -132,6 +132,20 @@ impl Live {
                     merge_request,
                     discussions,
                 }),
+            Cmd::ResolveThread {
+                project,
+                merge_request,
+                discussion,
+                resolved,
+            } => self
+                .client
+                .resolve_merge_request_discussion(project, merge_request, &discussion, resolved)
+                .await
+                .map(|()| Msg::ThreadResolved {
+                    project,
+                    merge_request,
+                    resolved,
+                }),
         };
         Some(result.unwrap_or_else(|e: Error| {
             tracing::warn!(error = %e, "GitLab call failed");

@@ -406,3 +406,123 @@ fn the_key_bar_offers_j_and_k_to_pick_a_thread() {
     let bar = shown.last().unwrap();
     assert!(bar.contains("j/k") && bar.contains("thread"), "{bar}");
 }
+
+fn resolves(commands: &[Cmd]) -> Vec<(String, bool)> {
+    (commands.iter())
+        .filter_map(|c| match c {
+            Cmd::ResolveThread {
+                discussion,
+                resolved,
+                ..
+            } => Some((discussion.clone(), *resolved)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn r_resolves_or_reopens_the_picked_thread_and_the_threads_load_again() {
+    // Given: the threads of the first merge request, with the detail pane focused.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+
+    // When: `r` is pressed on the resolved first thread, then on the unresolved second one.
+    let reopen = press(&mut app, 'r');
+    press(&mut app, 'j');
+    let resolve = press(&mut app, 'r');
+
+    // Then: the first is reopened and the second resolved, each in the merge request it is in.
+    assert_eq!(resolves(&reopen), [("d1".to_string(), false)]);
+    assert_eq!(resolves(&resolve), [("d3".to_string(), true)]);
+    assert!(matches!(
+        resolve[..],
+        [Cmd::ResolveThread {
+            project: PROJECT,
+            merge_request: 412,
+            ..
+        }]
+    ));
+
+    // When: GitLab answers that the second thread is resolved.
+    let reload = app.update(Msg::ThreadResolved {
+        project: PROJECT,
+        merge_request: 412,
+        resolved: true,
+    });
+
+    // Then: the status bar says so, and the threads load again with the same thread picked.
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    assert!(bar.contains("Resolved the thread"), "{bar}");
+    assert_eq!(threads_asked(&reload), [(PROJECT, 412)]);
+    answer(&mut app, reload);
+    assert_eq!(marked_thread(&render(&app)), "Mei");
+}
+
+#[test]
+fn a_thread_that_cannot_be_resolved_says_so() {
+    // Given: the plain comment picked, which GitLab does not let anyone resolve.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    press(&mut app, 'G');
+    press(&mut app, 'k');
+
+    // When: `r` is pressed.
+    let commands = press(&mut app, 'r');
+
+    // Then: nothing goes to GitLab, and the status bar says why.
+    assert_eq!(resolves(&commands), []);
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    assert!(bar.contains("This thread cannot be resolved"), "{bar}");
+}
+
+#[test]
+fn r_resolves_only_in_the_detail_of_the_threads_tab() {
+    // Given: the merge request info in the detail pane, and the threads tab with the sidebar
+    // focused.
+    let mut info = loaded();
+    press(&mut info, '4');
+    press(&mut info, 'l');
+    let mut threads = on_threads();
+
+    // When: `r` is pressed in each.
+    let commands = [press(&mut info, 'r'), press(&mut threads, 'r')].concat();
+
+    // Then: nothing goes to GitLab.
+    assert_eq!(resolves(&commands), []);
+}
+
+#[test]
+fn a_resolve_answered_after_the_cursor_left_loads_no_threads() {
+    // Given: the first thread reopened, and the cursor moved to the next merge request.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    press(&mut app, 'r');
+    press(&mut app, 'h');
+    press(&mut app, 'j');
+
+    // When: GitLab answers that the thread is reopened.
+    let commands = app.update(Msg::ThreadResolved {
+        project: PROJECT,
+        merge_request: 412,
+        resolved: false,
+    });
+
+    // Then: the status bar says so, and the first merge request's threads are not asked for.
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    assert!(bar.contains("Reopened the thread"), "{bar}");
+    assert_eq!(threads_asked(&commands), []);
+}
+
+#[test]
+fn the_key_bar_offers_r_to_resolve_a_thread() {
+    // Given: the threads tab, with the detail pane focused.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+
+    // When: the screen is drawn.
+    let shown = rows(&render(&app));
+
+    // Then: the key bar offers `r` to resolve the thread.
+    let bar = shown.last().unwrap();
+    assert!(bar.contains("r resolve"), "{bar}");
+}

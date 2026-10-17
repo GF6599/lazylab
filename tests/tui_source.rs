@@ -9,7 +9,7 @@ use lazylab::store::Store;
 use lazylab::tui::Source;
 use lazylab::tui::app::{Action, Cmd, Msg};
 use url::Url;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const PIPELINES: &str = include_str!("fixtures/pipelines.json");
@@ -496,4 +496,83 @@ async fn a_refused_run_answers_without_the_variable_value_it_echoed() {
     };
     assert!(error.starts_with("create pipeline"), "{error}");
     assert!(!error.contains("s3cr3t-value-9f2"), "{error}");
+}
+
+#[tokio::test]
+async fn the_threads_of_a_merge_request_are_its_discussions() {
+    // Given: GitLab with one discussion on merge request !412 of project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/merge_requests/412/discussions"))
+        .respond_with(json_body(
+            r#"[{"id":"d1","notes":[{"id":1,"body":"Why?","author":{"name":"Kofi"}}]}]"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the threads are asked for.
+    let answer = source
+        .answer(Cmd::LoadThreads {
+            project: 1,
+            merge_request: 412,
+        })
+        .await;
+
+    // Then: the discussion comes back for that merge request.
+    let Some(Msg::ThreadsLoaded {
+        project: 1,
+        merge_request: 412,
+        discussions,
+    }) = answer
+    else {
+        panic!("threads, got {answer:?}");
+    };
+    assert_eq!(
+        discussions
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect::<Vec<_>>(),
+        ["d1"]
+    );
+}
+
+#[tokio::test]
+async fn a_resolve_or_a_reopen_puts_the_new_state_of_the_thread_and_answers_with_it() {
+    // Given: GitLab accepts a resolve and a reopen of thread d3 on merge request !412 of
+    // project 1.
+    let server = MockServer::start().await;
+    for resolved in [true, false] {
+        Mock::given(method("PUT"))
+            .and(path("/api/v4/projects/1/merge_requests/412/discussions/d3"))
+            .and(body_json(serde_json::json!({"resolved": resolved})))
+            .respond_with(json_body(r#"{"id":"d3","notes":[]}"#))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let source = Source::live(client_for(&server.uri()), None);
+
+    for resolved in [true, false] {
+        // When: the thread is resolved, then reopened.
+        let answer = source
+            .answer(Cmd::ResolveThread {
+                project: 1,
+                merge_request: 412,
+                discussion: "d3".into(),
+                resolved,
+            })
+            .await;
+
+        // Then: each answer gives the state the thread of that merge request is now in.
+        assert_eq!(
+            answer,
+            Some(Msg::ThreadResolved {
+                project: 1,
+                merge_request: 412,
+                resolved,
+            })
+        );
+    }
 }
