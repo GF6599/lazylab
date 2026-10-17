@@ -167,6 +167,16 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             merge_request,
             discussions: threads(now),
         },
+        Cmd::ResolveThread {
+            project,
+            merge_request,
+            resolved,
+            ..
+        } => Msg::ThreadResolved {
+            project,
+            merge_request,
+            resolved,
+        },
     };
     Some(msg)
 }

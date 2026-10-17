@@ -250,6 +250,11 @@ pub enum Msg {
         merge_request: u64,
         discussions: Vec<Discussion>,
     },
+    ThreadResolved {
+        project: u64,
+        merge_request: u64,
+        resolved: bool,
+    },
     /// The reason is already fit to show, with any credential redacted.
     Failed {
         cmd: Cmd,
@@ -298,6 +303,13 @@ pub enum Cmd {
     LoadThreads {
         project: u64,
         merge_request: u64,
+    },
+    /// `resolved` is the state the thread goes to: `false` reopens it.
+    ResolveThread {
+        project: u64,
+        merge_request: u64,
+        discussion: String,
+        resolved: bool,
     },
     Act(Action),
     /// The log of a job, in the project it runs in.
@@ -625,6 +637,46 @@ impl App {
         });
     }
 
+    fn picked_thread(&self) -> Option<&Discussion> {
+        let discussions = self.shown_threads()?.discussions.as_ref()?;
+        discussions.get(self.thread_row)
+    }
+
+    /// GitLab marks a thread resolvable on its first note, and a plain comment is not.
+    fn resolve_thread(&mut self) -> Vec<Cmd> {
+        let (Some((project, merge_request)), Some(thread)) =
+            (self.wanted_threads(), self.picked_thread())
+        else {
+            return Vec::new();
+        };
+        match thread.notes.iter().find(|n| !n.system) {
+            Some(note) if note.resolvable => vec![Cmd::ResolveThread {
+                project,
+                merge_request,
+                discussion: thread.id.clone(),
+                resolved: !note.resolved,
+            }],
+            _ => {
+                self.notice = Some("This thread cannot be resolved".to_string());
+                Vec::new()
+            }
+        }
+    }
+
+    /// The threads load again so the badge shows what GitLab holds, not what was asked for.
+    fn thread_resolved(&mut self, key: (u64, u64), resolved: bool) -> Vec<Cmd> {
+        let done = if resolved { "Resolved" } else { "Reopened" };
+        self.notice = Some(format!("{done} the thread"));
+        if self.wanted_threads() != Some(key) || self.threads_asked == Some(key) {
+            return Vec::new();
+        }
+        let (project, merge_request) = key;
+        vec![Cmd::LoadThreads {
+            project,
+            merge_request,
+        }]
+    }
+
     fn move_thread(&mut self, delta: isize) {
         let len = (self.shown_threads())
             .and_then(|t| t.discussions.as_ref())
@@ -788,6 +840,11 @@ impl App {
                 self.threads_loaded((project, merge_request), Some(discussions));
                 Vec::new()
             }
+            Msg::ThreadResolved {
+                project,
+                merge_request,
+                resolved,
+            } => self.thread_resolved((project, merge_request), resolved),
         }
     }
 
@@ -867,6 +924,7 @@ impl App {
             KeyCode::Char('[') if self.pane == Pane::MergeRequests => {
                 self.mr_tab = self.mr_tab.step(MrTab::ALL.len() - 1);
             }
+            KeyCode::Char('r') if self.focus == Focus::Detail => return self.resolve_thread(),
             KeyCode::Char(']') if on_pipelines => {
                 if let Some(next) = self.next_pipeline_page {
                     return self.turn_pipeline_page(next);
