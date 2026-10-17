@@ -1,11 +1,8 @@
 //! A merge request's diff as the rows the detail pane draws: a header for each file, then its
 //! lines.
 
-use unicode_width::UnicodeWidthChar;
-
 use crate::gitlab::FileDiff;
-
-const TAB_STOP: usize = 4;
+use crate::tui::text::expand_tabs;
 
 #[derive(Debug)]
 pub struct Diff {
@@ -65,25 +62,9 @@ pub fn rows(files: &[FileDiff]) -> Vec<Row> {
                 '\\' => Kind::Note,
                 _ => Kind::Context,
             };
+            // The stops count from the start of the code, after the column that marks the line.
             rows.push(row(kind, format!("{mark}{}", expand_tabs(chars.as_str()))));
         }
     }
     rows
-}
-
-/// The stops count from the start of the code, after the column that marks the line.
-fn expand_tabs(code: &str) -> String {
-    let mut out = String::with_capacity(code.len());
-    let mut column = 0;
-    for c in code.chars() {
-        if c == '\t' {
-            let spaces = TAB_STOP - column % TAB_STOP;
-            out.extend(std::iter::repeat_n(' ', spaces));
-            column += spaces;
-        } else {
-            out.push(c);
-            column += c.width().unwrap_or(0);
-        }
-    }
-    out
 }

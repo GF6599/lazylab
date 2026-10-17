@@ -1,3 +1,4 @@
+use lazylab::gitlab::Discussion;
 use lazylab::tui::app::{App, Cmd, Msg, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::theme::ROSE_PINE as T;
@@ -736,4 +737,127 @@ fn the_key_bar_offers_j_and_k_to_scroll_the_diff() {
     // Then: the key bar offers `j/k` to scroll.
     let bar = shown.last().unwrap();
     assert!(bar.contains("j/k scroll"), "{bar}");
+}
+
+#[test]
+fn the_info_tab_shows_the_merge_request() {
+    // Given: the demo data on the merge requests pane, on its info tab.
+    let mut app = loaded();
+    press(&mut app, '4');
+
+    // When: the screen is drawn.
+    let buffer = render(&app);
+
+    // Then: the detail shows the title, the branches, the author and the age.
+    insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
+fn a_tab_in_a_thread_reaches_the_next_stop_of_four_columns() {
+    // Given: the threads tab of the first merge request.
+    let mut app = on_threads();
+
+    // When: its threads load again with a note whose code is indented with a tab.
+    let thread: Discussion = serde_json::from_value(serde_json::json!({"id": "d9", "notes": [
+        {"id": 9, "author": {"name": "Kofi"}, "body": "if ok {\n\treturn x\n}\nkey:\tvalue"},
+    ]}))
+    .unwrap();
+    app.update(Msg::ThreadsLoaded {
+        project: PROJECT,
+        merge_request: 412,
+        discussions: vec![thread],
+    });
+
+    // Then: the indented line keeps its indent under the tree, and a tab after text reaches the
+    // next stop.
+    let buffer = render(&app);
+    assert!(shows(&buffer, "        return x"), "{}", screen(&buffer));
+    assert!(shows(&buffer, "key:    value"));
+}
+
+#[test]
+fn a_second_resolve_during_a_reload_loads_the_threads_once_more() {
+    // Given: the first thread reopened, and the reload that follows still on its way.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    press(&mut app, 'r');
+    let first = app.update(Msg::ThreadResolved {
+        project: PROJECT,
+        merge_request: 412,
+        resolved: false,
+    });
+
+    // When: the second thread is resolved before that reload answers, and then it answers.
+    press(&mut app, 'j');
+    press(&mut app, 'r');
+    let second = app.update(Msg::ThreadResolved {
+        project: PROJECT,
+        merge_request: 412,
+        resolved: true,
+    });
+    let reload = demo::answer(first.into_iter().next().unwrap(), now()).unwrap();
+    let after = app.update(reload);
+
+    // Then: one load is out at a time, and the threads load once more after the first, so the
+    // second change shows too.
+    assert_eq!(threads_asked(&second), []);
+    assert_eq!(threads_asked(&after), [(PROJECT, 412)]);
+}
+
+#[test]
+fn a_reload_due_on_one_merge_request_is_not_spent_on_the_next() {
+    // Given: two resolves on the first merge request, the second while the first's reload was
+    // still on its way.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    press(&mut app, 'r');
+    let resolved = |resolved| Msg::ThreadResolved {
+        project: PROJECT,
+        merge_request: 412,
+        resolved,
+    };
+    app.update(resolved(false));
+    press(&mut app, 'j');
+    press(&mut app, 'r');
+    app.update(resolved(true));
+
+    // When: the cursor moves to the next merge request, and its threads arrive.
+    press(&mut app, 'h');
+    press(&mut app, 'j');
+    let asked = ticks(&mut app, SETTLE_TICKS);
+    let threads = demo::answer(asked.into_iter().next().unwrap(), now()).unwrap();
+    let commands = app.update(threads);
+
+    // Then: the next merge request's threads are not asked for again.
+    assert_eq!(threads_asked(&commands), []);
+}
+
+#[test]
+fn a_reload_due_goes_out_once_after_a_failed_reload() {
+    // Given: two resolves on the first merge request, the second while the first's reload was
+    // still on its way.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    press(&mut app, 'r');
+    let resolved = |resolved| Msg::ThreadResolved {
+        project: PROJECT,
+        merge_request: 412,
+        resolved,
+    };
+    let first = app.update(resolved(false));
+    press(&mut app, 'j');
+    press(&mut app, 'r');
+    app.update(resolved(true));
+
+    // When: the first reload fails, and the one it left due fails too.
+    let failed = |cmd: Cmd| Msg::Failed {
+        cmd,
+        error: "502 Bad Gateway".into(),
+    };
+    let due = app.update(failed(first.into_iter().next().unwrap()));
+    let after = app.update(failed(due[0].clone()));
+
+    // Then: the due reload goes out once, and no more after it fails.
+    assert_eq!(threads_asked(&due), [(PROJECT, 412)]);
+    assert_eq!(threads_asked(&after), []);
 }

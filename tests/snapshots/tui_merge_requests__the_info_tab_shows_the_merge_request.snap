@@ -1,0 +1,36 @@
+---
+source: tests/tui_merge_requests.rs
+expression: screen(&buffer)
+---
+ {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
+ 1 projects   2 pipelines   3 jobs  [4 merge requests]
+┌─ projects ───────────────────────────────────┐┌─ merge request !412 ─────────────────────────────────────────────────┐
+│[⠋ acme/platform/api                       4m]││ [info]  threads   diff                                               │
+│ ✓ acme/platform/web                      12m ││                                                                      │
+│ ⠋ acme/platform/workers                   1h ││ title      Cache the runner image layers                             │
+│ ✓ acme/infra/terraform                    3h ││ from       feat/runner-cache                                         │
+└─────────────────────────────────────── 1/13 ─┘│ into       main                                                      │
+┌─ pipelines ──────────────────────────────────┐│ by         Dana                                                      │
+│[⠋ #61441 main                             2m]││ updated    2h ago                                                    │
+│ ✓ #61434 feat/runner-cache               39m ││                                                                      │
+│ ✗ #61427 fix/flaky-e2e                    1h ││                                                                      │
+│ ✓ #61420 main                             1h ││                                                                      │
+└─────────────────────────────────────── 1/14 ─┘│                                                                      │
+┌─ jobs ───────────────────────────────────────┐│                                                                      │
+│[✓ compile                              build]││                                                                      │
+│ ✓ image                                      ││                                                                      │
+│ ⠋ unit                                  test ││                                                                      │
+│ ⠋ integration                                ││                                                                      │
+└──────────────────────────────────────── 1/9 ─┘│                                                                      │
+┌─ merge requests ─────────────────────────────┐│                                                                      │
+│[!412 Cache the runner image layers        2h]││                                                                      │
+│ !409 Retry the flaky checkout step        6h ││                                                                      │
+│ !407 Add SSO login behind a flag          1d ││                                                                      │
+│ !401 Split the e2e suite by shard         3d ││                                                                      │
+│ !398 Bump the toolchain                   1w ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+└──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
+ BROWSE  j/k move  l open  [ ] tab  1-4 pane  z zoom  ? help  q quit
