@@ -1,6 +1,9 @@
 use lazylab::gitlab::Job;
 use lazylab::tui::app::{App, Cmd, Msg};
 use lazylab::tui::demo;
+use lazylab::tui::view::{Context, draw};
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::json;
 use time::OffsetDateTime;
@@ -172,4 +175,73 @@ fn a_log_for_a_job_no_longer_selected_is_dropped() {
 
     // Then: it is not shown.
     assert!(app.log.is_none());
+}
+
+fn failed(job: u64) -> Msg {
+    Msg::Failed {
+        cmd: Cmd::LoadLog {
+            project: PROJECT,
+            job,
+        },
+        error: "403 Forbidden".into(),
+    }
+}
+
+fn shown(app: &App) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    let context = Context {
+        host: "gitlab.example.com".into(),
+        now: OffsetDateTime::now_utc(),
+    };
+    terminal.draw(|frame| draw(frame, app, &context)).unwrap();
+    let buffer = terminal.backend().buffer();
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn a_failed_log_is_not_asked_for_again_until_the_cursor_moves() {
+    // Given: two finished jobs, with the first job's log asked for.
+    let mut app = with_jobs(vec![job(1, "success"), job(2, "success")]);
+    press(&mut app, KeyCode::Char('3'));
+
+    // When: the load fails, and time passes.
+    let failing = app.update(failed(1));
+    let waited = ticks(&mut app, SETTLE_TICKS * 3);
+
+    // Then: the detail says the log did not load, and it is not asked for again.
+    assert_eq!(log_requests(&failing), []);
+    assert_eq!(log_requests(&waited), []);
+    assert!(shown(&app).contains("the log did not load"));
+
+    // When: the cursor moves to the second job and back, resting on each.
+    press(&mut app, KeyCode::Char('j'));
+    let second = ticks(&mut app, SETTLE_TICKS);
+    press(&mut app, KeyCode::Char('k'));
+    let back = ticks(&mut app, SETTLE_TICKS);
+
+    // Then: each log is asked for, the failed one again too.
+    assert_eq!(log_requests(&second), [(PROJECT, 2)]);
+    assert_eq!(log_requests(&back), [(PROJECT, 1)]);
+}
+
+#[test]
+fn a_failed_log_of_a_running_job_loads_again_when_the_refresh_comes_due() {
+    // Given: a running job, with its log asked for.
+    let mut app = with_jobs(vec![job(1, "running")]);
+    press(&mut app, KeyCode::Char('3'));
+
+    // When: the load fails, and five seconds pass.
+    let failing = app.update(failed(1));
+    let refreshed = ticks(&mut app, REFRESH_TICKS);
+
+    // Then: the log is asked for again once, at the refresh.
+    assert_eq!(log_requests(&failing), []);
+    assert_eq!(log_requests(&refreshed), [(PROJECT, 1)]);
 }
