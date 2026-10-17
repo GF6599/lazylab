@@ -143,6 +143,17 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
                 ("q", "quit"),
             ]
         }
+        (Overlay::None, Focus::Detail)
+            if app.pane == Pane::MergeRequests && app.mr_tab == MrTab::Diff =>
+        {
+            &[
+                ("j/k", "scroll"),
+                ("[ ]", "tab"),
+                ("h", "back"),
+                ("?", "help"),
+                ("q", "quit"),
+            ]
+        }
         (Overlay::None, Focus::Detail) if app.pane == Pane::MergeRequests => {
             &[("[ ]", "tab"), ("h", "back"), ("?", "help"), ("q", "quit")]
         }

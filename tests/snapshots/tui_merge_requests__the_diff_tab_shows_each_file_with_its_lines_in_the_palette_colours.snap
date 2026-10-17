@@ -1,0 +1,64 @@
+---
+source: tests/tui_merge_requests.rs
+expression: screen(&buffer)
+---
+ {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
+ 1 projects   2 pipelines   3 jobs  [4 merge requests]
+┌─ projects ───────────────────────────────────┐┌─ merge request !412 ─────────────────────────────────────────────────┐
+│[⠋ acme/platform/api                       4m]││  info   threads  [diff]                                              │
+│ ✓ acme/platform/web                      12m ││                                                                      │
+│ ⠋ acme/platform/workers                   1h ││ modified: .gitlab-ci.yml                                             │
+│ ✓ acme/infra/terraform                    3h ││ ────────────────────────────────────────                             │
+└─────────────────────────────────────── 1/13 ─┘│ @@ -12,6 +12,13 @@ default:                                          │
+┌─ pipelines ──────────────────────────────────┐│    image: registry.example.com/ci/base:2026.10                       │
+│[⠋ #61441 main                             2m]││    interruptible: true                                               │
+│ ✓ #61434 feat/runner-cache               39m ││ +  cache:                                                            │
+│ ✗ #61427 fix/flaky-e2e                    1h ││ +    key:                                                            │
+│ ✓ #61420 main                             1h ││ +      files: [ci/base.digest]                                       │
+└─────────────────────────────────────── 1/14 ─┘│ +    paths: [.layers/]                                               │
+┌─ jobs ───────────────────────────────────────┐│ +    policy: pull-push                                               │
+│[✓ compile                              build]││                                                                      │
+│ ✓ image                                      ││  stages: [build, test, security, deploy]                             │
+│ ⠋ unit                                  test ││ -compile:                                                            │
+│ ⠋ integration                                ││ -  script: just ci-compile                                           │
+└──────────────────────────────────────── 1/9 ─┘│ +compile:                                                            │
+┌─ merge requests ─────────────────────────────┐│ +  script:                                                           │
+│[!412 Cache the runner image layers        2h]││ +    - just restore-layers                                           │
+│ !409 Retry the flaky checkout step        6h ││ +    - just ci-compile                                               │
+│ !407 Add SSO login behind a flag          1d ││                                                                      │
+│ !401 Split the e2e suite by shard         3d ││ renamed: ci/cache.sh → ci/layers.sh                                  │
+│ !398 Bump the toolchain                   1w ││ ────────────────────────────────────────                             │
+│                                              ││ @@ -1,3 +1,3 @@                                                      │
+│                                              ││  #!/bin/sh                                                           │
+│                                              ││ -restore_cache                                                       │
+│                                              ││ +restore_layers                                                      │
+│                                              ││  echo done                                                           │
+│                                              ││ \ No newline at end of file                                          │
+│                                              ││                                                                      │
+│                                              ││ new file: Makefile                                                   │
+│                                              ││ ────────────────────────────────────────                             │
+│                                              ││ @@ -0,0 +1,3 @@                                                      │
+│                                              ││ +all:    build                                                       │
+│                                              ││ +build:                                                              │
+│                                              ││ +    just ci-compile                                                 │
+│                                              ││                                                                      │
+│                                              ││ deleted: db/old-cache.sql                                            │
+│                                              ││ ────────────────────────────────────────                             │
+│                                              ││ @@ -1,2 +0,0 @@                                                      │
+│                                              ││ --- old cache table                                                  │
+│                                              ││ -DROP TABLE cache;                                                   │
+│                                              ││                                                                      │
+│                                              ││ modified: vendor/bundle.js                                           │
+│                                              ││ ────────────────────────────────────────                             │
+│                                              ││ too large to show                                                    │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+└──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
+ BROWSE  j/k move  l open  [ ] tab  1-4 pane  z zoom  ? help  q quit

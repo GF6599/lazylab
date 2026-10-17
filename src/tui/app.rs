@@ -8,11 +8,12 @@ use std::time::Duration;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+use super::diff::{self, Diff};
 use super::form::{Form, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
 use crate::gitlab::{
-    Bridge, Discussion, Job, MergeRequest, Page, Pipeline, Project, Status, Variable,
+    Bridge, Discussion, FileDiff, Job, MergeRequest, Page, Pipeline, Project, Status, Variable,
 };
 use crate::store::CachedProjects;
 
@@ -255,6 +256,11 @@ pub enum Msg {
         merge_request: u64,
         resolved: bool,
     },
+    DiffLoaded {
+        project: u64,
+        merge_request: u64,
+        files: Vec<FileDiff>,
+    },
     /// The reason is already fit to show, with any credential redacted.
     Failed {
         cmd: Cmd,
@@ -301,6 +307,10 @@ pub enum Cmd {
     },
     /// `merge_request` is the number GitLab shows as `!42`.
     LoadThreads {
+        project: u64,
+        merge_request: u64,
+    },
+    LoadDiff {
         project: u64,
         merge_request: u64,
     },
@@ -403,6 +413,12 @@ pub struct App {
     threads: Option<Threads>,
     threads_asked: Option<(u64, u64)>,
     thread_row: usize,
+    diff: Option<Diff>,
+    diff_asked: Option<(u64, u64)>,
+    /// Lines between the top of the diff and the first line in view.
+    diff_scroll: usize,
+    /// The rows the detail pane gave the diff when it last drew, so a scroll stops at the end.
+    pub diff_height: Cell<usize>,
     cursors: [usize; Pane::ALL.len()],
 }
 
@@ -452,6 +468,10 @@ impl App {
             threads: None,
             threads_asked: None,
             thread_row: 0,
+            diff: None,
+            diff_asked: None,
+            diff_scroll: 0,
+            diff_height: Cell::new(0),
             cursors: [0; Pane::ALL.len()],
         }
     }
@@ -500,6 +520,7 @@ impl App {
         self.note_asked(&commands);
         let mut asks = self.ask_log();
         asks.extend(self.ask_threads());
+        asks.extend(self.ask_diff());
         self.note_asked(&asks);
         commands.extend(asks);
         commands
@@ -519,6 +540,10 @@ impl App {
                     project,
                     merge_request,
                 } => self.threads_asked = Some((*project, *merge_request)),
+                Cmd::LoadDiff {
+                    project,
+                    merge_request,
+                } => self.diff_asked = Some((*project, *merge_request)),
                 _ => {}
             }
         }
@@ -576,13 +601,73 @@ impl App {
         self.log = Some(log);
     }
 
-    fn wanted_threads(&self) -> Option<(u64, u64)> {
-        if self.pane != Pane::MergeRequests || self.mr_tab != MrTab::Threads {
+    fn wanted(&self, tab: MrTab) -> Option<(u64, u64)> {
+        if self.pane != Pane::MergeRequests || self.mr_tab != tab {
             return None;
         }
         let project = self.selected()?;
         let merge_request = self.merge_requests.get(self.cursor(Pane::MergeRequests))?;
         Some((project, merge_request.iid))
+    }
+
+    fn wanted_threads(&self) -> Option<(u64, u64)> {
+        self.wanted(MrTab::Threads)
+    }
+
+    fn wanted_diff(&self) -> Option<(u64, u64)> {
+        self.wanted(MrTab::Diff)
+    }
+
+    /// The diff of the merge request in view, once it loaded or failed to.
+    pub fn shown_diff(&self) -> Option<&Diff> {
+        let wanted = self.wanted_diff()?;
+        (self.diff.as_ref()).filter(|d| (d.project, d.merge_request) == wanted)
+    }
+
+    pub fn diff_scroll(&self) -> usize {
+        self.diff_scroll
+    }
+
+    fn ask_diff(&mut self) -> Vec<Cmd> {
+        let Some((project, merge_request)) = self.wanted_diff() else {
+            return Vec::new();
+        };
+        let asked = self.diff_asked == Some((project, merge_request));
+        if self.shown_diff().is_some() || self.waiting.is_some() || asked {
+            return Vec::new();
+        }
+        vec![Cmd::LoadDiff {
+            project,
+            merge_request,
+        }]
+    }
+
+    fn diff_loaded(&mut self, key: (u64, u64), files: Option<Vec<FileDiff>>) {
+        if self.diff_asked == Some(key) {
+            self.diff_asked = None;
+        }
+        if self.wanted_diff() != Some(key) {
+            return;
+        }
+        let (project, merge_request) = key;
+        self.diff = Some(Diff {
+            project,
+            merge_request,
+            rows: files.map(|files| diff::rows(&files)),
+        });
+    }
+
+    fn scroll_diff(&mut self, delta: isize) {
+        let len = (self.shown_diff())
+            .and_then(|d| d.rows.as_ref())
+            .map_or(0, Vec::len);
+        let end = len.saturating_sub(self.diff_height.get());
+        self.diff_scroll = self.diff_scroll.saturating_add_signed(delta).min(end);
+    }
+
+    fn clear_diff(&mut self) {
+        self.diff = None;
+        self.diff_scroll = 0;
     }
 
     /// The threads of the merge request in view, once they loaded or failed to.
@@ -770,6 +855,18 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd:
+                    Cmd::LoadDiff {
+                        project,
+                        merge_request,
+                    },
+                error,
+            } => {
+                self.diff_loaded((project, merge_request), None);
+                self.error = Some(error);
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -829,6 +926,7 @@ impl App {
                     self.merge_requests = merge_requests;
                     self.cursors[Pane::MergeRequests.index()] = 0;
                     self.clear_threads();
+                    self.clear_diff();
                 }
                 Vec::new()
             }
@@ -845,6 +943,14 @@ impl App {
                 merge_request,
                 resolved,
             } => self.thread_resolved((project, merge_request), resolved),
+            Msg::DiffLoaded {
+                project,
+                merge_request,
+                files,
+            } => {
+                self.diff_loaded((project, merge_request), Some(files));
+                Vec::new()
+            }
         }
     }
 
@@ -1275,6 +1381,10 @@ impl App {
             self.move_thread(delta);
             return Vec::new();
         }
+        if self.focus == Focus::Detail && self.wanted_diff().is_some() {
+            self.scroll_diff(delta);
+            return Vec::new();
+        }
         if self.focus == Focus::Detail || len == 0 {
             return Vec::new();
         }
@@ -1308,7 +1418,8 @@ impl App {
             }
             Pane::MergeRequests => {
                 self.clear_threads();
-                if self.wanted_threads().is_some() {
+                self.clear_diff();
+                if self.wanted_threads().is_some() || self.wanted_diff().is_some() {
                     self.wait(Waiting::MergeRequest);
                 }
                 Vec::new()
@@ -1323,6 +1434,7 @@ impl App {
         self.clear_jobs();
         self.merge_requests.clear();
         self.clear_threads();
+        self.clear_diff();
         self.waiting = None;
         let Some(project) = self.selected() else {
             return Vec::new();
@@ -1360,7 +1472,7 @@ impl App {
             ],
             Waiting::Pipeline { project, pipeline } => vec![Cmd::LoadJobs { project, pipeline }],
             Waiting::Job { project, job } => vec![Cmd::LoadLog { project, job }],
-            // `ask_threads` asks for the threads in the update that ends the wait.
+            // `ask_threads` and `ask_diff` ask in the update that ends the wait.
             Waiting::MergeRequest => Vec::new(),
         }
     }

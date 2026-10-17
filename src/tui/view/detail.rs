@@ -9,6 +9,7 @@ use super::sidebar::row_name;
 use super::sidebar::row_status;
 use crate::gitlab::{Discussion, Status};
 use crate::tui::app::{App, Focus, MrTab, Pane};
+use crate::tui::diff::Kind;
 use crate::tui::jobs::JobRow;
 use crate::tui::panel::{block, bottom_label, kv, light_corners};
 use crate::tui::text::{age, clamp_spans, fit, pad, width as text_width};
@@ -190,7 +191,7 @@ fn view(app: &App, context: &Context, body: Rect, t: &Theme) -> (String, Vec<Lin
                     kv("updated", ago(mr.updated_at), t),
                 ],
                 MrTab::Threads => threads(app, context, width, body.height as usize, t),
-                MrTab::Diff => Vec::new(),
+                MrTab::Diff => diff(app, width, body.height as usize, t),
             };
             (format!("merge request !{}", mr.iid), lines)
         }),
@@ -198,7 +199,7 @@ fn view(app: &App, context: &Context, body: Rect, t: &Theme) -> (String, Vec<Lin
     .unwrap_or_else(|| (app.pane.label().to_string(), Vec::new()))
 }
 
-const THREAD_RULE: usize = 40;
+const RULE: usize = 40;
 
 /// The picked thread shows whole when it fits, and from its first line when it does not.
 fn threads(
@@ -221,7 +222,7 @@ fn threads(
     let mut picked = 0..0;
     for (row, discussion) in discussions.iter().enumerate() {
         if row > 0 {
-            lines.push(Line::styled("─".repeat(THREAD_RULE.min(width)), t.border()));
+            lines.push(Line::styled("─".repeat(RULE.min(width)), t.border()));
             lines.push(Line::raw(""));
         }
         let start = lines.len();
@@ -233,6 +234,34 @@ fn threads(
     }
     let top = picked.end.saturating_sub(height).min(picked.start);
     lines.split_off(top)
+}
+
+fn diff(app: &App, width: usize, height: usize, t: &Theme) -> Vec<Line<'static>> {
+    app.diff_height.set(height);
+    let Some(diff) = app.shown_diff() else {
+        return vec![Line::styled("loading the diff", t.dim())];
+    };
+    let Some(rows) = &diff.rows else {
+        return vec![Line::styled("the diff did not load", t.dim())];
+    };
+    if rows.is_empty() {
+        return vec![Line::styled("no changes", t.dim())];
+    }
+    let colour = |c| Style::new().fg(c);
+    (rows.iter().skip(app.diff_scroll()).take(height))
+        .map(|row| {
+            let style = match row.kind {
+                Kind::File => t.title(),
+                Kind::Rule => return Line::styled("─".repeat(RULE.min(width)), t.border()),
+                Kind::Added => colour(t.pine),
+                Kind::Removed => colour(t.love),
+                Kind::Hunk => colour(t.foam),
+                Kind::Context => t.body(),
+                Kind::Note => t.dim(),
+            };
+            Line::styled(fit(&row.text, width), style)
+        })
+        .collect()
 }
 
 /// A note's first body line hangs from the tree, and its other lines continue the tree.
