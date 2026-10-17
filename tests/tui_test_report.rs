@@ -18,6 +18,8 @@ const SETTLE_TICKS: usize = 3;
 const REFRESH_TICKS: usize = 50;
 /// The first column of the detail pane on a terminal 120 columns wide.
 const DETAIL_X: u16 = 48;
+/// A terminal height that leaves the detail pane nine lines, fewer than the demo report.
+const SHORT: u16 = 14;
 
 fn now() -> OffsetDateTime {
     OffsetDateTime::parse("2026-01-15T12:00:00Z", &Rfc3339).unwrap()
@@ -121,19 +123,28 @@ fn shift_t_on_the_pipelines_pane_loads_the_test_report_of_the_pipeline_in_view()
     assert!(detail(&render_at(&app, 30)).contains("stages"));
 }
 
-#[test]
-fn the_test_report_shows_each_suite_and_each_failed_case_with_its_output() {
-    // Given: the pipelines pane on the demo's failed pipeline, two rows down.
+/// The pipelines pane on the demo's failed pipeline, two rows down, with its test report loaded.
+fn on_failed_report() -> App {
     let mut app = on_pipelines();
     press(&mut app, 'j');
     press(&mut app, 'j');
     let settled = ticks(&mut app, SETTLE_TICKS);
     answer(&mut app, settled);
-
-    // When: its test report loads.
     let asked = press(&mut app, 'T');
     answer(&mut app, asked);
-    let buffer = render_at(&app, 24);
+    app
+}
+
+/// The first line inside the detail pane.
+fn top_line(app: &App) -> String {
+    let shown = detail(&render_at(app, SHORT));
+    shown.lines().nth(1).unwrap_or_default().to_string()
+}
+
+#[test]
+fn the_test_report_shows_each_suite_and_each_failed_case_with_its_output() {
+    // When: the test report of the demo's failed pipeline loads.
+    let buffer = render_at(&on_failed_report(), 24);
 
     // Then: the passed counts are pine and the failed counts love.
     assert_eq!(colour_of(&buffer, "17 passed"), T.pine);
@@ -237,4 +248,83 @@ fn the_key_bar_offers_shift_t_on_the_pipelines_pane() {
             .collect();
         assert!(bar.contains("T tests"), "{bar}");
     }
+}
+
+#[test]
+fn j_and_k_in_the_detail_scroll_the_test_report_between_its_top_and_its_end() {
+    // Given: the demo's failed report, longer than the detail pane, with the detail focused.
+    let mut app = on_failed_report();
+    press(&mut app, 'l');
+    assert!(top_line(&app).contains("total"), "{}", top_line(&app));
+
+    // When: `G` scrolls to the end, and `j` tries to go further.
+    press(&mut app, 'G');
+    let end = detail(&render_at(&app, SHORT));
+    press(&mut app, 'j');
+
+    // Then: the failed case's output ends at the bottom of the pane, and stays there.
+    insta::assert_snapshot!(end);
+    assert_eq!(detail(&render_at(&app, SHORT)), end);
+
+    // When: `k` scrolls up one line. Then: the line above comes into view.
+    press(&mut app, 'k');
+    assert!(top_line(&app).contains("passed"), "{}", top_line(&app));
+
+    // When: `g` scrolls to the top, and `k` tries to go further. Then: the totals are on top.
+    press(&mut app, 'g');
+    press(&mut app, 'k');
+    assert!(top_line(&app).contains("total"), "{}", top_line(&app));
+}
+
+#[test]
+fn another_pipeline_opens_its_test_report_at_the_top() {
+    // Given: the demo's failed report, scrolled to its end.
+    let mut app = on_failed_report();
+    let failed = app.pipeline().unwrap().id;
+    press(&mut app, 'l');
+    render_at(&app, SHORT);
+    press(&mut app, 'G');
+
+    // When: the sidebar moves the cursor up one pipeline, and its report loads.
+    press(&mut app, 'h');
+    press(&mut app, 'k');
+    let settled = ticks(&mut app, SETTLE_TICKS);
+    answer(&mut app, settled);
+
+    // Then: j and k in the sidebar still move the cursor, and the report shows from its top.
+    assert_ne!(app.pipeline().unwrap().id, failed);
+    assert!(top_line(&app).contains("total"), "{}", top_line(&app));
+}
+
+#[test]
+fn shift_t_opens_the_test_report_again_at_the_top() {
+    // Given: the demo's failed report, scrolled to its end.
+    let mut app = on_failed_report();
+    press(&mut app, 'l');
+    render_at(&app, SHORT);
+    press(&mut app, 'G');
+
+    // When: `T` closes the report and opens it again, and it loads.
+    press(&mut app, 'T');
+    let asked = press(&mut app, 'T');
+    answer(&mut app, asked);
+
+    // Then: the report shows from its top.
+    assert!(top_line(&app).contains("total"), "{}", top_line(&app));
+}
+
+#[test]
+fn the_key_bar_offers_j_and_k_to_scroll_the_test_report() {
+    // Given: the demo's failed report, with the detail focused.
+    let mut app = on_failed_report();
+    press(&mut app, 'l');
+
+    // When: the screen is drawn.
+    let buffer = render_at(&app, 30);
+
+    // Then: the key bar offers `j/k` to scroll, before `T` for the test report.
+    let bar: String = (0..buffer.area.width)
+        .map(|x| buffer[(x, buffer.area.height - 1)].symbol())
+        .collect();
+    assert!(bar.contains("j/k scroll  T tests"), "{bar}");
 }
