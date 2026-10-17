@@ -124,8 +124,13 @@ fn view(app: &App, context: &Context, body: Rect, t: &Theme) -> (String, Vec<Lin
             ];
             (p.path_with_namespace.clone(), lines)
         }),
-        Pane::Pipelines if app.test_report_open => (app.pipelines.get(cursor))
-            .map(|p| (format!("test report #{}", p.id), test_report(app, width, t))),
+        Pane::Pipelines if app.test_report_open => (app.pipelines.get(cursor)).map(|p| {
+            let lines = test_report(app, width, t);
+            app.test_report_lines.set(lines.len());
+            app.test_report_height.set(body.height as usize);
+            let lines = lines.into_iter().skip(app.test_report_scroll()).collect();
+            (format!("test report #{}", p.id), lines)
+        }),
         Pane::Pipelines => app.pipelines.get(cursor).map(|p| {
             let mut lines = vec![
                 kv("status", status(p.status, app.tick), t),

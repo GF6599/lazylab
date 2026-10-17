@@ -157,6 +157,13 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
         (Overlay::None, Focus::Detail) if app.pane == Pane::MergeRequests => {
             &[("[ ]", "tab"), ("h", "back"), ("?", "help"), ("q", "quit")]
         }
+        (Overlay::None, Focus::Detail) if app.pane == Pane::Pipelines && app.test_report_open => &[
+            ("j/k", "scroll"),
+            ("T", "tests"),
+            ("h", "back"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
         (Overlay::None, Focus::Detail) if app.pane == Pane::Pipelines => {
             &[("T", "tests"), ("h", "back"), ("?", "help"), ("q", "quit")]
         }

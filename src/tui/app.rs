@@ -446,6 +446,12 @@ pub struct App {
     pub test_report_open: bool,
     test_report: Option<PipelineTestReport>,
     test_report_asked: Option<(u64, u64)>,
+    /// Lines between the top of the test report and the first line in view.
+    test_report_scroll: usize,
+    /// The lines of the test report and the rows the detail pane gave it when it last drew, so a
+    /// scroll stops at the end.
+    pub test_report_lines: Cell<usize>,
+    pub test_report_height: Cell<usize>,
     cursors: [usize; Pane::ALL.len()],
 }
 
@@ -504,6 +510,9 @@ impl App {
             test_report_open: false,
             test_report: None,
             test_report_asked: None,
+            test_report_scroll: 0,
+            test_report_lines: Cell::new(0),
+            test_report_height: Cell::new(0),
             cursors: [0; Pane::ALL.len()],
         }
     }
@@ -707,8 +716,7 @@ impl App {
         let len = (self.shown_diff())
             .and_then(|d| d.rows.as_ref())
             .map_or(0, Vec::len);
-        let end = len.saturating_sub(self.diff_height.get());
-        self.diff_scroll = self.diff_scroll.saturating_add_signed(delta).min(end);
+        self.diff_scroll = scrolled(self.diff_scroll, delta, len, self.diff_height.get());
     }
 
     fn clear_diff(&mut self) {
@@ -755,11 +763,25 @@ impl App {
         });
     }
 
+    pub fn test_report_scroll(&self) -> usize {
+        self.test_report_scroll
+    }
+
+    fn scroll_test_report(&mut self, delta: isize) {
+        let (len, height) = (self.test_report_lines.get(), self.test_report_height.get());
+        self.test_report_scroll = scrolled(self.test_report_scroll, delta, len, height);
+    }
+
+    fn clear_test_report(&mut self) {
+        self.test_report = None;
+        self.test_report_scroll = 0;
+    }
+
     /// Each open loads the report again, so a failed load can be asked for once more.
     fn toggle_test_report(&mut self) {
         self.test_report_open = !self.test_report_open;
         if self.test_report_open {
-            self.test_report = None;
+            self.clear_test_report();
         }
     }
 
@@ -1509,6 +1531,10 @@ impl App {
             self.scroll_diff(delta);
             return Vec::new();
         }
+        if self.focus == Focus::Detail && self.wanted_test_report().is_some() {
+            self.scroll_test_report(delta);
+            return Vec::new();
+        }
         if self.focus == Focus::Detail || len == 0 {
             return Vec::new();
         }
@@ -1757,7 +1783,7 @@ impl App {
         self.log = None;
         self.log_asked = None;
         self.log_failed = None;
-        self.test_report = None;
+        self.clear_test_report();
     }
 
     fn pipeline_changed(&mut self) -> Vec<Cmd> {
@@ -1789,6 +1815,14 @@ fn keep<T, K: PartialEq>(
     before
         .and_then(|before| items.iter().position(|item| key(item) == before))
         .unwrap_or_else(|| row.min(items.len().saturating_sub(1)))
+}
+
+/// The scroll after a move of `delta` lines, which stops when the last of `len` lines is at the
+/// bottom of `height` rows.
+fn scrolled(scroll: usize, delta: isize, len: usize, height: usize) -> usize {
+    scroll
+        .saturating_add_signed(delta)
+        .min(len.saturating_sub(height))
 }
 
 fn row_bridge(rows: &[JobRow], row: usize) -> Option<&Bridge> {
