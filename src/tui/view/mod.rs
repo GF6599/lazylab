@@ -43,6 +43,7 @@ const HELP: &[(&str, &str)] = &[
     ("T", "the test report of the pipeline, or its stages"),
     ("[ ]", "the merge request tab before, after"),
     ("r", "resolve or reopen the thread"),
+    ("c", "start a thread, or reply in the thread"),
     ("R", "retry the pipeline or job, after a question"),
     ("C", "cancel the pipeline or job, after a question"),
     ("N", "run a pipeline, with variables"),
@@ -134,23 +135,29 @@ fn input(value: &str, box_width: usize, active: bool, t: &Theme) -> (Vec<Span<'s
 /// The terminal's cursor sits after the text of the field being typed.
 fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
     let inner_width = FORM_WIDTH.min((area.width as usize).saturating_sub(4));
-    let ref_box = inner_width.saturating_sub(FORM_LABEL + 2);
+    let head_box = inner_width.saturating_sub(FORM_LABEL + 2);
     let value_box = inner_width.saturating_sub(FORM_LABEL + FORM_KEY_BOX + 4 + EQUALS.len());
     let current = form.current();
     let mut lines = Vec::new();
     let mut cursor = None;
-    if let Some(git_ref) = &form.git_ref {
-        let active = current == Some(Field::Ref);
-        let (spans, typed) = input(git_ref, ref_box, active, t);
-        let mut line = vec![Span::styled(format!("{:<FORM_LABEL$}", "ref"), t.dim())];
+    let head = (form.git_ref.as_ref().map(|text| ("ref", text, Field::Ref)))
+        .or_else(|| (form.body.as_ref()).map(|text| ("comment", text, Field::Body)));
+    if let Some((label, text, field)) = head {
+        let active = current == Some(field);
+        let (spans, typed) = input(text, head_box, active, t);
+        let mut line = vec![Span::styled(format!("{label:<FORM_LABEL$}"), t.dim())];
         line.extend(spans);
         if active {
             cursor = Some((FORM_LABEL + 1 + typed, lines.len()));
         }
         lines.push(Line::from(line));
-        lines.push(Line::raw(""));
     }
-    lines.push(Line::styled("variables", t.title()));
+    if form.takes_variables() {
+        if !lines.is_empty() {
+            lines.push(Line::raw(""));
+        }
+        lines.push(Line::styled("variables", t.title()));
+    }
     for (row, (key, value)) in form.variables.iter().enumerate() {
         let (key_spans, key_typed) = input(key, FORM_KEY_BOX, current == Some(Field::Key(row)), t);
         let (value_spans, value_typed) =
@@ -167,7 +174,7 @@ fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
         }
         lines.push(Line::from(line));
     }
-    if form.variables.is_empty() {
+    if form.variables.is_empty() && form.takes_variables() {
         lines.push(Line::styled(
             format!("{}none, ctrl+n adds one", pad(FORM_LABEL)),
             t.dim(),

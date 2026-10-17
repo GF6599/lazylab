@@ -875,10 +875,7 @@ fn comment(app: &mut App, text: &str) -> Vec<Cmd> {
     for c in text.chars() {
         commands.extend(press(app, c));
     }
-    commands.extend(app.update(Msg::Key(KeyEvent::new(
-        KeyCode::Enter,
-        KeyModifiers::NONE,
-    ))));
+    commands.extend(app.update(Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))));
     commands
 }
 
@@ -1012,26 +1009,14 @@ fn a_thread_started_from_the_info_tab_shows_once_the_threads_tab_opens() {
 
     // When: a new thread is answered, and the threads tab opens.
     let answered = app.update(commented(false));
+    let bar = rows(&render(&app)).last().unwrap().clone();
     let opened = press(&mut app, ']');
 
-    // Then: no threads load while out of view, and they load on the threads tab.
+    // Then: the status bar said so, no threads load while out of view, and they load on the
+    // threads tab.
+    assert!(bar.contains("Started a thread"), "{bar}");
     assert_eq!(threads_asked(&answered), []);
     assert_eq!(threads_asked(&opened), [(PROJECT, 412)]);
-}
-
-#[test]
-fn a_new_thread_answered_says_so() {
-    // Given: the info tab, with the detail pane focused.
-    let mut app = loaded();
-    press(&mut app, '4');
-    press(&mut app, 'l');
-
-    // When: GitLab answers that the new thread is in.
-    app.update(commented(false));
-
-    // Then: the status bar says so.
-    let bar = rows(&render(&app)).last().unwrap().clone();
-    assert!(bar.contains("Started a thread"), "{bar}");
 }
 
 #[test]

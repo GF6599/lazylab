@@ -190,6 +190,16 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             merge_request,
             resolved,
         },
+        Cmd::Comment {
+            project,
+            merge_request,
+            discussion,
+            ..
+        } => Msg::Commented {
+            project,
+            merge_request,
+            reply: discussion.is_some(),
+        },
     };
     Some(msg)
 }

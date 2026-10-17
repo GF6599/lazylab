@@ -655,7 +655,9 @@ async fn a_reply_posts_in_its_thread_and_a_new_thread_on_its_merge_request() {
     // project 1.
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/api/v4/projects/1/merge_requests/412/discussions/d3/notes"))
+        .and(path(
+            "/api/v4/projects/1/merge_requests/412/discussions/d3/notes",
+        ))
         .and(body_json(serde_json::json!({"body": "Done"})))
         .respond_with(json_body(r#"{"id":9,"body":"Done"}"#))
         .expect(1)

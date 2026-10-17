@@ -1,10 +1,11 @@
 //! The run and play forms: a ref for a new pipeline, and CI variables as rows of a key and a value.
+//! The comment form: one line of text for a merge request.
 
 use std::fmt;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::app::Action;
+use super::app::{Action, Cmd};
 use crate::gitlab::Variable;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,15 +18,23 @@ pub enum Purpose {
         job: u64,
         name: String,
     },
+    Comment {
+        project: u64,
+        merge_request: u64,
+        discussion: Option<String>,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Form {
     pub purpose: Purpose,
-    /// `None` for a play, which runs where its job already is.
+    /// `None` for a play, which runs where its job already is, and for a comment.
     pub git_ref: Option<String>,
+    /// `None` for a run or a play, which take variables instead.
+    pub body: Option<String>,
     pub variables: Vec<(String, String)>,
-    /// The field being typed: the ref first when there is one, then each row's key and value.
+    /// The field being typed: the ref or the comment first when there is one, then each row's key
+    /// and value.
     pub field: usize,
 }
 
@@ -44,13 +53,14 @@ impl fmt::Debug for Form {
 
 pub enum Outcome {
     Open,
-    Send(Action),
+    Send(Cmd),
     Closed,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Ref,
+    Body,
     Key(usize),
     Value(usize),
 }
@@ -60,6 +70,7 @@ impl Form {
         Form {
             purpose: Purpose::Run { project },
             git_ref: Some(git_ref),
+            body: None,
             variables: Vec::new(),
             field: 0,
         }
@@ -69,6 +80,21 @@ impl Form {
         Form {
             purpose: Purpose::Play { project, job, name },
             git_ref: None,
+            body: None,
+            variables: Vec::new(),
+            field: 0,
+        }
+    }
+
+    pub fn comment(project: u64, merge_request: u64, discussion: Option<String>) -> Form {
+        Form {
+            purpose: Purpose::Comment {
+                project,
+                merge_request,
+                discussion,
+            },
+            git_ref: None,
+            body: Some(String::new()),
             variables: Vec::new(),
             field: 0,
         }
@@ -78,11 +104,19 @@ impl Form {
         match &self.purpose {
             Purpose::Run { .. } => "run pipeline".to_string(),
             Purpose::Play { name, .. } => format!("play {name}"),
+            Purpose::Comment {
+                discussion: None, ..
+            } => "new comment".to_string(),
+            Purpose::Comment { .. } => "reply".to_string(),
         }
     }
 
+    pub fn takes_variables(&self) -> bool {
+        self.body.is_none()
+    }
+
     fn first_row_field(&self) -> usize {
-        usize::from(self.git_ref.is_some())
+        usize::from(self.git_ref.is_some() || self.body.is_some())
     }
 
     fn fields(&self) -> usize {
@@ -94,7 +128,11 @@ impl Form {
             return None;
         }
         let Some(row_field) = self.field.checked_sub(self.first_row_field()) else {
-            return Some(Field::Ref);
+            return Some(if self.body.is_some() {
+                Field::Body
+            } else {
+                Field::Ref
+            });
         };
         let row = row_field / 2;
         Some(if row_field % 2 == 0 {
@@ -107,6 +145,7 @@ impl Form {
     fn text(&mut self) -> Option<&mut String> {
         match self.current()? {
             Field::Ref => self.git_ref.as_mut(),
+            Field::Body => self.body.as_mut(),
             Field::Key(row) => self.variables.get_mut(row).map(|(key, _)| key),
             Field::Value(row) => self.variables.get_mut(row).map(|(_, value)| value),
         }
@@ -122,7 +161,7 @@ impl Form {
         let fields = self.fields();
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
-                KeyCode::Char('n') => {
+                KeyCode::Char('n') if self.takes_variables() => {
                     self.variables.push((String::new(), String::new()));
                     self.field = self.fields() - 2;
                 }
@@ -137,7 +176,7 @@ impl Form {
             return Outcome::Open;
         }
         match key.code {
-            KeyCode::Enter => return Outcome::Send(self.action()),
+            KeyCode::Enter => return self.send(),
             KeyCode::Esc => return Outcome::Closed,
             KeyCode::Tab if fields > 0 => self.field = (self.field + 1) % fields,
             KeyCode::BackTab if fields > 0 => self.field = (self.field + fields - 1) % fields,
@@ -157,26 +196,47 @@ impl Form {
     }
 
     /// A row without a key is left out, as GitLab's own form leaves an empty row out.
-    fn action(&self) -> Action {
-        let variables: Vec<Variable> = (self.variables.iter())
+    fn variables(&self) -> Vec<Variable> {
+        (self.variables.iter())
             .filter(|(key, _)| !key.is_empty())
             .map(|(key, value)| Variable {
                 key: key.clone(),
                 value: value.clone(),
             })
-            .collect();
-        match &self.purpose {
+            .collect()
+    }
+
+    /// A blank comment stays open, as the Go release refuses to send one.
+    fn send(&self) -> Outcome {
+        let action = match &self.purpose {
             Purpose::Run { project } => Action::RunPipeline {
                 project: *project,
                 git_ref: self.git_ref.clone().unwrap_or_default(),
-                variables,
+                variables: self.variables(),
             },
             Purpose::Play { project, job, name } => Action::PlayJob {
                 project: *project,
                 job: *job,
                 name: name.clone(),
-                variables,
+                variables: self.variables(),
             },
-        }
+            Purpose::Comment {
+                project,
+                merge_request,
+                discussion,
+            } => {
+                let body = self.body.as_deref().unwrap_or_default().trim();
+                if body.is_empty() {
+                    return Outcome::Open;
+                }
+                return Outcome::Send(Cmd::Comment {
+                    project: *project,
+                    merge_request: *merge_request,
+                    discussion: discussion.clone(),
+                    body: body.to_string(),
+                });
+            }
+        };
+        Outcome::Send(Cmd::Act(action))
     }
 }
