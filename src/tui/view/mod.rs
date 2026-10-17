@@ -17,7 +17,7 @@ use super::app::{App, Focus, Overlay};
 use super::form::{Field, Form};
 use super::mark;
 use super::panel::block;
-use super::text::{fit, pad, width};
+use super::text::{fit, fit_end, pad, width};
 use super::theme::{ROSE_PINE, Theme};
 
 const MIN_WIDTH: u16 = 40;
@@ -108,16 +108,24 @@ const FORM_KEY_BOX: usize = 18;
 const EQUALS: &str = " = ";
 
 /// One input: a filled box between the marker cells, which show only on the field being typed.
-fn input(value: &str, box_width: usize, active: bool, t: &Theme) -> Vec<Span<'static>> {
+/// That field shows the end of its text and keeps a free cell for the cursor, and the second
+/// value is how far into the box the cursor goes.
+fn input(value: &str, box_width: usize, active: bool, t: &Theme) -> (Vec<Span<'static>>, usize) {
     let (open, close) = if active { ("[", "]") } else { (" ", " ") };
-    let text = fit(value, box_width);
+    let text = if active {
+        fit_end(value, box_width.saturating_sub(1))
+    } else {
+        fit(value, box_width)
+    };
     let style = if active { t.marked() } else { t.body() };
-    vec![
+    let typed = width(&text);
+    let spans = vec![
         Span::styled(open, t.marker()),
-        Span::styled(text.clone(), style.bg(t.hl_low)),
-        Span::styled(pad(box_width - width(&text)), t.selected_row()),
+        Span::styled(text, style.bg(t.hl_low)),
+        Span::styled(pad(box_width - typed), t.selected_row()),
         Span::styled(close, t.marker()),
-    ]
+    ];
+    (spans, typed)
 }
 
 /// The terminal's cursor sits after the text of the field being typed.
@@ -129,35 +137,30 @@ fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
     let mut lines = Vec::new();
     let mut cursor = None;
     if let Some(git_ref) = &form.git_ref {
+        let active = current == Some(Field::Ref);
+        let (spans, typed) = input(git_ref, ref_box, active, t);
         let mut line = vec![Span::styled(format!("{:<FORM_LABEL$}", "ref"), t.dim())];
-        line.extend(input(git_ref, ref_box, current == Some(Field::Ref), t));
-        if current == Some(Field::Ref) {
-            cursor = Some((FORM_LABEL + 1 + width(git_ref).min(ref_box), lines.len()));
+        line.extend(spans);
+        if active {
+            cursor = Some((FORM_LABEL + 1 + typed, lines.len()));
         }
         lines.push(Line::from(line));
         lines.push(Line::raw(""));
     }
     lines.push(Line::styled("variables", t.title()));
     for (row, (key, value)) in form.variables.iter().enumerate() {
+        let (key_spans, key_typed) = input(key, FORM_KEY_BOX, current == Some(Field::Key(row)), t);
+        let (value_spans, value_typed) =
+            input(value, value_box, current == Some(Field::Value(row)), t);
         let mut line = vec![Span::raw(pad(FORM_LABEL))];
-        line.extend(input(
-            key,
-            FORM_KEY_BOX,
-            current == Some(Field::Key(row)),
-            t,
-        ));
+        line.extend(key_spans);
         line.push(Span::styled(EQUALS, t.dim()));
-        line.extend(input(
-            value,
-            value_box,
-            current == Some(Field::Value(row)),
-            t,
-        ));
+        line.extend(value_spans);
         if current == Some(Field::Key(row)) {
-            cursor = Some((FORM_LABEL + 1 + width(key).min(FORM_KEY_BOX), lines.len()));
+            cursor = Some((FORM_LABEL + 1 + key_typed, lines.len()));
         } else if current == Some(Field::Value(row)) {
             let start = FORM_LABEL + FORM_KEY_BOX + 2 + EQUALS.len() + 1;
-            cursor = Some((start + width(value).min(value_box), lines.len()));
+            cursor = Some((start + value_typed, lines.len()));
         }
         lines.push(Line::from(line));
     }
