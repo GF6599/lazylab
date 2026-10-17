@@ -80,19 +80,24 @@ pub fn clamp_spans(spans: Vec<Span<'static>>, max: usize) -> Vec<Span<'static>> 
 
 const TAB_STOP: usize = 4;
 
-/// Each tab reaches the next stop of `TAB_STOP` columns, counted from the start of `text`,
-/// because a terminal cell cannot hold a tab.
+/// Each tab reaches the next stop of `TAB_STOP` columns, counted from the start of `text`.
 pub fn expand_tabs(text: &str) -> String {
+    expand_tabs_at(text, TAB_STOP, &mut 0)
+}
+
+/// Each tab reaches the next multiple of `stop` columns, because a terminal cell cannot hold a
+/// tab. `text` starts at `column`, and `column` moves to the end of `text`, so the next text on
+/// the same line continues the count.
+pub fn expand_tabs_at(text: &str, stop: usize, column: &mut usize) -> String {
     let mut out = String::with_capacity(text.len());
-    let mut column = 0;
     for c in text.chars() {
         if c == '\t' {
-            let spaces = TAB_STOP - column % TAB_STOP;
+            let spaces = stop - *column % stop;
             out.extend(std::iter::repeat_n(' ', spaces));
-            column += spaces;
+            *column += spaces;
         } else {
             out.push(c);
-            column += c.width().unwrap_or(0);
+            *column += c.width().unwrap_or(0);
         }
     }
     out

@@ -4,7 +4,9 @@ use lazylab::tui::demo;
 use lazylab::tui::view::{Context, draw};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::style::Color;
 use serde_json::json;
 use time::OffsetDateTime;
 
@@ -187,20 +189,26 @@ fn failed(job: u64) -> Msg {
     }
 }
 
-fn shown(app: &App) -> String {
+fn drawn(app: &App) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
     let context = Context {
         host: "gitlab.example.com".into(),
         now: OffsetDateTime::now_utc(),
     };
     terminal.draw(|frame| draw(frame, app, &context)).unwrap();
-    let buffer = terminal.backend().buffer();
+    terminal.backend().buffer().clone()
+}
+
+fn row_text(buffer: &Buffer, y: u16) -> String {
+    (0..buffer.area.width)
+        .map(|x| buffer[(x, y)].symbol())
+        .collect()
+}
+
+fn shown(app: &App) -> String {
+    let buffer = drawn(app);
     (0..buffer.area.height)
-        .map(|y| {
-            (0..buffer.area.width)
-                .map(|x| buffer[(x, y)].symbol())
-                .collect::<String>()
-        })
+        .map(|y| row_text(&buffer, y))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -273,4 +281,78 @@ fn a_failed_log_is_asked_for_again_when_its_pipeline_is_chosen_again() {
         log_requests(&press(&mut app, KeyCode::Char('3'))),
         [(PROJECT, 1)]
     );
+}
+
+/// The jobs pane, with `log` loaded for its only job.
+fn with_log(log: &str) -> App {
+    let mut app = with_jobs(vec![job(1, "success")]);
+    press(&mut app, KeyCode::Char('3'));
+    app.update(Msg::LogLoaded {
+        job: 1,
+        log: log.into(),
+    });
+    app
+}
+
+/// The first row that holds `text`, and the column where `text` starts. Each cell holds one
+/// character, so a character count is a column.
+fn find(buffer: &Buffer, text: &str) -> (u16, u16) {
+    (0..buffer.area.height)
+        .find_map(|y| {
+            let row = row_text(buffer, y);
+            let byte = row.find(text)?;
+            Some((y, row[..byte].chars().count() as u16))
+        })
+        .unwrap_or_else(|| panic!("no row holds {text:?}"))
+}
+
+#[test]
+fn a_tab_in_a_job_log_reaches_the_next_stop_of_eight_columns() {
+    // Given: the jobs pane, with a line of Go test output.
+    let app = with_log("ok  \tpkg\t0.1s\n");
+
+    // When: the screen is drawn.
+    let buffer = drawn(&app);
+
+    // Then: each tab reaches the next multiple of eight columns from the start of the line.
+    let (y, start) = find(&buffer, "ok      pkg     0.1s");
+    assert_eq!(find(&buffer, "pkg"), (y, start + 8));
+    assert_eq!(find(&buffer, "0.1s"), (y, start + 16));
+}
+
+#[test]
+fn a_tab_in_a_coloured_job_log_counts_the_columns_of_earlier_colours_and_keeps_its_own() {
+    // Given: the jobs pane, with a tab after a green span, and a tab inside a red span.
+    let app = with_log("\u{1b}[32mok\u{1b}[0m\tpkg\n\u{1b}[31mFAIL\tpkg\u{1b}[0m\t0.1s\n");
+
+    // When: the screen is drawn.
+    let buffer = drawn(&app);
+
+    // Then: the tabs reach the stops at eight and sixteen columns, and each part keeps its colour.
+    let (y, start) = find(&buffer, "ok      pkg");
+    assert_eq!(buffer[(start, y)].fg, Color::Green);
+    assert_ne!(buffer[(start + 8, y)].fg, Color::Green);
+    let (y, start) = find(&buffer, "FAIL    pkg     0.1s");
+    for column in [start, start + 4, start + 8] {
+        assert_eq!(
+            buffer[(column, y)].fg,
+            Color::Red,
+            "column {}",
+            column - start
+        );
+    }
+    assert_ne!(buffer[(start + 16, y)].fg, Color::Red);
+}
+
+#[test]
+fn a_tab_after_a_wide_character_counts_its_two_columns() {
+    // Given: the jobs pane, with a tab after a character two columns wide.
+    let app = with_log("界\tpkg\n");
+
+    // When: the screen is drawn.
+    let buffer = drawn(&app);
+
+    // Then: the tab reaches the stop at eight columns, six columns after the character.
+    let (y, start) = find(&buffer, "界");
+    assert_eq!(find(&buffer, "pkg"), (y, start + 8));
 }
