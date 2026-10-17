@@ -13,7 +13,8 @@ use super::form::{Form, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
 use crate::gitlab::{
-    Bridge, Discussion, FileDiff, Job, MergeRequest, Page, Pipeline, Project, Status, Variable,
+    Bridge, Discussion, FileDiff, Job, MergeRequest, Page, Pipeline, Project, Status, TestReport,
+    Variable,
 };
 use crate::store::CachedProjects;
 
@@ -261,6 +262,11 @@ pub enum Msg {
         merge_request: u64,
         files: Vec<FileDiff>,
     },
+    TestReportLoaded {
+        project: u64,
+        pipeline: u64,
+        report: TestReport,
+    },
     /// The reason is already fit to show, with any credential redacted.
     Failed {
         cmd: Cmd,
@@ -314,6 +320,10 @@ pub enum Cmd {
         project: u64,
         merge_request: u64,
     },
+    LoadTestReport {
+        project: u64,
+        pipeline: u64,
+    },
     /// `resolved` is the state the thread goes to: `false` reopens it.
     ResolveThread {
         project: u64,
@@ -343,6 +353,14 @@ pub struct Threads {
     pub merge_request: u64,
     /// `None` when the load failed, which stops a retry until the cursor moves.
     pub discussions: Option<Vec<Discussion>>,
+}
+
+#[derive(Debug)]
+pub struct PipelineTestReport {
+    pub project: u64,
+    pub pipeline: u64,
+    /// `None` when the load failed, which stops a retry until the pipeline changes or `T` asks.
+    pub report: Option<TestReport>,
 }
 
 #[derive(Debug, Default)]
@@ -424,6 +442,10 @@ pub struct App {
     diff_scroll: usize,
     /// The rows the detail pane gave the diff when it last drew, so a scroll stops at the end.
     pub diff_height: Cell<usize>,
+    /// The pipeline detail shows the test report instead of the stages.
+    pub test_report_open: bool,
+    test_report: Option<PipelineTestReport>,
+    test_report_asked: Option<(u64, u64)>,
     cursors: [usize; Pane::ALL.len()],
 }
 
@@ -479,6 +501,9 @@ impl App {
             diff_asked: None,
             diff_scroll: 0,
             diff_height: Cell::new(0),
+            test_report_open: false,
+            test_report: None,
+            test_report_asked: None,
             cursors: [0; Pane::ALL.len()],
         }
     }
@@ -528,6 +553,7 @@ impl App {
         let mut asks = self.ask_log();
         asks.extend(self.ask_threads());
         asks.extend(self.ask_diff());
+        asks.extend(self.ask_test_report());
         self.note_asked(&asks);
         commands.extend(asks);
         commands
@@ -556,6 +582,9 @@ impl App {
                     project,
                     merge_request,
                 } => self.diff_asked = Some((*project, *merge_request)),
+                Cmd::LoadTestReport { project, pipeline } => {
+                    self.test_report_asked = Some((*project, *pipeline));
+                }
                 _ => {}
             }
         }
@@ -685,6 +714,53 @@ impl App {
     fn clear_diff(&mut self) {
         self.diff = None;
         self.diff_scroll = 0;
+    }
+
+    fn wanted_test_report(&self) -> Option<(u64, u64)> {
+        if self.pane != Pane::Pipelines || !self.test_report_open {
+            return None;
+        }
+        Some((self.selected()?, self.pipeline()?.id))
+    }
+
+    /// The test report of the pipeline in view, once it loaded or failed to.
+    pub fn shown_test_report(&self) -> Option<&PipelineTestReport> {
+        let wanted = self.wanted_test_report()?;
+        (self.test_report.as_ref()).filter(|r| (r.project, r.pipeline) == wanted)
+    }
+
+    fn ask_test_report(&mut self) -> Vec<Cmd> {
+        let Some((project, pipeline)) = self.wanted_test_report() else {
+            return Vec::new();
+        };
+        let asked = self.test_report_asked == Some((project, pipeline));
+        if self.shown_test_report().is_some() || self.waiting.is_some() || asked {
+            return Vec::new();
+        }
+        vec![Cmd::LoadTestReport { project, pipeline }]
+    }
+
+    fn test_report_loaded(&mut self, key: (u64, u64), report: Option<TestReport>) {
+        if self.test_report_asked == Some(key) {
+            self.test_report_asked = None;
+        }
+        if self.wanted_test_report() != Some(key) {
+            return;
+        }
+        let (project, pipeline) = key;
+        self.test_report = Some(PipelineTestReport {
+            project,
+            pipeline,
+            report,
+        });
+    }
+
+    /// Each open loads the report again, so a failed load can be asked for once more.
+    fn toggle_test_report(&mut self) {
+        self.test_report_open = !self.test_report_open;
+        if self.test_report_open {
+            self.test_report = None;
+        }
     }
 
     /// The threads of the merge request in view, once they loaded or failed to.
@@ -901,6 +977,14 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd: Cmd::LoadTestReport { project, pipeline },
+                error,
+            } => {
+                self.test_report_loaded((project, pipeline), None);
+                self.error = Some(error);
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -980,6 +1064,14 @@ impl App {
                 files,
             } => {
                 self.diff_loaded((project, merge_request), Some(files));
+                Vec::new()
+            }
+            Msg::TestReportLoaded {
+                project,
+                pipeline,
+                report,
+            } => {
+                self.test_report_loaded((project, pipeline), Some(report));
                 Vec::new()
             }
         }
@@ -1070,6 +1162,7 @@ impl App {
             KeyCode::Char('[') if on_pipelines && self.pipeline_page > 1 => {
                 return self.turn_pipeline_page(self.pipeline_page - 1);
             }
+            KeyCode::Char('T') if self.pane == Pane::Pipelines => self.toggle_test_report(),
             KeyCode::Char('N') if self.pane == Pane::Pipelines => return self.open_run_form(),
             KeyCode::Char('P') if self.pane == Pane::Jobs => return self.open_play_form(),
             KeyCode::Char('R') => return self.propose(true),
@@ -1664,6 +1757,7 @@ impl App {
         self.log = None;
         self.log_asked = None;
         self.log_failed = None;
+        self.test_report = None;
     }
 
     fn pipeline_changed(&mut self) -> Vec<Cmd> {

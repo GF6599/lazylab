@@ -1,0 +1,25 @@
+---
+source: tests/tui_test_report.rs
+expression: detail(&buffer)
+---
+┌─ test report #61427 ─────────────────────────────────────────────────┐
+│ total      60                                                        │
+│ passed     59                                                        │
+│ failed     1                                                         │
+│ skipped    0                                                         │
+│ errors     0                                                         │
+│ time       84.20s                                                    │
+│                                                                      │
+│ suites                                                               │
+│ unit         42 passed  0 failed                                     │
+│ integration  17 passed  1 failed                                     │
+│   ✗ checkout retries a dropped connection                            │
+│     class: e2e.CheckoutTest                                          │
+│     expected 3 retries, got 1                                        │
+│         at CheckoutTest.retry(CheckoutTest.java:88)                  │
+│         at Runner.run(Runner.java:41)                                │
+│         at Runner.main(Runner.java:12)                               │
+│     retry log:                                                       │
+│     …                                                                │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘

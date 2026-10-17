@@ -1,0 +1,11 @@
+---
+source: tests/tui_test_report.rs
+expression: "detail(&render_at(&app, 10))"
+---
+┌─ test report #61441 ─────────────────────────────────────────────────┐
+│ the test report did not load                                         │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘

@@ -7,7 +7,7 @@ use ratatui::widgets::Paragraph;
 use super::Context;
 use super::sidebar::row_name;
 use super::sidebar::row_status;
-use crate::gitlab::{Discussion, Status};
+use crate::gitlab::{Discussion, Status, TestCaseStatus};
 use crate::tui::app::{App, Focus, MrTab, Pane};
 use crate::tui::diff::Kind;
 use crate::tui::jobs::JobRow;
@@ -124,6 +124,8 @@ fn view(app: &App, context: &Context, body: Rect, t: &Theme) -> (String, Vec<Lin
             ];
             (p.path_with_namespace.clone(), lines)
         }),
+        Pane::Pipelines if app.test_report_open => (app.pipelines.get(cursor))
+            .map(|p| (format!("test report #{}", p.id), test_report(app, width, t))),
         Pane::Pipelines => app.pipelines.get(cursor).map(|p| {
             let mut lines = vec![
                 kv("status", status(p.status, app.tick), t),
@@ -267,6 +269,77 @@ fn diff(app: &App, width: usize, height: usize, t: &Theme) -> Vec<Line<'static>>
             Line::styled(fit(&row.text, width), style)
         })
         .collect()
+}
+
+/// The Go release shows this many lines of a failed case's output.
+const OUTPUT_LINES: usize = 5;
+
+/// The totals, then each suite with its counts, and under it each case that failed.
+fn test_report(app: &App, width: usize, t: &Theme) -> Vec<Line<'static>> {
+    let Some(shown) = app.shown_test_report() else {
+        return vec![Line::styled("loading the test report", t.dim())];
+    };
+    let Some(report) = &shown.report else {
+        return vec![Line::styled("the test report did not load", t.dim())];
+    };
+    if report.test_suites.is_empty() {
+        return vec![Line::styled("no test report", t.dim())];
+    }
+    let count = |n: u32, style: Style| vec![Span::styled(n.to_string(), style)];
+    let (passed, failed) = (Style::new().fg(t.pine), Style::new().fg(t.love));
+    let mut lines = vec![
+        kv("total", count(report.total_count, t.body()), t),
+        kv("passed", count(report.success_count, passed), t),
+        kv("failed", count(report.failed_count, failed), t),
+        kv("skipped", count(report.skipped_count, t.body()), t),
+        kv("errors", count(report.error_count, failed), t),
+        kv(
+            "time",
+            vec![Span::styled(format!("{:.2}s", report.total_time), t.body())],
+            t,
+        ),
+        Line::raw(""),
+        Line::styled("suites", t.title()),
+    ];
+    let room = width.saturating_sub(4);
+    let names = (report.test_suites.iter()).map(|s| text_width(&s.name));
+    let name_width = names.max().unwrap_or(0);
+    for suite in &report.test_suites {
+        let counts = vec![
+            Span::styled(suite.name.clone(), t.body()),
+            Span::raw(pad(name_width - text_width(&suite.name) + 2)),
+            Span::styled(format!("{} passed", suite.success_count), passed),
+            Span::raw(pad(2)),
+            Span::styled(format!("{} failed", suite.failed_count), failed),
+        ];
+        lines.push(Line::from(clamp_spans(counts, width)));
+        let cases = (suite.test_cases.iter())
+            .filter(|c| matches!(c.status, TestCaseStatus::Failed | TestCaseStatus::Error));
+        for case in cases {
+            let (glyph, style) = t.status(Status::Failed, app.tick);
+            lines.push(Line::from(clamp_spans(
+                vec![
+                    Span::raw(pad(2)),
+                    Span::styled(glyph, style),
+                    Span::styled(format!(" {}", case.name), t.body()),
+                ],
+                width,
+            )));
+            if !case.classname.is_empty() {
+                let class = format!("    class: {}", case.classname);
+                lines.push(Line::styled(fit(&class, width), t.dim()));
+            }
+            let output = case.system_output.as_deref().unwrap_or_default();
+            for text in output.lines().take(OUTPUT_LINES) {
+                let text = fit(&expand_tabs(text), room);
+                lines.push(Line::styled(format!("{}{text}", pad(4)), t.body()));
+            }
+            if output.lines().nth(OUTPUT_LINES).is_some() {
+                lines.push(Line::styled(format!("{}…", pad(4)), t.dim()));
+            }
+        }
+    }
+    lines
 }
 
 /// A note's first body line hangs from the tree, and its other lines continue the tree.

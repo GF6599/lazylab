@@ -40,6 +40,7 @@ const HELP: &[(&str, &str)] = &[
     ("{ }", "move a favorite up, down"),
     ("ctrl+r", "reload the projects"),
     ("[ ]", "the page of pipelines before, after"),
+    ("T", "the test report of the pipeline, or its stages"),
     ("[ ]", "the merge request tab before, after"),
     ("r", "resolve or reopen the thread"),
     ("R", "retry the pipeline or job, after a question"),
