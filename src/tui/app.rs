@@ -33,7 +33,7 @@ enum Waiting {
     Project(u64),
     Pipeline { project: u64, pipeline: u64 },
     Job { project: u64, job: u64 },
-    MergeRequest { project: u64, merge_request: u64 },
+    MergeRequest,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1250,11 +1250,8 @@ impl App {
             }
             Pane::MergeRequests => {
                 self.clear_threads();
-                if let Some((project, merge_request)) = self.wanted_threads() {
-                    self.wait(Waiting::MergeRequest {
-                        project,
-                        merge_request,
-                    });
+                if self.wanted_threads().is_some() {
+                    self.wait(Waiting::MergeRequest);
                 }
                 Vec::new()
             }
@@ -1305,13 +1302,8 @@ impl App {
             ],
             Waiting::Pipeline { project, pipeline } => vec![Cmd::LoadJobs { project, pipeline }],
             Waiting::Job { project, job } => vec![Cmd::LoadLog { project, job }],
-            Waiting::MergeRequest {
-                project,
-                merge_request,
-            } => vec![Cmd::LoadThreads {
-                project,
-                merge_request,
-            }],
+            // `ask_threads` asks for the threads in the update that ends the wait.
+            Waiting::MergeRequest => Vec::new(),
         }
     }
 
