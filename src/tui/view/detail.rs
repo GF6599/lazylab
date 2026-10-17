@@ -7,14 +7,21 @@ use super::Context;
 use super::sidebar::row_name;
 use super::sidebar::row_status;
 use crate::gitlab::Status;
-use crate::tui::app::{App, Focus, Pane};
+use crate::tui::app::{App, Focus, MrTab, Pane};
 use crate::tui::jobs::JobRow;
 use crate::tui::panel::{block, bottom_label, kv, light_corners};
 use crate::tui::text::{age, pad, width as text_width};
 use crate::tui::theme::Theme;
 
 pub(super) fn draw(frame: &mut Frame, app: &App, context: &Context, area: Rect, t: &Theme) {
-    let body = block("", true, t).inner(area);
+    let inner = block("", true, t).inner(area);
+    let tabs =
+        (app.pane == Pane::MergeRequests && inner.height > 2).then(|| mr_tabs(app.mr_tab, t));
+    let mut body = inner;
+    if tabs.is_some() {
+        body.y += 2;
+        body.height -= 2;
+    }
     let (title, lines, label) = match job_view(app, body.height as usize, t) {
         Some(job) => job,
         None => {
@@ -27,6 +34,9 @@ pub(super) fn draw(frame: &mut Frame, app: &App, context: &Context, area: Rect, 
         frame_block = frame_block.title_bottom(bottom_label(label, t));
     }
     frame.render_widget(frame_block, area);
+    if let Some(tabs) = tabs {
+        frame.render_widget(Paragraph::new(tabs), Rect { height: 1, ..inner });
+    }
     frame.render_widget(Paragraph::new(lines), body);
     if app.focus == Focus::Detail {
         light_corners(frame.buffer_mut(), area, t);
@@ -160,6 +170,9 @@ fn view(app: &App, context: &Context, width: usize, t: &Theme) -> (String, Vec<L
             JobRow::Waiting { .. } => None,
         }),
         Pane::MergeRequests => app.merge_requests.get(cursor).map(|mr| {
+            if app.mr_tab != MrTab::Info {
+                return (format!("merge request !{}", mr.iid), Vec::new());
+            }
             let lines = vec![
                 kv("title", text(mr.title.clone()), t),
                 kv("from", text(mr.source_branch.clone()), t),
@@ -180,6 +193,23 @@ fn view(app: &App, context: &Context, width: usize, t: &Theme) -> (String, Vec<L
         }),
     }
     .unwrap_or_else(|| (app.pane.label().to_string(), Vec::new()))
+}
+
+/// The other tabs keep blank cells where the marker goes, so no label moves when the tab changes.
+fn mr_tabs(current: MrTab, t: &Theme) -> Line<'static> {
+    let mut spans = Vec::new();
+    for tab in MrTab::ALL {
+        let on = tab == current;
+        let (open, close) = if on { ("[", "]") } else { (" ", " ") };
+        spans.push(Span::styled(open, t.marker()));
+        spans.push(Span::styled(
+            tab.label(),
+            if on { t.marked() } else { t.title() },
+        ));
+        spans.push(Span::styled(close, t.marker()));
+        spans.push(Span::raw(" "));
+    }
+    Line::from(spans)
 }
 
 fn status_label(status: Status) -> &'static str {

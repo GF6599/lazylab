@@ -131,6 +131,9 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("ctrl+n", "add a variable"),
             ("ctrl+d", "remove it"),
         ],
+        (Overlay::None, Focus::Detail) if app.pane == Pane::MergeRequests => {
+            &[("[ ]", "tab"), ("h", "back"), ("?", "help"), ("q", "quit")]
+        }
         (Overlay::None, Focus::Detail) => &[("h", "back"), ("?", "help"), ("q", "quit")],
         (Overlay::None, Focus::Sidebar) if app.pane == Pane::Projects => &[
             ("j/k", "move"),
@@ -145,6 +148,15 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("j/k", "move"),
             ("l", "open"),
             ("[ ]", "page"),
+            ("1-4", "pane"),
+            ("z", "zoom"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
+        (Overlay::None, Focus::Sidebar) if app.pane == Pane::MergeRequests => &[
+            ("j/k", "move"),
+            ("l", "open"),
+            ("[ ]", "tab"),
             ("1-4", "pane"),
             ("z", "zoom"),
             ("?", "help"),
