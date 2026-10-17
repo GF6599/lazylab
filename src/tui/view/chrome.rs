@@ -110,6 +110,7 @@ fn mode(app: &App) -> &'static str {
     match (app.overlay, app.focus) {
         _ if app.search.typing => "SEARCH",
         (Overlay::Help, _) => "HELP",
+        (Overlay::Confirm, _) => "CONFIRM",
         (Overlay::None, Focus::Detail) => "DETAIL",
         (Overlay::None, Focus::Sidebar) => "BROWSE",
     }
@@ -121,6 +122,7 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
     match (app.overlay, app.focus) {
         _ if app.search.typing => &[("enter", "keep"), ("esc", "clear")],
         (Overlay::Help, _) => &[("esc", "close")],
+        (Overlay::Confirm, _) => &[("y", "yes"), ("n", "no")],
         (Overlay::None, Focus::Detail) => &[("h", "back"), ("?", "help"), ("q", "quit")],
         (Overlay::None, Focus::Sidebar) if app.pane == Pane::Projects => &[
             ("j/k", "move"),
@@ -171,6 +173,9 @@ pub(super) fn draw_status(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
     if let Some(error) = &app.error {
         let error = fit(error, room.saturating_sub(spans_width(&spans)));
         spans.push(Span::styled(error, Style::new().fg(t.love)));
+    } else if let Some(notice) = &app.notice {
+        let notice = fit(notice, room.saturating_sub(spans_width(&spans)));
+        spans.push(Span::styled(notice, Style::new().fg(t.foam)));
     } else {
         for (key, action) in hints(app) {
             let hint = [

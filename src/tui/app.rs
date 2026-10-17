@@ -89,9 +89,69 @@ pub enum Focus {
 pub enum Overlay {
     None,
     Help,
+    /// A question before the action in `App::confirm` goes out.
+    Confirm,
 }
 
-#[derive(Debug)]
+/// A change to a pipeline or a job. Each names the project it acts in, which for a job of a
+/// child pipeline is the child's own project.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// `git_ref` is where a new pipeline starts when GitLab has no job to retry.
+    RetryPipeline {
+        project: u64,
+        pipeline: u64,
+        git_ref: String,
+    },
+    CancelPipeline {
+        project: u64,
+        pipeline: u64,
+    },
+    RetryJob {
+        project: u64,
+        job: u64,
+        name: String,
+    },
+    CancelJob {
+        project: u64,
+        job: u64,
+        name: String,
+    },
+}
+
+impl Action {
+    pub fn question(&self) -> String {
+        match self {
+            Action::RetryPipeline { pipeline, .. } => format!("Retry pipeline #{pipeline}?"),
+            Action::CancelPipeline { pipeline, .. } => format!("Cancel pipeline #{pipeline}?"),
+            Action::RetryJob { job, name, .. } => format!("Retry job {name} (#{job})?"),
+            Action::CancelJob { job, name, .. } => format!("Cancel job {name} (#{job})?"),
+        }
+    }
+
+    pub fn verb(&self) -> &'static str {
+        match self {
+            Action::RetryPipeline { .. } | Action::RetryJob { .. } => "retry",
+            Action::CancelPipeline { .. } | Action::CancelJob { .. } => "cancel",
+        }
+    }
+
+    fn done(&self, started: Option<u64>) -> String {
+        match self {
+            Action::RetryPipeline {
+                pipeline, git_ref, ..
+            } => match started {
+                Some(new) if new != *pipeline => format!("Started pipeline #{new} on {git_ref}"),
+                _ => format!("Retried pipeline #{pipeline}"),
+            },
+            Action::CancelPipeline { pipeline, .. } => format!("Canceled pipeline #{pipeline}"),
+            Action::RetryJob { name, .. } => format!("Retried job {name}"),
+            Action::CancelJob { name, .. } => format!("Canceled job {name}"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Msg {
     Key(KeyEvent),
     Tick,
@@ -122,6 +182,12 @@ pub enum Msg {
     LogLoaded {
         job: u64,
         log: String,
+    },
+    /// `started` is the pipeline a retry left running, which is a new one when GitLab had no job
+    /// to retry.
+    Acted {
+        action: Action,
+        started: Option<u64>,
     },
     MergeRequestsLoaded {
         project: u64,
@@ -171,6 +237,7 @@ pub enum Cmd {
     LoadMergeRequests {
         project: u64,
     },
+    Act(Action),
     /// The log of a job, in the project it runs in.
     LoadLog {
         project: u64,
@@ -206,6 +273,10 @@ pub struct App {
     pub total_projects: u64,
     pub loading: bool,
     pub error: Option<String>,
+    /// What the last action did, shown until the next key.
+    pub notice: Option<String>,
+    /// The action the open question asks about.
+    pub confirm: Option<Action>,
     /// In the order the user set, which the favorites view keeps.
     pub favorites: Vec<u64>,
     pub favorites_only: bool,
@@ -259,6 +330,8 @@ impl App {
             total_projects: 0,
             loading: false,
             error: None,
+            notice: None,
+            confirm: None,
             favorites: Vec::new(),
             favorites_only: false,
             search: Search::default(),
@@ -507,6 +580,10 @@ impl App {
                 }
                 Vec::new()
             }
+            Msg::Acted { action, started } => {
+                self.notice = Some(action.done(started));
+                self.reload_lists()
+            }
             Msg::LogLoaded { job, log } => {
                 self.log_loaded(job, &log);
                 Vec::new()
@@ -535,6 +612,10 @@ impl App {
             return Vec::new();
         }
         self.error = None;
+        self.notice = None;
+        if self.overlay == Overlay::Confirm {
+            return self.on_confirm_key(key);
+        }
         if self.search.typing {
             return self.on_search_key(key);
         }
@@ -583,6 +664,8 @@ impl App {
             KeyCode::Char('[') if on_pipelines && self.pipeline_page > 1 => {
                 return self.turn_pipeline_page(self.pipeline_page - 1);
             }
+            KeyCode::Char('R') => return self.propose(true),
+            KeyCode::Char('C') => return self.propose(false),
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') => self.overlay = Overlay::Help,
             KeyCode::Char('z') => self.zoom = !self.zoom,
@@ -662,6 +745,85 @@ impl App {
         let mut commands = self.reshow(Some(id));
         commands.push(Cmd::SaveFavorites(self.favorites.clone()));
         commands
+    }
+
+    fn on_confirm_key(&mut self, key: KeyEvent) -> Vec<Cmd> {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.quit |= key.code == KeyCode::Char('c');
+            return Vec::new();
+        }
+        match key.code {
+            KeyCode::Char('y') => {
+                self.overlay = Overlay::None;
+                self.confirm.take().map(Cmd::Act).into_iter().collect()
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                self.overlay = Overlay::None;
+                self.confirm = None;
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Asks before a retry or a cancel, or says why there is nothing to do, as the Go release
+    /// does for a job that has finished or a row that is not one job.
+    fn propose(&mut self, retry: bool) -> Vec<Cmd> {
+        let cancelable = |status: Status| status.is_active() && status != Status::Canceling;
+        let action = match self.pane {
+            Pane::Pipelines => {
+                let (Some(project), Some(pipeline)) = (self.selected(), self.pipeline()) else {
+                    return Vec::new();
+                };
+                if retry {
+                    Ok(Action::RetryPipeline {
+                        project,
+                        pipeline: pipeline.id,
+                        git_ref: pipeline.git_ref.clone(),
+                    })
+                } else if cancelable(pipeline.status) {
+                    Ok(Action::CancelPipeline {
+                        project,
+                        pipeline: pipeline.id,
+                    })
+                } else {
+                    Err("This pipeline has nothing left to cancel")
+                }
+            }
+            Pane::Jobs => match self.job_rows.get(self.cursor(Pane::Jobs)) {
+                Some(JobRow::Job { job, project, .. }) => {
+                    let (project, id, name) = (*project, job.id, job.name.clone());
+                    if retry && job.status.is_active() {
+                        Err("This job is still running")
+                    } else if retry {
+                        Ok(Action::RetryJob {
+                            project,
+                            job: id,
+                            name,
+                        })
+                    } else if cancelable(job.status) {
+                        Ok(Action::CancelJob {
+                            project,
+                            job: id,
+                            name,
+                        })
+                    } else {
+                        Err("This job has nothing left to cancel")
+                    }
+                }
+                Some(_) => Err("Select a single job to retry or cancel"),
+                None => return Vec::new(),
+            },
+            Pane::Projects | Pane::MergeRequests => return Vec::new(),
+        };
+        match action {
+            Ok(action) => {
+                self.confirm = Some(action);
+                self.overlay = Overlay::Confirm;
+            }
+            Err(reason) => self.notice = Some(reason.to_string()),
+        }
+        Vec::new()
     }
 
     fn selected(&self) -> Option<u64> {
@@ -903,6 +1065,12 @@ impl App {
             return Vec::new();
         }
         self.refreshed_at = self.tick;
+        self.reload_lists()
+    }
+
+    /// The pipelines and the jobs in view, the log of a running job, and every open child
+    /// pipeline, each unless a load of it is already out.
+    fn reload_lists(&mut self) -> Vec<Cmd> {
         let Some(project) = self.selected() else {
             return Vec::new();
         };

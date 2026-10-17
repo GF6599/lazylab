@@ -538,3 +538,43 @@ fn a_log_scrolled_to_its_top_moves_down_on_the_next_key() {
     assert!(!next.contains("log line 01"), "{next}");
     assert!(next.contains("log line 02"), "{next}");
 }
+
+#[test]
+fn a_question_asks_before_an_action_and_a_notice_says_what_happened() {
+    // Given: the pipelines pane.
+    let mut app = loaded();
+    press(&mut app, '2');
+    let pipeline = app.pipeline().unwrap().id;
+
+    // When: R is pressed, and drawn; then GitLab answers the confirmed retry, and drawn.
+    press(&mut app, 'R');
+    let asking = screen(&render(&app, 120, 32));
+    let action = match &app.update(Msg::Key(KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::NONE,
+    )))[..]
+    {
+        [Cmd::Act(action), ..] => action.clone(),
+        other => panic!("an action, got {other:?}"),
+    };
+    app.update(Msg::Acted {
+        action,
+        started: Some(pipeline),
+    });
+    let done = render(&app, 120, 32);
+
+    // Then: the question names the pipeline and its keys, and the notice takes the status bar.
+    assert!(
+        asking.contains(&format!("Retry pipeline #{pipeline}?")),
+        "{asking}"
+    );
+    assert!(
+        asking.contains("y retry") && asking.contains("n cancel"),
+        "{asking}"
+    );
+    let bottom = row_text(&done, 31);
+    assert!(
+        bottom.contains(&format!("Retried pipeline #{pipeline}")),
+        "{bottom}"
+    );
+}

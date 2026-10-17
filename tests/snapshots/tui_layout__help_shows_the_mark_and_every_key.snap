@@ -9,32 +9,32 @@ expression: screen(&buffer)
 │ ✓ acme/platform/web                      12m ││ branch     main                                                      │
 │ ⠋ acme/platform/workers                   1h ││ active     4m ago                                                    │
 │ ✓ acme/infra/terraform                    3h ││ web        https://gitlab.example.com/acme/platform/api              │
-│ ⠋ acme/infra/helm-charts                  5h ││                                                                      │
-│ ✓ acme/infra/runner-image┌─ help ────────────────────────────────────────────────────────┐                           │
-│ ⠋ acme/data/ingest       │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
-│ ✓ acme/data/warehouse-mod│ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
-│ ⠋ acme/tools/lazylab     │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
-│ ✓ acme/tools/release-bot │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
-│ ⠋ acme/mobile/ios-app    │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
-│ ✓ acme/mobile/android-app│ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
-│ ⠋ acme/docs/handbook     │                                                               │                           │
-│                          │ j k ↑ ↓     move                                              │                           │
+│ ⠋ acme/infra/helm-charts ┌─ help ────────────────────────────────────────────────────────┐                           │
+│ ✓ acme/infra/runner-image│ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
+│ ⠋ acme/data/ingest       │ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
+│ ✓ acme/data/warehouse-mod│ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
+│ ⠋ acme/tools/lazylab     │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
+│ ✓ acme/tools/release-bot │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
+│ ⠋ acme/mobile/ios-app    │ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
+│ ✓ acme/mobile/android-app│                                                               │                           │
+│ ⠋ acme/docs/handbook     │ j k ↑ ↓     move                                              │                           │
 │                          │ g G         first, last                                       │                           │
 │                          │ ctrl+d u    page down, up                                     │                           │
 │                          │ 1-4 tab     choose a pane                                     │                           │
-└──────────────────────────│ l enter     open the detail pane                              │                           │
-┌─ pipelines ──────────────│ h esc       back                                              │                           │
-│[⠋ #61441 main            │ /           search the projects                               │                           │
-│ ✓ #61434 feat/runner-cach│ f           favorite the project, or not                      │                           │
-│ ✗ #61427 fix/flaky-e2e   │ t           favorites only, or every project                  │                           │
-│ ✓ #61420 main            │ { }         move a favorite up, down                          │                           │
-└──────────────────────────│ ctrl+r      reload the projects                               │                           │
-┌─ jobs ───────────────────│ [ ]         the page of pipelines before, after               │                           │
-│[✓ compile                │ z           full screen for the pane in view                  │                           │
-│ ✓ image                  │ ?           open or close this help                           │                           │
-│ ⠋ unit                   │ q ctrl+c    quit                                              │                           │
-│ ⠋ integration            └───────────────────────────────────────────────────────────────┘                           │
-└──────────────────────────────────────── 1/9 ─┘│                                                                      │
+│                          │ l enter     open the detail pane                              │                           │
+└──────────────────────────│ h esc       back                                              │                           │
+┌─ pipelines ──────────────│ /           search the projects                               │                           │
+│[⠋ #61441 main            │ f           favorite the project, or not                      │                           │
+│ ✓ #61434 feat/runner-cach│ t           favorites only, or every project                  │                           │
+│ ✗ #61427 fix/flaky-e2e   │ { }         move a favorite up, down                          │                           │
+│ ✓ #61420 main            │ ctrl+r      reload the projects                               │                           │
+└──────────────────────────│ [ ]         the page of pipelines before, after               │                           │
+┌─ jobs ───────────────────│ R           retry the pipeline or job, after a question       │                           │
+│[✓ compile                │ C           cancel the pipeline or job, after a question      │                           │
+│ ✓ image                  │ z           full screen for the pane in view                  │                           │
+│ ⠋ unit                   │ ?           open or close this help                           │                           │
+│ ⠋ integration            │ q ctrl+c    quit                                              │                           │
+└──────────────────────────└───────────────────────────────────────────────────────────────┘                           │
 ┌─ merge requests ─────────────────────────────┐│                                                                      │
 │[!412 Cache the runner image layers        2h]││                                                                      │
 │ !409 Retry the flaky checkout step        6h ││                                                                      │

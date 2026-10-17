@@ -143,6 +143,10 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             jobs: jobs(project, pipeline),
             bridges: Vec::new(),
         },
+        Cmd::Act(action) => Msg::Acted {
+            action,
+            started: None,
+        },
         Cmd::LoadLog { job, .. } => Msg::LogLoaded {
             job,
             log: format!("$ ./ci/job {job}\nRunning the job\nJob {job} done\n"),

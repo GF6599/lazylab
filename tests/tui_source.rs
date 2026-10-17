@@ -7,7 +7,7 @@ use common::client_for;
 use lazylab::gitlab::{Project, Status};
 use lazylab::store::Store;
 use lazylab::tui::Source;
-use lazylab::tui::app::{Cmd, Msg};
+use lazylab::tui::app::{Action, Cmd, Msg};
 use url::Url;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -372,5 +372,59 @@ async fn a_job_log_is_read_from_the_job_trace() {
     assert!(
         matches!(&answer, Some(Msg::LogLoaded { job: 5, log }) if log == "step 1\nstep 2\n"),
         "{answer:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_retry_answers_with_the_pipeline_it_started_and_a_cancel_goes_to_its_project() {
+    // Given: GitLab retries pipeline 70 of project 1 as pipeline 71, and cancels job 901 of
+    // project 77.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/pipelines/70/retry"))
+        .respond_with(json_body(
+            r#"{"id":71,"status":"pending","ref":"main","sha":"abc"}"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/77/jobs/901/cancel"))
+        .respond_with(json_body(
+            r#"{"id":901,"name":"e2e","stage":"test","status":"canceled"}"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+    let retry = Action::RetryPipeline {
+        project: 1,
+        pipeline: 70,
+        git_ref: "main".into(),
+    };
+    let cancel = Action::CancelJob {
+        project: 77,
+        job: 901,
+        name: "e2e".into(),
+    };
+
+    // When: both are sent.
+    let retried = source.answer(Cmd::Act(retry.clone())).await;
+    let canceled = source.answer(Cmd::Act(cancel.clone())).await;
+
+    // Then: the retry names the pipeline it started, and the cancel answers for its job.
+    assert_eq!(
+        retried,
+        Some(Msg::Acted {
+            action: retry,
+            started: Some(71)
+        })
+    );
+    assert_eq!(
+        canceled,
+        Some(Msg::Acted {
+            action: cancel,
+            started: None
+        })
     );
 }
