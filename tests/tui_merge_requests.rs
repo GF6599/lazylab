@@ -1,3 +1,4 @@
+use lazylab::gitlab::Discussion;
 use lazylab::tui::app::{App, Cmd, Msg, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::theme::ROSE_PINE as T;
@@ -749,4 +750,56 @@ fn the_info_tab_shows_the_merge_request() {
 
     // Then: the detail shows the title, the branches, the author and the age.
     insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
+fn a_tab_in_a_thread_reaches_the_next_stop_of_four_columns() {
+    // Given: the threads tab of the first merge request.
+    let mut app = on_threads();
+
+    // When: its threads load again with a note whose code is indented with a tab.
+    let thread: Discussion = serde_json::from_value(serde_json::json!({"id": "d9", "notes": [
+        {"id": 9, "author": {"name": "Kofi"}, "body": "if ok {\n\treturn x\n}\nkey:\tvalue"},
+    ]}))
+    .unwrap();
+    app.update(Msg::ThreadsLoaded {
+        project: PROJECT,
+        merge_request: 412,
+        discussions: vec![thread],
+    });
+
+    // Then: the indented line keeps its indent under the tree, and a tab after text reaches the
+    // next stop.
+    let buffer = render(&app);
+    assert!(shows(&buffer, "        return x"), "{}", screen(&buffer));
+    assert!(shows(&buffer, "key:    value"));
+}
+
+#[test]
+fn a_second_resolve_during_a_reload_loads_the_threads_once_more() {
+    // Given: the first thread reopened, and the reload that follows still on its way.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    press(&mut app, 'r');
+    let first = app.update(Msg::ThreadResolved {
+        project: PROJECT,
+        merge_request: 412,
+        resolved: false,
+    });
+
+    // When: the second thread is resolved before that reload answers, and then it answers.
+    press(&mut app, 'j');
+    press(&mut app, 'r');
+    let second = app.update(Msg::ThreadResolved {
+        project: PROJECT,
+        merge_request: 412,
+        resolved: true,
+    });
+    let reload = demo::answer(first.into_iter().next().unwrap(), now()).unwrap();
+    let after = app.update(reload);
+
+    // Then: one load is out at a time, and the threads load once more after the first, so the
+    // second change shows too.
+    assert_eq!(threads_asked(&second), []);
+    assert_eq!(threads_asked(&after), [(PROJECT, 412)]);
 }
