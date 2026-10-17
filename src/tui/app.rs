@@ -403,6 +403,9 @@ pub struct App {
     job_rows: Vec<JobRow>,
     pub log: Option<Log>,
     log_asked: Option<u64>,
+    /// The job whose last log load failed, until the next load of it goes out. `ask_log` sends
+    /// none, so only a cursor move or the refresh tries again.
+    log_failed: Option<u64>,
     /// Lines between the end of the log and the last line in view. Zero follows the end.
     log_scroll: usize,
     /// The rows the detail pane gave the log when it last drew, so a scroll stops at the top.
@@ -463,6 +466,7 @@ impl App {
             job_rows: Vec::new(),
             log: None,
             log_asked: None,
+            log_failed: None,
             log_scroll: 0,
             log_height: Cell::new(0),
             merge_requests: Vec::new(),
@@ -538,7 +542,12 @@ impl App {
                 Cmd::LoadChildJobs { pipeline, .. } => {
                     self.children_asked.insert(*pipeline);
                 }
-                Cmd::LoadLog { job, .. } => self.log_asked = Some(*job),
+                Cmd::LoadLog { job, .. } => {
+                    self.log_asked = Some(*job);
+                    if self.log_failed == Some(*job) {
+                        self.log_failed = None;
+                    }
+                }
                 Cmd::LoadThreads {
                     project,
                     merge_request,
@@ -579,10 +588,15 @@ impl App {
             return Vec::new();
         };
         let shown = self.log.as_ref().is_some_and(|log| log.job == job);
-        if shown || self.waiting.is_some() || self.log_asked == Some(job) {
+        let failed = self.log_failed == Some(job);
+        if shown || failed || self.waiting.is_some() || self.log_asked == Some(job) {
             return Vec::new();
         }
         vec![Cmd::LoadLog { project, job }]
+    }
+
+    pub fn log_failed(&self, job: u64) -> bool {
+        self.log_failed == Some(job)
     }
 
     fn log_loaded(&mut self, job: u64, text: &str) {
@@ -859,6 +873,7 @@ impl App {
                 if self.log_asked == Some(job) {
                     self.log_asked = None;
                 }
+                self.log_failed = Some(job);
                 self.error = Some(error);
                 Vec::new()
             }
@@ -1648,6 +1663,7 @@ impl App {
         self.cursors[Pane::Jobs.index()] = 0;
         self.log = None;
         self.log_asked = None;
+        self.log_failed = None;
     }
 
     fn pipeline_changed(&mut self) -> Vec<Cmd> {

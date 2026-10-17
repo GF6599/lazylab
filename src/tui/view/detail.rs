@@ -73,7 +73,12 @@ fn job_view(
     let room = height.saturating_sub(lines.len());
     app.log_height.set(room);
     let Some(log) = app.log.as_ref().filter(|log| log.job == job.id) else {
-        lines.push(Line::styled("loading the log", t.dim()));
+        let waiting = if app.log_failed(job.id) {
+            "the log did not load"
+        } else {
+            "loading the log"
+        };
+        lines.push(Line::styled(waiting, t.dim()));
         return Some((title, lines, None));
     };
     let len = log.lines.len();
