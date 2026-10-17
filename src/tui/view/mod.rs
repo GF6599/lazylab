@@ -8,15 +8,16 @@ mod detail;
 pub mod sidebar;
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use time::OffsetDateTime;
 
 use super::app::{App, Focus, Overlay};
+use super::form::{Field, Form};
 use super::mark;
 use super::panel::block;
-use super::text::width;
+use super::text::{fit, pad, width};
 use super::theme::{ROSE_PINE, Theme};
 
 const MIN_WIDTH: u16 = 40;
@@ -41,6 +42,8 @@ const HELP: &[(&str, &str)] = &[
     ("[ ]", "the page of pipelines before, after"),
     ("R", "retry the pipeline or job, after a question"),
     ("C", "cancel the pipeline or job, after a question"),
+    ("N", "run a pipeline, with variables"),
+    ("P", "play a manual job, with variables"),
     ("z", "full screen for the pane in view"),
     ("?", "open or close this help"),
     ("q ctrl+c", "quit"),
@@ -93,6 +96,88 @@ pub fn draw(frame: &mut Frame, app: &App, context: &Context) {
     }
     if let (Overlay::Confirm, Some(action)) = (app.overlay, &app.confirm) {
         draw_confirm(frame, area, &action.question(), action.verb(), t);
+    }
+    if let (Overlay::Form, Some(form)) = (app.overlay, &app.form) {
+        draw_form(frame, area, form, t);
+    }
+}
+
+const FORM_WIDTH: usize = 62;
+const FORM_LABEL: usize = 10;
+const FORM_KEY_BOX: usize = 18;
+const EQUALS: &str = " = ";
+
+/// One input: a filled box between the marker cells, which show only on the field being typed.
+fn input(value: &str, box_width: usize, active: bool, t: &Theme) -> Vec<Span<'static>> {
+    let (open, close) = if active { ("[", "]") } else { (" ", " ") };
+    let text = fit(value, box_width);
+    let style = if active { t.marked() } else { t.body() };
+    vec![
+        Span::styled(open, t.marker()),
+        Span::styled(text.clone(), style.bg(t.hl_low)),
+        Span::styled(pad(box_width - width(&text)), t.selected_row()),
+        Span::styled(close, t.marker()),
+    ]
+}
+
+/// The terminal's cursor sits after the text of the field being typed.
+fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
+    let inner_width = FORM_WIDTH.min((area.width as usize).saturating_sub(4));
+    let ref_box = inner_width.saturating_sub(FORM_LABEL + 2);
+    let value_box = inner_width.saturating_sub(FORM_LABEL + FORM_KEY_BOX + 4 + EQUALS.len());
+    let current = form.current();
+    let mut lines = Vec::new();
+    let mut cursor = None;
+    if let Some(git_ref) = &form.git_ref {
+        let mut line = vec![Span::styled(format!("{:<FORM_LABEL$}", "ref"), t.dim())];
+        line.extend(input(git_ref, ref_box, current == Some(Field::Ref), t));
+        if current == Some(Field::Ref) {
+            cursor = Some((FORM_LABEL + 1 + width(git_ref).min(ref_box), lines.len()));
+        }
+        lines.push(Line::from(line));
+        lines.push(Line::raw(""));
+    }
+    lines.push(Line::styled("variables", t.title()));
+    for (row, (key, value)) in form.variables.iter().enumerate() {
+        let mut line = vec![Span::raw(pad(FORM_LABEL))];
+        line.extend(input(
+            key,
+            FORM_KEY_BOX,
+            current == Some(Field::Key(row)),
+            t,
+        ));
+        line.push(Span::styled(EQUALS, t.dim()));
+        line.extend(input(
+            value,
+            value_box,
+            current == Some(Field::Value(row)),
+            t,
+        ));
+        if current == Some(Field::Key(row)) {
+            cursor = Some((FORM_LABEL + 1 + width(key).min(FORM_KEY_BOX), lines.len()));
+        } else if current == Some(Field::Value(row)) {
+            let start = FORM_LABEL + FORM_KEY_BOX + 2 + EQUALS.len() + 1;
+            cursor = Some((start + width(value).min(value_box), lines.len()));
+        }
+        lines.push(Line::from(line));
+    }
+    if form.variables.is_empty() {
+        lines.push(Line::styled(
+            format!("{}none, ctrl+n adds one", pad(FORM_LABEL)),
+            t.dim(),
+        ));
+    }
+    let rect = centered(area, inner_width + 4, lines.len() + 2);
+    let frame_block = block(&form.title(), true, t);
+    let inner = frame_block.inner(rect);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(frame_block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+    if let Some((x, y)) = cursor {
+        let (x, y) = (inner.x + x as u16, inner.y + y as u16);
+        if x < inner.right() && y < inner.bottom() {
+            frame.set_cursor_position(Position { x, y });
+        }
     }
 }
 

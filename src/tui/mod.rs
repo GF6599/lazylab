@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod demo;
+pub mod form;
 pub mod jobs;
 pub mod log;
 pub mod mark;

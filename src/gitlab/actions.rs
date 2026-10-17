@@ -12,6 +12,7 @@ use super::{Client, Error, Job, Pipeline, StatusCode, decode, refusal, rejection
 const NO_BODY: Option<&()> = None;
 const MASK: &str = "[REDACTED]";
 
+#[derive(Clone, PartialEq, Eq)]
 pub struct Variable {
     pub key: String,
     pub value: String,
