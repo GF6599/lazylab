@@ -3,6 +3,7 @@
 pub mod checkout;
 pub mod config;
 pub mod exit;
+pub mod explorer;
 pub mod gitlab;
 pub mod glab;
 pub mod glab_command;

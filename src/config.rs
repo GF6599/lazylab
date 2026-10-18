@@ -22,6 +22,7 @@ use crate::glab::Credentials;
 const DEFAULT_HOST: &str = "https://gitlab.com";
 const DEMO_HOST: &str = "https://demo.gitlab.example.com";
 const DEFAULT_PROJECTS_PER_PAGE: u8 = 30;
+const DEFAULT_EXPLORER: &str = "yazi";
 /// The GitLab API caps a page here, and above it returns fewer rows with no error.
 const MAX_PROJECTS_PER_PAGE: i64 = 100;
 const ENV_PREFIX: &str = "GITLAB_";
@@ -50,6 +51,10 @@ pub struct Flags {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_level: Option<String>,
+    /// The program that `e` opens a checkout in, defaults to yazi
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explorer: Option<String>,
     /// Optional config file (YAML, TOML, JSON)
     #[arg(long)]
     #[serde(skip)]
@@ -95,6 +100,7 @@ pub struct Config {
     pub mode: Mode,
     pub projects_per_page: u8,
     pub log_level: Level,
+    pub explorer: String,
     pub config_file: Option<PathBuf>,
 }
 
@@ -143,6 +149,7 @@ struct Merged {
     projects_per_page: Option<i64>,
     log_level: Option<String>,
     demo: Option<bool>,
+    explorer: Option<String>,
 }
 
 /// `glab` supplies the token, and the host when none is set, only when no other source has a
@@ -226,6 +233,7 @@ pub fn load(
         mode,
         projects_per_page,
         log_level,
+        explorer: present(merged.explorer).unwrap_or_else(|| DEFAULT_EXPLORER.into()),
         config_file,
     })
 }
