@@ -16,11 +16,24 @@ pub struct Diff {
 pub enum Kind {
     File,
     Rule,
+    /// The blank row between two files.
+    Gap,
     Added,
     Removed,
     Hunk,
     Context,
     Note,
+}
+
+impl Kind {
+    pub fn is_code(self) -> bool {
+        matches!(self, Kind::Added | Kind::Removed | Kind::Context)
+    }
+
+    /// The cursor rests on a file header too, so a file without a line of code can be reached.
+    pub fn takes_cursor(self) -> bool {
+        self.is_code() || self == Kind::File
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -36,7 +49,7 @@ pub fn rows(files: &[FileDiff]) -> Vec<Row> {
     let mut rows = Vec::new();
     for (i, file) in files.iter().enumerate() {
         if i > 0 {
-            rows.push(row(Kind::Context, String::new()));
+            rows.push(row(Kind::Gap, String::new()));
         }
         let change = if file.new_file {
             format!("new file: {}", file.new_path)
@@ -67,4 +80,10 @@ pub fn rows(files: &[FileDiff]) -> Vec<Row> {
         }
     }
     rows
+}
+
+pub fn cursor_rows(rows: &[Row]) -> impl Iterator<Item = usize> + '_ {
+    (rows.iter().enumerate())
+        .filter(|(_, row)| row.kind.takes_cursor())
+        .map(|(i, _)| i)
 }

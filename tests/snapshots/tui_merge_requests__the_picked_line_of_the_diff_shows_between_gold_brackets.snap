@@ -1,0 +1,36 @@
+---
+source: tests/tui_merge_requests.rs
+expression: screen(&buffer)
+---
+ {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
+ 1 projects   2 pipelines   3 jobs  [4 merge requests]
+┌─ projects ───────────────────────────────────┐┌─ merge request !412 ─────────────────────────────────────────────────┐
+│[⠋ acme/platform/api                       4m]││  info   threads  [diff]                                              │
+│ ✓ acme/platform/web                      12m ││                                                                      │
+│ ⠋ acme/platform/workers                   1h ││   stages: [build, test, security, deploy]                            │
+│ ✓ acme/infra/terraform                    3h ││  -compile:                                                           │
+└─────────────────────────────────────── 1/13 ─┘│  -  script: just ci-compile                                          │
+┌─ pipelines ──────────────────────────────────┐│  +compile:                                                           │
+│[⠋ #61441 main                             2m]││  +  script:                                                          │
+│ ✓ #61434 feat/runner-cache               39m ││  +    - just restore-layers                                          │
+│ ✗ #61427 fix/flaky-e2e                    1h ││  +    - just ci-compile                                              │
+│ ✓ #61420 main                             1h ││                                                                      │
+└─────────────────────────────────────── 1/14 ─┘│  renamed: ci/cache.sh → ci/layers.sh                                 │
+┌─ jobs ───────────────────────────────────────┐│  ────────────────────────────────────────                            │
+│[✓ compile                              build]││  @@ -1,3 +1,3 @@                                                     │
+│ ✓ image                                      ││   #!/bin/sh                                                          │
+│ ⠋ unit                                  test ││ [-restore_cache                                                    ] │
+│ ⠋ integration                                ││  +restore_layers                                                     │
+└──────────────────────────────────────── 1/9 ─┘│   echo done                                                          │
+┌─ merge requests ─────────────────────────────┐│  \ No newline at end of file                                         │
+│[!412 Cache the runner image layers        2h]││                                                                      │
+│ !409 Retry the flaky checkout step        6h ││  new file: Makefile                                                  │
+│ !407 Add SSO login behind a flag          1d ││  ────────────────────────────────────────                            │
+│ !401 Split the e2e suite by shard         3d ││  @@ -0,0 +1,3 @@                                                     │
+│ !398 Bump the toolchain                   1w ││  +ci: build                                                          │
+│                                              ││  +build:                                                             │
+│                                              ││  +    just ci-compile                                                │
+│                                              ││                                                                      │
+│                                              ││  deleted: db/old-cache.sql                                           │
+└──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
+ DETAIL  j/k line  [ ] tab  h back  ? help  q quit
