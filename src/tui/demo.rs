@@ -134,6 +134,10 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             status: pipelines(project, now).first().map(|p| p.status),
         },
         Cmd::SaveProjects { .. } | Cmd::SaveFavorites(_) | Cmd::Copy(_) => return None,
+        cmd @ Cmd::CheckOut { .. } => Msg::Failed {
+            cmd,
+            error: "The demo has no repository to check out".into(),
+        },
         Cmd::LoadPipelines { project, page } => {
             let items = if page == 1 {
                 pipelines(project, now)
