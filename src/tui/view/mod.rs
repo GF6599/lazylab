@@ -44,7 +44,7 @@ const HELP: &[(&str, &str)] = &[
     ("t T", "the merge request state after, before"),
     ("[ ]", "the merge request tab before, after"),
     ("r", "resolve or reopen the thread"),
-    ("c", "start a thread, or reply in the thread"),
+    ("c", "start a thread, reply, or comment on the line"),
     ("R", "retry the pipeline or job, after a question"),
     ("C", "cancel the pipeline or job, after a question"),
     ("N", "run a pipeline, with variables"),

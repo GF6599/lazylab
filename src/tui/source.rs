@@ -145,6 +145,18 @@ impl Live {
                     merge_request,
                     files,
                 }),
+            Cmd::LoadDiffRefs {
+                project,
+                merge_request,
+            } => self
+                .client
+                .merge_request_diff_refs(project, merge_request)
+                .await
+                .map(|refs| Msg::DiffRefsLoaded {
+                    project,
+                    merge_request,
+                    refs,
+                }),
             Cmd::LoadTestReport { project, pipeline } => self
                 .client
                 .pipeline_test_report(project, pipeline)
@@ -172,6 +184,7 @@ impl Live {
                 project,
                 merge_request,
                 discussion,
+                line,
                 body,
             } => match &discussion {
                 Some(thread) => {
@@ -181,7 +194,12 @@ impl Live {
                 }
                 None => {
                     (self.client)
-                        .create_merge_request_discussion(project, merge_request, &body, None)
+                        .create_merge_request_discussion(
+                            project,
+                            merge_request,
+                            &body,
+                            line.as_ref(),
+                        )
                         .await
                 }
             }

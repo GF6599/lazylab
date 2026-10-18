@@ -910,7 +910,9 @@ fn a_failed_diff_load_says_so_and_is_not_asked_again_until_the_cursor_moves() {
     // Given: the diff tab, with the first merge request's diff asked for.
     let mut app = loaded();
     press(&mut app, '4');
-    let cmd = press(&mut app, '[').pop().unwrap();
+    let cmd = (press(&mut app, '[').into_iter())
+        .find(|c| matches!(c, Cmd::LoadDiff { .. }))
+        .unwrap();
 
     // When: the load fails, and time passes.
     let failed = app.update(Msg::Failed {
@@ -1697,15 +1699,15 @@ fn c_on_the_diff_tab_starts_a_thread_on_the_picked_line() {
     let renamed = ("ci/cache.sh", "ci/layers.sh");
 
     for (moves, kind, line) in [
-        (0, "an unchanged line", line_of(ci, Some(12), Some(12), 412)),
-        (2, "an added line", line_of(ci, None, Some(14), 412)),
-        (9, "a removed line", line_of(ci, Some(16), None, 412)),
+        (1, "an unchanged line", line_of(ci, Some(12), Some(12), 412)),
+        (3, "an added line", line_of(ci, None, Some(14), 412)),
+        (10, "a removed line", line_of(ci, Some(16), None, 412)),
         (
-            15,
+            17,
             "an unchanged line",
             line_of(renamed, Some(1), Some(1), 412),
         ),
-        (17, "an added line", line_of(renamed, None, Some(2), 412)),
+        (19, "an added line", line_of(renamed, None, Some(2), 412)),
     ] {
         // When: the line is picked, and a comment is typed and sent.
         press(&mut app, 'g');
@@ -1731,13 +1733,13 @@ fn c_on_the_diff_tab_starts_a_thread_on_the_picked_line() {
 
 #[test]
 fn c_on_the_diff_tab_without_the_diff_refs_says_so_and_opens_no_form() {
-    let failed = |cmd: Cmd| {
+    let failed: fn(Cmd) -> Option<Msg> = |cmd| {
         Some(Msg::Failed {
             cmd,
             error: "get merge request diff refs: 502 Bad Gateway".into(),
         })
     };
-    let not_prepared = |cmd: Cmd| match cmd {
+    let not_prepared: fn(Cmd) -> Option<Msg> = |cmd| match cmd {
         Cmd::LoadDiffRefs {
             project,
             merge_request,
@@ -1748,11 +1750,11 @@ fn c_on_the_diff_tab_without_the_diff_refs_says_so_and_opens_no_form() {
         }),
         other => panic!("a diff refs load, got {other:?}"),
     };
-    let on_their_way = |_: Cmd| None;
-    let cases: [(&str, &dyn Fn(Cmd) -> Option<Msg>); 3] = [
-        ("still on their way", &on_their_way),
-        ("not prepared by GitLab", &not_prepared),
-        ("failed to load", &failed),
+    let on_their_way: fn(Cmd) -> Option<Msg> = |_| None;
+    let cases = [
+        ("still on their way", on_their_way),
+        ("not prepared by GitLab", not_prepared),
+        ("failed to load", failed),
     ];
     for (case, refs_answer) in cases {
         // Given: the diff of the first merge request loaded, and its diff refs in that case.
@@ -1766,8 +1768,9 @@ fn c_on_the_diff_tab_without_the_diff_refs_says_so_and_opens_no_form() {
             .map(|msg| app.update(msg))
             .unwrap_or_default();
         press(&mut app, 'l');
+        press(&mut app, 'j');
 
-        // When: `c` is pressed on the first line, and time passes.
+        // When: `c` is pressed on the first line of code, and time passes.
         let pressed = press(&mut app, 'c');
         let bar = rows(&render(&app)).last().unwrap().clone();
         let waited = ticks(&mut app, SETTLE_TICKS * 3);
@@ -1789,7 +1792,7 @@ fn a_refused_line_comment_opens_its_form_again_with_its_text_and_its_line() {
     // Given: a comment sent on the first added line of the diff.
     let mut app = on_diff();
     press(&mut app, 'l');
-    presses(&mut app, 'j', 2);
+    presses(&mut app, 'j', 3);
     let sent = comments(&comment(&mut app, "Why?")).remove(0);
 
     // When: GitLab refuses it.
@@ -1840,9 +1843,10 @@ fn late_diff_refs_for_a_merge_request_the_cursor_left_are_dropped() {
     let late = demo::answer(late[0].clone(), now()).unwrap();
     let commands = app.update(late);
 
-    // Then: they are not asked for again, and a comment on the first line still names the
-    // diff refs of the second merge request.
+    // Then: they are not asked for again, and a comment on the first line of code still
+    // names the diff refs of the second merge request.
     assert_eq!(diff_refs_asked(&commands), []);
+    press(&mut app, 'j');
     let sent = comment(&mut app, "Why?");
     let ci = (".gitlab-ci.yml", ".gitlab-ci.yml");
     assert!(

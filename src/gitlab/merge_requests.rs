@@ -252,7 +252,7 @@ pub struct DiffRefs {
 }
 
 /// An added line has only a new line, a deleted line only an old one, and an unchanged line both.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DiffLine {
     #[serde(flatten)]
     pub diff_refs: DiffRefs,

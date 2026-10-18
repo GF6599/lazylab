@@ -29,7 +29,7 @@ expression: screen(&buffer)
 │ ✗ #61427 fix/flaky-e2e   │ t T         the merge request state after, before             │                           │
 │ ✓ #61420 main            │ [ ]         the merge request tab before, after               │                           │
 └──────────────────────────│ r           resolve or reopen the thread                      │                           │
-┌─ jobs ───────────────────│ c           start a thread, or reply in the thread            │                           │
+┌─ jobs ───────────────────│ c           start a thread, reply, or comment on the line     │                           │
 │[✓ compile                │ R           retry the pipeline or job, after a question       │                           │
 │ ✓ image                  │ C           cancel the pipeline or job, after a question      │                           │
 │ ⠋ unit                   │ N           run a pipeline, with variables                    │                           │

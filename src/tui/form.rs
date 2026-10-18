@@ -6,7 +6,7 @@ use std::fmt;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app::{Action, Cmd};
-use crate::gitlab::Variable;
+use crate::gitlab::{DiffLine, Variable};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Purpose {
@@ -22,6 +22,7 @@ pub enum Purpose {
         project: u64,
         merge_request: u64,
         discussion: Option<String>,
+        line: Option<DiffLine>,
     },
 }
 
@@ -90,6 +91,7 @@ impl Form {
         project: u64,
         merge_request: u64,
         discussion: Option<String>,
+        line: Option<DiffLine>,
         body: String,
     ) -> Form {
         Form {
@@ -97,6 +99,7 @@ impl Form {
                 project,
                 merge_request,
                 discussion,
+                line,
             },
             git_ref: None,
             body: Some(body),
@@ -241,6 +244,7 @@ impl Form {
                 project,
                 merge_request,
                 discussion,
+                line,
             } => {
                 let body = self.body.as_deref().unwrap_or_default().trim();
                 if body.is_empty() {
@@ -250,6 +254,7 @@ impl Form {
                     project: *project,
                     merge_request: *merge_request,
                     discussion: discussion.clone(),
+                    line: line.clone(),
                     body: body.to_string(),
                 });
             }

@@ -8,13 +8,13 @@ use std::time::Duration;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use super::diff::{self, Diff};
+use super::diff::{self, CodeLine, Diff};
 use super::form::{Form, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
 use crate::gitlab::{
-    Bridge, Discussion, FileDiff, Job, MergeRequest, MergeRequestState, Page, Pipeline, Project,
-    Status, TestReport, Variable,
+    Bridge, DiffLine, DiffRefs, Discussion, FileDiff, Job, MergeRequest, MergeRequestState, Page,
+    Pipeline, Project, Status, TestReport, Variable,
 };
 use crate::store::CachedProjects;
 
@@ -276,6 +276,12 @@ pub enum Msg {
         merge_request: u64,
         files: Vec<FileDiff>,
     },
+    /// `None` until GitLab has prepared the diff.
+    DiffRefsLoaded {
+        project: u64,
+        merge_request: u64,
+        refs: Option<DiffRefs>,
+    },
     TestReportLoaded {
         project: u64,
         pipeline: u64,
@@ -335,6 +341,11 @@ pub enum Cmd {
         project: u64,
         merge_request: u64,
     },
+    /// The commits a comment on a line of the diff names.
+    LoadDiffRefs {
+        project: u64,
+        merge_request: u64,
+    },
     LoadTestReport {
         project: u64,
         pipeline: u64,
@@ -346,12 +357,13 @@ pub enum Cmd {
         discussion: String,
         resolved: bool,
     },
-    /// `discussion` is the thread a reply goes in, and `None` starts a thread on the merge
-    /// request.
+    /// `discussion` is the thread a reply goes in, and `None` starts a thread. `line` is the line
+    /// of the diff a new thread starts on, and `None` starts it on the merge request as a whole.
     Comment {
         project: u64,
         merge_request: u64,
         discussion: Option<String>,
+        line: Option<DiffLine>,
         body: String,
     },
     Act(Action),
@@ -376,6 +388,15 @@ pub struct Threads {
     pub merge_request: u64,
     /// `None` when the load failed, which stops a retry until the cursor moves.
     pub discussions: Option<Vec<Discussion>>,
+}
+
+#[derive(Debug)]
+struct MergeRequestDiffRefs {
+    project: u64,
+    merge_request: u64,
+    /// `None` when GitLab has not prepared the diff or the load failed, which stops a retry until
+    /// the cursor moves.
+    refs: Option<DiffRefs>,
 }
 
 #[derive(Debug)]
@@ -465,6 +486,8 @@ pub struct App {
     diff_asked: Option<(u64, u64)>,
     /// The row the diff cursor is on, counted among the rows it rests on alone.
     diff_cursor: usize,
+    diff_refs: Option<MergeRequestDiffRefs>,
+    diff_refs_asked: Option<(u64, u64)>,
     /// The pipeline detail shows the test report instead of the stages.
     pub test_report_open: bool,
     test_report: Option<PipelineTestReport>,
@@ -530,6 +553,8 @@ impl App {
             diff: None,
             diff_asked: None,
             diff_cursor: 0,
+            diff_refs: None,
+            diff_refs_asked: None,
             test_report_open: false,
             test_report: None,
             test_report_asked: None,
@@ -585,6 +610,7 @@ impl App {
         let mut asks = self.ask_log();
         asks.extend(self.ask_threads());
         asks.extend(self.ask_diff());
+        asks.extend(self.ask_diff_refs());
         asks.extend(self.ask_test_report());
         self.note_asked(&asks);
         commands.extend(asks);
@@ -614,6 +640,10 @@ impl App {
                     project,
                     merge_request,
                 } => self.diff_asked = Some((*project, *merge_request)),
+                Cmd::LoadDiffRefs {
+                    project,
+                    merge_request,
+                } => self.diff_refs_asked = Some((*project, *merge_request)),
                 Cmd::LoadTestReport { project, pipeline } => {
                     self.test_report_asked = Some((*project, *pipeline));
                 }
@@ -737,6 +767,45 @@ impl App {
         });
     }
 
+    fn picked_code_line(&self) -> Option<&CodeLine> {
+        let rows = self.shown_diff()?.rows.as_deref()?;
+        rows.get(self.picked_diff_row()?)?.code.as_ref()
+    }
+
+    fn shown_diff_refs(&self) -> Option<&MergeRequestDiffRefs> {
+        let wanted = self.wanted_diff()?;
+        (self.diff_refs.as_ref()).filter(|r| (r.project, r.merge_request) == wanted)
+    }
+
+    fn ask_diff_refs(&mut self) -> Vec<Cmd> {
+        let Some((project, merge_request)) = self.wanted_diff() else {
+            return Vec::new();
+        };
+        let asked = self.diff_refs_asked == Some((project, merge_request));
+        if self.shown_diff_refs().is_some() || self.waiting.is_some() || asked {
+            return Vec::new();
+        }
+        vec![Cmd::LoadDiffRefs {
+            project,
+            merge_request,
+        }]
+    }
+
+    fn diff_refs_loaded(&mut self, key: (u64, u64), refs: Option<DiffRefs>) {
+        if self.diff_refs_asked == Some(key) {
+            self.diff_refs_asked = None;
+        }
+        if self.wanted_diff() != Some(key) {
+            return;
+        }
+        let (project, merge_request) = key;
+        self.diff_refs = Some(MergeRequestDiffRefs {
+            project,
+            merge_request,
+            refs,
+        });
+    }
+
     fn move_diff_cursor(&mut self, delta: isize) {
         let len = (self.shown_diff())
             .and_then(|d| d.rows.as_deref())
@@ -749,6 +818,7 @@ impl App {
     fn clear_diff(&mut self) {
         self.diff = None;
         self.diff_cursor = 0;
+        self.diff_refs = None;
     }
 
     fn wanted_test_report(&self) -> Option<(u64, u64)> {
@@ -1044,6 +1114,18 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd:
+                    Cmd::LoadDiffRefs {
+                        project,
+                        merge_request,
+                    },
+                error,
+            } => {
+                self.diff_refs_loaded((project, merge_request), None);
+                self.error = Some(error);
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadTestReport { project, pipeline },
                 error,
             } => {
@@ -1057,13 +1139,15 @@ impl App {
                         project,
                         merge_request,
                         discussion,
+                        line,
                         body,
                     },
                 error,
             } => {
                 self.error = Some(error);
                 if self.overlay == Overlay::None {
-                    self.form = Some(Form::comment(project, merge_request, discussion, body));
+                    let form = Form::comment(project, merge_request, discussion, line, body);
+                    self.form = Some(form);
                     self.overlay = Overlay::Form;
                 }
                 Vec::new()
@@ -1154,6 +1238,14 @@ impl App {
                 files,
             } => {
                 self.diff_loaded((project, merge_request), Some(files));
+                Vec::new()
+            }
+            Msg::DiffRefsLoaded {
+                project,
+                merge_request,
+                refs,
+            } => {
+                self.diff_refs_loaded((project, merge_request), refs);
                 Vec::new()
             }
             Msg::TestReportLoaded {
@@ -1401,18 +1493,46 @@ impl App {
         Vec::new()
     }
 
-    /// A new thread on the info tab, and a reply in the picked thread on the threads tab.
+    /// A new thread on the info tab, a reply in the picked thread on the threads tab, and a new
+    /// thread on the picked line on the diff tab.
     fn open_comment_form(&mut self) -> Vec<Cmd> {
+        if let Some(key) = self.wanted_diff() {
+            return self.open_line_comment_form(key);
+        }
         let picked = self.picked_thread().map(|thread| thread.id.clone());
         let form = match (self.wanted(MrTab::Info), self.wanted_threads(), picked) {
             (Some((project, merge_request)), ..) => {
-                Form::comment(project, merge_request, None, String::new())
+                Form::comment(project, merge_request, None, None, String::new())
             }
             (_, Some((project, merge_request)), Some(thread)) => {
-                Form::comment(project, merge_request, Some(thread), String::new())
+                Form::comment(project, merge_request, Some(thread), None, String::new())
             }
             _ => return Vec::new(),
         };
+        self.form = Some(form);
+        self.overlay = Overlay::Form;
+        Vec::new()
+    }
+
+    /// GitLab places a comment on a line by the commits of the diff, as the Go release does, so
+    /// the form waits for the diff refs.
+    fn open_line_comment_form(&mut self, (project, merge_request): (u64, u64)) -> Vec<Cmd> {
+        let Some(code) = self.picked_code_line().cloned() else {
+            self.notice = Some("There is no line of code to comment on".to_string());
+            return Vec::new();
+        };
+        let Some(diff_refs) = self.shown_diff_refs().and_then(|r| r.refs.clone()) else {
+            self.notice = Some("The diff refs are not loaded yet".to_string());
+            return Vec::new();
+        };
+        let line = DiffLine {
+            diff_refs,
+            old_path: code.old_path,
+            new_path: code.new_path,
+            old_line: code.old_line,
+            new_line: code.new_line,
+        };
+        let form = Form::comment(project, merge_request, None, Some(line), String::new());
         self.form = Some(form);
         self.overlay = Overlay::Form;
         Vec::new()
@@ -1735,7 +1855,7 @@ impl App {
             ],
             Waiting::Pipeline { project, pipeline } => vec![Cmd::LoadJobs { project, pipeline }],
             Waiting::Job { project, job } => vec![Cmd::LoadLog { project, job }],
-            // `ask_threads` and `ask_diff` ask in the update that ends the wait.
+            // `ask_threads`, `ask_diff` and `ask_diff_refs` ask in the update that ends the wait.
             Waiting::MergeRequest => Vec::new(),
         }
     }
