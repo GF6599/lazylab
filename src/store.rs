@@ -44,7 +44,7 @@ pub fn create_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// `sanitizeHost` in the Go release, so both name the files of one host alike.
-fn host_key(host: &Url) -> String {
+pub(crate) fn host_key(host: &Url) -> String {
     let mut name = host.host_str().unwrap_or_default().to_string();
     if let Some(port) = host.port() {
         name.push_str(&format!(":{port}"));

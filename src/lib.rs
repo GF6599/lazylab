@@ -1,5 +1,6 @@
 //! Lazylab, a terminal UI for GitLab.
 
+pub mod checkout;
 pub mod config;
 pub mod exit;
 pub mod gitlab;
