@@ -20,6 +20,7 @@ use url::Url;
 use crate::glab::Credentials;
 
 const DEFAULT_HOST: &str = "https://gitlab.com";
+const DEMO_HOST: &str = "https://demo.gitlab.example.com";
 const DEFAULT_PROJECTS_PER_PAGE: u8 = 30;
 /// The GitLab API caps a page here, and above it returns fewer rows with no error.
 const MAX_PROJECTS_PER_PAGE: i64 = 100;
@@ -27,7 +28,7 @@ const ENV_PREFIX: &str = "GITLAB_";
 /// figment's `Env` parses each value, so a token of digits would arrive as a number. These keys
 /// are taken as the text that was set.
 const ENV_TEXT_KEYS: [&str; 3] = ["host", "token", "log_level"];
-const ENV_NUMBER_KEYS: [&str; 1] = ["projects_per_page"];
+const ENV_PARSED_KEYS: [&str; 2] = ["projects_per_page", "demo"];
 
 #[derive(Args, Serialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -53,6 +54,10 @@ pub struct Flags {
     #[arg(long)]
     #[serde(skip)]
     pub config: Option<PathBuf>,
+    /// Run on sample data, with no token and no GitLab
+    #[arg(long)]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub demo: bool,
 }
 
 /// Prints as a placeholder, so no `{:?}` of a config can put the token in a log line.
@@ -79,6 +84,8 @@ impl fmt::Debug for Token {
 /// What the session talks to. Only a live session holds a token.
 #[derive(Debug, PartialEq)]
 pub enum Mode {
+    /// Sample data on the demo host, so no GitLab is asked.
+    Demo,
     Live(Token),
 }
 
@@ -135,10 +142,14 @@ struct Merged {
     token: Option<String>,
     projects_per_page: Option<i64>,
     log_level: Option<String>,
+    demo: Option<bool>,
 }
 
 /// `glab` supplies the token, and the host when none is set, only when no other source has a
 /// token. It receives the host set so far, so it can return a token for that host only.
+///
+/// Demo mode replaces the host with the demo host and needs no token, so glab is not asked. The
+/// config file, the page size and the log level apply as in a live run.
 pub fn load(
     flags: &Flags,
     glab: &dyn Fn(Option<&str>) -> Option<Credentials>,
@@ -154,21 +165,26 @@ pub fn load(
     let merged: Merged = sources
         .merge(
             Env::prefixed(ENV_PREFIX)
-                .only(&ENV_NUMBER_KEYS)
+                .only(&ENV_PARSED_KEYS)
                 .map(|key| key.as_str().replace('_', "-").into()),
         )
         .merge(Serialized::defaults(env_text()))
         .merge(Serialized::defaults(flags))
         .extract()?;
 
+    let demo = merged.demo.unwrap_or_default();
     let present = |value: Option<String>| value.filter(|v| !v.is_empty());
     let mut host = present(merged.host);
     let mut token = present(merged.token).map(Token);
     if token.is_none()
+        && !demo
         && let Some(found) = glab(host.as_deref())
     {
         token = Some(found.token);
         host.get_or_insert(found.host);
+    }
+    if demo {
+        host = Some(DEMO_HOST.into());
     }
     let host = parse_host(&host.unwrap_or_else(|| DEFAULT_HOST.into()))?;
     let projects_per_page = match merged.projects_per_page {
@@ -194,15 +210,20 @@ pub fn load(
             )));
         }
     };
-    let token = token.ok_or_else(|| {
-        Error(
-            "gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`".into(),
-        )
-    })?;
+    let mode = if demo {
+        Mode::Demo
+    } else {
+        Mode::Live(token.ok_or_else(|| {
+            Error(
+                "gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`"
+                    .into(),
+            )
+        })?)
+    };
 
     Ok(Config {
         host,
-        mode: Mode::Live(token),
+        mode,
         projects_per_page,
         log_level,
         config_file,

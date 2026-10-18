@@ -34,6 +34,7 @@ impl Source {
     /// `dir` is the folder that holds the store of each host.
     pub fn new(host: &Url, mode: &Mode, dir: Option<PathBuf>) -> Result<Source, Error> {
         match mode {
+            Mode::Demo => Ok(Source::Demo),
             Mode::Live(token) => {
                 let client = Client::new(host, token)?;
                 Ok(Source::live(client, dir.map(|dir| Store::new(dir, host))))
