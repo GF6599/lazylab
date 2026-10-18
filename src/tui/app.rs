@@ -13,6 +13,8 @@ use super::diff::{self, CodeLine, Diff};
 use super::form::{Form, MergeRequestFields, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
+use crate::checkout::Revision;
+use crate::explorer::Browse;
 use crate::gitlab::{
     Bridge, DiffLine, DiffRefs, Discussion, FileDiff, Job, MergeRequest, MergeRequestState, Page,
     Pipeline, Project, Status, TestReport, Variable,
@@ -31,6 +33,8 @@ const SETTLE_TICKS: u64 = (SETTLE.as_millis() / TICK.as_millis()) as u64;
 const REFRESH: Duration = Duration::from_secs(5);
 const REFRESH_TICKS: u64 = (REFRESH.as_millis() / TICK.as_millis()) as u64;
 const NO_GLAB_COMMAND: &str = "No glab command for this selection";
+/// The branch the Go release browses when a project names no default branch.
+const DEFAULT_BRANCH: &str = "main";
 
 /// A selection whose lists load once the cursor has rested on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -302,6 +306,8 @@ pub enum Msg {
         project: u64,
         merge_request: MergeRequest,
     },
+    /// A checkout is ready for the explorer.
+    CheckedOut(Browse),
     /// The reason is already fit to show, with any credential redacted.
     Failed {
         cmd: Cmd,
@@ -400,6 +406,12 @@ pub enum Cmd {
     },
     /// Text for the system clipboard, which the event loop writes to the terminal.
     Copy(String),
+    /// `web_url` is the project's address, which the explorer gets with the checkout.
+    CheckOut {
+        project: String,
+        web_url: String,
+        revision: Revision,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -471,6 +483,10 @@ pub struct App {
     /// The tick the branch search of the form goes out on, once the typing has settled.
     branches_due: Option<u64>,
     pub command_menu: Option<CommandMenu>,
+    /// Two checkouts of one folder at once would collide, so `e` waits for the one out.
+    checking_out: bool,
+    /// The session runs on the sample data, which has no repository to check out.
+    demo: bool,
     /// In the order the user set, which the favorites view keeps.
     pub favorites: Vec<u64>,
     pub favorites_only: bool,
@@ -562,6 +578,8 @@ impl App {
             form: None,
             branches_due: None,
             command_menu: None,
+            checking_out: false,
+            demo: false,
             favorites: Vec::new(),
             favorites_only: false,
             search: Search::default(),
@@ -614,6 +632,11 @@ impl App {
 
     pub fn with_host(mut self, host: Url) -> App {
         self.host = Some(host);
+        self
+    }
+
+    pub fn demo(mut self) -> App {
+        self.demo = true;
         self
     }
 
@@ -1205,6 +1228,23 @@ impl App {
                 }
                 Vec::new()
             }
+            Msg::CheckedOut(browse) => {
+                self.checking_out = false;
+                let (at, dir) = (browse.git_ref, browse.dir.display());
+                self.notice = Some(format!("Checked out {at} in {dir}"));
+                Vec::new()
+            }
+            Msg::Failed {
+                cmd: Cmd::CheckOut {
+                    project, revision, ..
+                },
+                error,
+            } => {
+                self.checking_out = false;
+                let at = revision.name();
+                self.error = Some(format!("Could not check out {project} at {at}: {error}"));
+                Vec::new()
+            }
             Msg::Failed {
                 cmd: Cmd::LoadBranches { project, search },
                 error,
@@ -1465,6 +1505,7 @@ impl App {
             KeyCode::Char('P') if self.pane == Pane::Jobs => return self.open_play_form(),
             KeyCode::Char('y') => return self.copy_glab_command(),
             KeyCode::Char('Y') => self.open_command_menu(),
+            KeyCode::Char('e') => return self.check_out(),
             KeyCode::Char('R') => return self.propose(true),
             KeyCode::Char('C') => return self.propose(false),
             KeyCode::Char('q') => self.quit = true,
@@ -1932,6 +1973,55 @@ impl App {
                 Vec::new()
             }
         }
+    }
+
+    /// The ref follows the pane: the default branch of a project, the commit a pipeline built,
+    /// or the branch a merge request proposes.
+    fn revision(&self) -> Result<Revision, &'static str> {
+        let project = self.project().ok_or("No project selected")?;
+        Ok(match self.pane {
+            Pane::Projects => Revision::Branch(
+                (project.default_branch.clone()).unwrap_or_else(|| DEFAULT_BRANCH.into()),
+            ),
+            Pane::Pipelines | Pane::Jobs => {
+                Revision::Commit(self.pipeline().ok_or("No pipeline selected")?.sha.clone())
+            }
+            Pane::MergeRequests => Revision::Branch(
+                (self.merge_requests.get(self.cursor(Pane::MergeRequests)))
+                    .ok_or("No merge request selected")?
+                    .source_branch
+                    .clone(),
+            ),
+        })
+    }
+
+    fn check_out(&mut self) -> Vec<Cmd> {
+        if self.demo {
+            self.notice = Some("The demo has no files to browse".to_string());
+            return Vec::new();
+        }
+        if self.checking_out {
+            self.notice = Some("A checkout is already running".to_string());
+            return Vec::new();
+        }
+        let revision = match self.revision() {
+            Ok(revision) => revision,
+            Err(reason) => {
+                self.notice = Some(reason.to_string());
+                return Vec::new();
+            }
+        };
+        let Some(project) = self.project() else {
+            return Vec::new();
+        };
+        let (path, web_url) = (project.path_with_namespace.clone(), project.web_url.clone());
+        self.notice = Some(format!("Checking out {path} at {}", revision.name()));
+        self.checking_out = true;
+        vec![Cmd::CheckOut {
+            project: path,
+            web_url,
+            revision,
+        }]
     }
 
     fn copy_line(&mut self, line: String) -> Vec<Cmd> {

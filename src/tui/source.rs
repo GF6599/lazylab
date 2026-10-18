@@ -9,7 +9,9 @@ use url::Url;
 
 use super::app::{Action, Cmd, Msg};
 use super::demo;
+use crate::checkout::Checkouts;
 use crate::config::Mode;
+use crate::explorer::Browse;
 use crate::gitlab::{Client, Error, NewMergeRequest};
 use crate::store::Store;
 
@@ -27,28 +29,29 @@ pub enum Source {
 pub struct Live {
     client: Client,
     store: Option<Store>,
+    checkouts: Option<Checkouts>,
     status_calls: Semaphore,
 }
 
 impl Source {
-    /// `dir` is the folder that holds the store of each host.
+    /// `dir` is the folder that holds the store of each host and the checkouts. Only a live
+    /// session checks out, because a checkout needs the token.
     pub fn new(host: &Url, mode: &Mode, dir: Option<PathBuf>) -> Result<Source, Error> {
         match mode {
             Mode::Demo => Ok(Source::Demo),
             Mode::Live(token) => {
                 let client = Client::new(host, token)?;
-                Ok(Source::live(client, dir.map(|dir| Store::new(dir, host))))
+                let checkouts = (dir.as_deref()).map(|d| Checkouts::new(d, host, token.clone()));
+                let store = dir.map(|dir| Store::new(dir, host));
+                Ok(Source::Live(Arc::new(Live::new(client, store, checkouts))))
             }
         }
     }
 
-    /// Without a store there is no cache, so every start loads the projects from GitLab.
+    /// Without a store there is no cache, so every start loads the projects from GitLab. Only
+    /// `new` gives a source a folder to check a project out into.
     pub fn live(client: Client, store: Option<Store>) -> Source {
-        Source::Live(Arc::new(Live {
-            client,
-            store,
-            status_calls: Semaphore::new(STATUS_CALLS),
-        }))
+        Source::Live(Arc::new(Live::new(client, store, None)))
     }
 
     /// `None` for a command that answers nothing, such as a save.
@@ -61,6 +64,15 @@ impl Source {
 }
 
 impl Live {
+    fn new(client: Client, store: Option<Store>, checkouts: Option<Checkouts>) -> Live {
+        Live {
+            client,
+            store,
+            checkouts,
+            status_calls: Semaphore::new(STATUS_CALLS),
+        }
+    }
+
     async fn answer(&self, cmd: Cmd) -> Option<Msg> {
         let result = match cmd.clone() {
             Cmd::LoadCache => return Some(Msg::CacheLoaded(self.cached())),
@@ -75,6 +87,7 @@ impl Live {
             }
             // The event loop writes a copy to the terminal, so none reaches a source.
             Cmd::Copy(_) => return None,
+            Cmd::CheckOut { .. } => return Some(self.check_out(cmd).await),
             Cmd::SaveProjects { projects, total } => {
                 if let Some(store) = &self.store
                     && let Err(e) = store.save_projects(&projects, total, OffsetDateTime::now_utc())
@@ -309,6 +322,39 @@ impl Live {
             }
         };
         Ok(Msg::Acted { action, started })
+    }
+
+    /// git blocks, so it runs off the event loop's thread.
+    async fn check_out(&self, cmd: Cmd) -> Msg {
+        let (
+            Cmd::CheckOut {
+                project,
+                web_url,
+                revision,
+            },
+            Some(checkouts),
+        ) = (cmd.clone(), self.checkouts.clone())
+        else {
+            return Msg::Failed {
+                cmd,
+                error: "no cache folder to check out into".into(),
+            };
+        };
+        let git_ref = revision.name().to_string();
+        let done = tokio::task::spawn_blocking(move || checkouts.check_out(&project, &revision));
+        let error = match done.await {
+            Ok(Ok(dir)) => {
+                return Msg::CheckedOut(Browse {
+                    dir,
+                    project_url: web_url,
+                    git_ref,
+                });
+            }
+            Ok(Err(e)) => e.to_string(),
+            Err(e) => format!("the checkout stopped: {e}"),
+        };
+        tracing::warn!(error = %error, "check out a project");
+        Msg::Failed { cmd, error }
     }
 
     /// Favorites that cannot be read are none, so the screen still opens on every project.
