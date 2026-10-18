@@ -61,4 +61,4 @@ expression: screen(&buffer)
 │                                              ││                                                                      │
 │                                              ││                                                                      │
 └──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
- BROWSE  j/k move  l open  [ ] tab  1-4 pane  z zoom  ? help  q quit
+ BROWSE  j/k move  l open  t/T state  [ ] tab  1-4 pane  z zoom  ? help  q quit

@@ -149,7 +149,7 @@ pub enum MergeRequestState {
 }
 
 impl MergeRequestState {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             MergeRequestState::Opened => "opened",
             MergeRequestState::Closed => "closed",

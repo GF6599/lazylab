@@ -198,6 +198,7 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
         (Overlay::None, Focus::Sidebar) if app.pane == Pane::MergeRequests => &[
             ("j/k", "move"),
             ("l", "open"),
+            ("t/T", "state"),
             ("[ ]", "tab"),
             ("1-4", "pane"),
             ("z", "zoom"),

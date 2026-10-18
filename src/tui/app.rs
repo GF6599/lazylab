@@ -115,6 +115,13 @@ impl MrTab {
     }
 }
 
+/// The states the merge request list turns through, in the Go release's order.
+const MR_STATES: [MergeRequestState; 3] = [
+    MergeRequestState::Opened,
+    MergeRequestState::Merged,
+    MergeRequestState::Closed,
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlay {
     None,
@@ -1114,10 +1121,10 @@ impl App {
             }
             Msg::MergeRequestsLoaded {
                 project,
+                state,
                 merge_requests,
-                ..
             } => {
-                if self.project().map(|p| p.id) == Some(project) {
+                if self.selected() == Some(project) && self.mr_state == state {
                     self.merge_requests = merge_requests;
                     self.cursors[Pane::MergeRequests.index()] = 0;
                     self.clear_threads();
@@ -1224,6 +1231,12 @@ impl App {
             KeyCode::Char('t') if on_projects => {
                 self.favorites_only = !self.favorites_only;
                 return self.reshow(before);
+            }
+            KeyCode::Char('t') if self.pane == Pane::MergeRequests => {
+                return self.switch_mr_state(1);
+            }
+            KeyCode::Char('T') if self.pane == Pane::MergeRequests => {
+                return self.switch_mr_state(MR_STATES.len() - 1);
             }
             KeyCode::Char('{') if on_projects => return self.move_favorite(-1),
             KeyCode::Char('}') if on_projects => return self.move_favorite(1),
@@ -1650,6 +1663,26 @@ impl App {
                 }
                 Vec::new()
             }
+        }
+    }
+
+    /// The list starts again from its first row on the info tab, as in the Go release. While the
+    /// project waits, the load at the end of the wait asks for the new state.
+    fn switch_mr_state(&mut self, delta: usize) -> Vec<Cmd> {
+        let index = MR_STATES.iter().position(|&s| s == self.mr_state);
+        self.mr_state = MR_STATES[(index.unwrap_or(0) + delta) % MR_STATES.len()];
+        self.merge_requests.clear();
+        self.cursors[Pane::MergeRequests.index()] = 0;
+        self.mr_tab = MrTab::Info;
+        self.clear_threads();
+        self.clear_diff();
+        let project_waits = matches!(self.waiting, Some((Waiting::Project(_), _)));
+        match self.selected() {
+            Some(project) if !project_waits => vec![Cmd::LoadMergeRequests {
+                project,
+                state: self.mr_state,
+            }],
+            _ => Vec::new(),
         }
     }
 

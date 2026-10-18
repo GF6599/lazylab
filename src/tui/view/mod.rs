@@ -41,6 +41,7 @@ const HELP: &[(&str, &str)] = &[
     ("ctrl+r", "reload the projects"),
     ("[ ]", "the page of pipelines before, after"),
     ("T", "the test report of the pipeline, or its stages"),
+    ("t T", "the merge request state after, before"),
     ("[ ]", "the merge request tab before, after"),
     ("r", "resolve or reopen the thread"),
     ("c", "start a thread, or reply in the thread"),
