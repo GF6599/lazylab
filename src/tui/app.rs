@@ -515,6 +515,9 @@ pub struct App {
     pub merge_requests: Vec<MergeRequest>,
     /// The state of the merge requests the list shows.
     pub mr_state: MergeRequestState,
+    /// The project and number of a merge request just opened, which the next list of its project
+    /// selects.
+    created_merge_request: Option<(u64, u64)>,
     /// The same tab stays in view from one merge request to the next.
     pub mr_tab: MrTab,
     threads: Option<Threads>,
@@ -588,6 +591,7 @@ impl App {
             log_height: Cell::new(0),
             merge_requests: Vec::new(),
             mr_state: MergeRequestState::Opened,
+            created_merge_request: None,
             mr_tab: MrTab::Info,
             threads: None,
             threads_asked: None,
@@ -1212,6 +1216,28 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd:
+                    Cmd::CreateMergeRequest {
+                        project,
+                        source,
+                        target,
+                        title,
+                    },
+                error,
+            } => {
+                self.error = Some(error);
+                if self.overlay != Overlay::None {
+                    return Vec::new();
+                }
+                let fields = MergeRequestFields {
+                    source,
+                    target,
+                    title,
+                    matches: None,
+                };
+                self.show_merge_request_form(project, fields)
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -1269,8 +1295,11 @@ impl App {
                 merge_requests,
             } => {
                 if self.selected() == Some(project) && self.mr_state == state {
+                    let created = (self.created_merge_request.take())
+                        .filter(|&(of, _)| of == project)
+                        .and_then(|(_, iid)| merge_requests.iter().position(|m| m.iid == iid));
                     self.merge_requests = merge_requests;
-                    self.cursors[Pane::MergeRequests.index()] = 0;
+                    self.cursors[Pane::MergeRequests.index()] = created.unwrap_or(0);
                     self.clear_threads();
                     self.clear_diff();
                 }
@@ -1325,7 +1354,10 @@ impl App {
                 }
                 Vec::new()
             }
-            Msg::MergeRequestCreated { .. } => Vec::new(),
+            Msg::MergeRequestCreated {
+                project,
+                merge_request,
+            } => self.merge_request_created(project, &merge_request),
         }
     }
 
@@ -1554,6 +1586,10 @@ impl App {
                 self.close_form();
                 vec![cmd]
             }
+            Outcome::Missing(reason) => {
+                self.notice = Some(reason.to_string());
+                Vec::new()
+            }
             Outcome::Closed => {
                 self.close_form();
                 Vec::new()
@@ -1621,9 +1657,27 @@ impl App {
             target: project.default_branch.clone().unwrap_or_default(),
             ..MergeRequestFields::default()
         };
-        self.form = Some(Form::merge_request(project.id, fields));
+        self.show_merge_request_form(project.id, fields)
+    }
+
+    fn show_merge_request_form(&mut self, project: u64, fields: MergeRequestFields) -> Vec<Cmd> {
+        self.form = Some(Form::merge_request(project, fields));
         self.overlay = Overlay::Form;
         self.search_branches()
+    }
+
+    /// The open list loads again with the new merge request selected, as the Go release shows
+    /// it.
+    fn merge_request_created(&mut self, project: u64, merge_request: &MergeRequest) -> Vec<Cmd> {
+        self.notice = Some(format!(
+            "Opened !{}: {}",
+            merge_request.iid, merge_request.title
+        ));
+        if self.selected() != Some(project) {
+            return Vec::new();
+        }
+        self.created_merge_request = Some((project, merge_request.iid));
+        self.show_mr_state(MergeRequestState::Opened)
     }
 
     /// A new thread on the info tab, a reply in the picked thread on the threads tab, and a new
@@ -2063,11 +2117,15 @@ impl App {
         }
     }
 
-    /// The list starts again from its first row on the info tab, as in the Go release. While the
-    /// project waits, the load at the end of the wait asks for the new state.
     fn switch_mr_state(&mut self, delta: usize) -> Vec<Cmd> {
         let index = MR_STATES.iter().position(|&s| s == self.mr_state);
-        self.mr_state = MR_STATES[(index.unwrap_or(0) + delta) % MR_STATES.len()];
+        self.show_mr_state(MR_STATES[(index.unwrap_or(0) + delta) % MR_STATES.len()])
+    }
+
+    /// The list starts again from its first row on the info tab, as in the Go release. While the
+    /// project waits, the load at the end of the wait asks for the new state.
+    fn show_mr_state(&mut self, state: MergeRequestState) -> Vec<Cmd> {
+        self.mr_state = state;
         self.merge_requests.clear();
         self.cursors[Pane::MergeRequests.index()] = 0;
         self.mr_tab = MrTab::Info;

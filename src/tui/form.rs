@@ -80,6 +80,8 @@ pub struct BranchMatches {
 pub enum Outcome {
     Open,
     Send(Cmd),
+    /// The form stays open, and the reason says what it lacks.
+    Missing(&'static str),
     Closed,
 }
 
@@ -374,11 +376,18 @@ impl Form {
             }
             Purpose::MergeRequest { project } => {
                 let fields = self.merge_request.clone().unwrap_or_default();
+                let [source, target, title] =
+                    [fields.source, fields.target, fields.title].map(|f| f.trim().to_string());
+                if [&source, &target, &title].iter().any(|f| f.is_empty()) {
+                    return Outcome::Missing(
+                        "A merge request needs a source branch, a target branch and a title",
+                    );
+                }
                 return Outcome::Send(Cmd::CreateMergeRequest {
                     project: *project,
-                    source: fields.source.trim().to_string(),
-                    target: fields.target.trim().to_string(),
-                    title: fields.title.trim().to_string(),
+                    source,
+                    target,
+                    title,
                 });
             }
         };
