@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use lazylab::gitlab::MergeRequestState;
 use lazylab::tui::app::{App, Cmd, Focus, Msg, Overlay, Pane};
 use lazylab::tui::{Source, demo, run};
 use ratatui::Terminal;
@@ -81,7 +82,10 @@ fn a_start_loads_the_first_project_its_pipelines_jobs_and_merge_requests() {
         lists,
         [
             Cmd::LoadPipelines { project, page: 1 },
-            Cmd::LoadMergeRequests { project },
+            Cmd::LoadMergeRequests {
+                project,
+                state: MergeRequestState::Opened,
+            },
         ]
     );
 
@@ -111,7 +115,10 @@ fn moving_to_another_project_clears_its_lists_and_asks_for_the_new_ones() {
         commands,
         [
             Cmd::LoadPipelines { project, page: 1 },
-            Cmd::LoadMergeRequests { project },
+            Cmd::LoadMergeRequests {
+                project,
+                state: MergeRequestState::Opened,
+            },
         ]
     );
 }
@@ -148,7 +155,10 @@ fn an_answer_for_a_project_no_longer_selected_is_dropped() {
             project: first,
             page: 1,
         }),
-        answer(Cmd::LoadMergeRequests { project: first }),
+        answer(Cmd::LoadMergeRequests {
+            project: first,
+            state: MergeRequestState::Opened,
+        }),
     ];
     for msg in late {
         assert!(app.update(msg).is_empty());

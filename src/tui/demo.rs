@@ -155,8 +155,9 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             pipeline,
             jobs: Vec::new(),
         },
-        Cmd::LoadMergeRequests { project } => Msg::MergeRequestsLoaded {
+        Cmd::LoadMergeRequests { project, state } => Msg::MergeRequestsLoaded {
             project,
+            state,
             merge_requests: merge_requests(project, now),
         },
         Cmd::LoadThreads {

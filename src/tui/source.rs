@@ -7,7 +7,7 @@ use tokio::sync::Semaphore;
 
 use super::app::{Action, Cmd, Msg};
 use super::demo;
-use crate::gitlab::{Client, Error, MergeRequestState};
+use crate::gitlab::{Client, Error};
 use crate::store::Store;
 
 /// Pipelines and merge requests load in pages of this size.
@@ -112,12 +112,13 @@ impl Live {
                 .list_pipeline_jobs(project, pipeline)
                 .await
                 .map(|jobs| Msg::ChildJobsLoaded { pipeline, jobs }),
-            Cmd::LoadMergeRequests { project } => self
+            Cmd::LoadMergeRequests { project, state } => self
                 .client
-                .list_merge_requests(project, Some(MergeRequestState::Opened), 1, PAGE_SIZE)
+                .list_merge_requests(project, Some(state), 1, PAGE_SIZE)
                 .await
                 .map(|page| Msg::MergeRequestsLoaded {
                     project,
+                    state,
                     merge_requests: page.items,
                 }),
             Cmd::LoadThreads {
