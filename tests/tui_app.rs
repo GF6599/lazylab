@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use base64::prelude::{BASE64_STANDARD, Engine};
 use lazylab::gitlab::MergeRequestState;
 use lazylab::tui::app::{App, Cmd, Focus, Msg, Overlay, Pane};
 use lazylab::tui::{Source, demo, run};
@@ -360,6 +361,7 @@ async fn the_loop_runs_each_command_and_feeds_its_answer_back_until_quit() {
         Source::Demo,
         inbox,
         outbox,
+        &mut Vec::new(),
         draw,
     );
     let app = tokio::time::timeout(Duration::from_secs(5), running)
@@ -370,4 +372,43 @@ async fn the_loop_runs_each_command_and_feeds_its_answer_back_until_quit() {
     // Then: it loaded the projects, the first project's pipelines and the newest pipeline's jobs.
     assert!(app.quit);
     assert!(!app.projects.is_empty() && !app.pipelines.is_empty() && !app.jobs.is_empty());
+}
+
+#[tokio::test]
+async fn the_loop_writes_a_copy_to_the_terminal_as_one_osc_52_sequence() {
+    // Given: a screen that presses y on the first project once the projects are shown, then q.
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let (outbox, inbox) = mpsc::unbounded_channel();
+    let keys = outbox.clone();
+    let mut pressed = false;
+    let draw = move |_: &mut ratatui::Frame, app: &App| {
+        if !app.projects.is_empty() && !pressed {
+            keys.send(char('y')).unwrap();
+            keys.send(char('q')).unwrap();
+            pressed = true;
+        }
+    };
+    let mut written = Vec::new();
+
+    // When: the loop runs, for at most five seconds.
+    let running = run(
+        &mut terminal,
+        App::new(PAGE_SIZE),
+        Source::Demo,
+        inbox,
+        outbox,
+        &mut written,
+        draw,
+    );
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("the loop ends once q arrives")
+        .unwrap();
+
+    // Then: the terminal got the glab command of the project, base64 encoded, ended by BEL.
+    let command = BASE64_STANDARD.encode("glab repo view acme/platform/api");
+    assert_eq!(
+        String::from_utf8(written).unwrap(),
+        format!("\x1b]52;c;{command}\x07")
+    );
 }
