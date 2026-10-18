@@ -26,9 +26,13 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// A line of the code itself, which the line cursor can pick.
     pub fn is_code(self) -> bool {
         matches!(self, Kind::Added | Kind::Removed | Kind::Context)
+    }
+
+    /// The cursor rests on a file header too, so a file without a line of code can be reached.
+    pub fn takes_cursor(self) -> bool {
+        self.is_code() || self == Kind::File
     }
 }
 
@@ -78,8 +82,8 @@ pub fn rows(files: &[FileDiff]) -> Vec<Row> {
     rows
 }
 
-pub fn code_rows(rows: &[Row]) -> impl Iterator<Item = usize> + '_ {
+pub fn cursor_rows(rows: &[Row]) -> impl Iterator<Item = usize> + '_ {
     (rows.iter().enumerate())
-        .filter(|(_, row)| row.kind.is_code())
+        .filter(|(_, row)| row.kind.takes_cursor())
         .map(|(i, _)| i)
 }

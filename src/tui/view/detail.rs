@@ -292,6 +292,9 @@ fn diff_spans(row: &diff::Row, on: bool, width: usize, t: &Theme) -> Vec<Span<'s
     if !on {
         return vec![Span::styled(row.text.clone(), style)];
     }
+    if row.kind == Kind::File {
+        return vec![Span::styled(row.text.clone(), t.marked())];
+    }
     let sign = row.text.chars().next().map_or(0, char::len_utf8);
     let (sign, code) = row.text.split_at(sign);
     vec![

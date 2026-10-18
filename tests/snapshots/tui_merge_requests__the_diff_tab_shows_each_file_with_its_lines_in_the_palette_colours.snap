@@ -7,10 +7,10 @@ expression: screen(&buffer)
 ┌─ projects ───────────────────────────────────┐┌─ merge request !412 ─────────────────────────────────────────────────┐
 │[⠋ acme/platform/api                       4m]││  info   threads  [diff]                                              │
 │ ✓ acme/platform/web                      12m ││                                                                      │
-│ ⠋ acme/platform/workers                   1h ││  modified: .gitlab-ci.yml                                            │
+│ ⠋ acme/platform/workers                   1h ││ [modified: .gitlab-ci.yml                                          ] │
 │ ✓ acme/infra/terraform                    3h ││  ────────────────────────────────────────                            │
 └─────────────────────────────────────── 1/13 ─┘│  @@ -12,6 +12,13 @@ default:                                         │
-┌─ pipelines ──────────────────────────────────┐│ [   image: registry.example.com/ci/base:2026.10                    ] │
+┌─ pipelines ──────────────────────────────────┐│     image: registry.example.com/ci/base:2026.10                      │
 │[⠋ #61441 main                             2m]││     interruptible: true                                              │
 │ ✓ #61434 feat/runner-cache               39m ││  +  cache:                                                           │
 │ ✗ #61427 fix/flaky-e2e                    1h ││  +    key:                                                           │
