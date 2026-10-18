@@ -288,7 +288,7 @@ fn parse_host(host: &str) -> Result<Url, Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
 
     use figment::Jail;
 
@@ -373,6 +373,100 @@ mod tests {
             assert_eq!(
                 *hints.borrow(),
                 [None, Some("https://my.gitlab.test".into())]
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn demo_runs_on_the_demo_host_with_no_token_and_without_asking_glab() {
+        Jail::expect_with(|jail| {
+            // Given: no token anywhere, a host of the user's own, and a glab that counts its calls.
+            jail.clear_env();
+            jail.set_env("GITLAB_HOST", "https://my.gitlab.test");
+            let asked = Cell::new(0);
+            let glab = |_: Option<&str>| {
+                asked.set(asked.get() + 1);
+                None
+            };
+            // When: the demo flag is set.
+            let demo = Flags {
+                demo: true,
+                ..Flags::default()
+            };
+            let config = super::load(&demo, &glab).unwrap();
+            // Then: the session is the demo on the demo host, and glab is not asked.
+            assert_eq!(config.mode, Mode::Demo);
+            assert_eq!(config.host.as_str(), "https://demo.gitlab.example.com/");
+            assert_eq!(asked.get(), 0);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn the_demo_key_in_the_environment_does_what_the_flag_does() {
+        Jail::expect_with(|jail| {
+            // Given: no token anywhere, and the demo key set in the environment.
+            jail.clear_env();
+            jail.set_env("GITLAB_DEMO", "true");
+            // When: the settings load with no flags.
+            let config = load(&Flags::default()).unwrap();
+            // Then: the session is the demo on the demo host.
+            assert_eq!(config.mode, Mode::Demo);
+            assert_eq!(config.host.as_str(), "https://demo.gitlab.example.com/");
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn demo_still_reads_the_file_and_checks_the_page_size_and_the_level() {
+        Jail::expect_with(|jail| {
+            // Given: a file with a host that is not a URL, a page size and a level.
+            jail.clear_env();
+            jail.create_file(
+                "lazylab.toml",
+                "host = \"not a url\"\nprojects-per-page = 50\nlog-level = \"debug\"",
+            )?;
+            let demo = |change: fn(&mut Flags)| {
+                let mut flags = Flags {
+                    demo: true,
+                    config: Some("lazylab.toml".into()),
+                    ..Flags::default()
+                };
+                change(&mut flags);
+                load(&flags)
+            };
+            // When: the demo loads with the file, with a page size out of range, and with a
+            // file that is missing.
+            let config = demo(|_| {}).unwrap();
+            let too_large = demo(|f| f.projects_per_page = Some(101)).unwrap_err();
+            let missing = demo(|f| f.config = Some("missing.toml".into())).unwrap_err();
+            // Then: the host from the file is not used, and every other setting applies as in a
+            // live run.
+            assert_eq!(config.host.as_str(), "https://demo.gitlab.example.com/");
+            assert_eq!(
+                (config.projects_per_page, config.log_level),
+                (50, Level::DEBUG)
+            );
+            assert_eq!(config.config_file, Some(PathBuf::from("lazylab.toml")));
+            assert!(too_large.to_string().contains("between 1 and 100"));
+            assert!(missing.to_string().contains("missing.toml"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn demo_turned_off_in_the_environment_still_needs_a_token() {
+        Jail::expect_with(|jail| {
+            // Given: no token anywhere, and the demo key set to false.
+            jail.clear_env();
+            jail.set_env("GITLAB_DEMO", "false");
+            // When: the settings load.
+            let message = error(&Flags::default());
+            // Then: the run fails with the message of a run with no demo key.
+            assert_eq!(
+                message,
+                "gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`"
             );
             Ok(())
         });
