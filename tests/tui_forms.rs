@@ -74,6 +74,34 @@ fn screen(app: &App) -> String {
         .join("\n")
 }
 
+/// Draws the app and checks that the cursor sits inside the box of the field being typed, on
+/// its free cell, after `last`, the last character typed. The answer is the row of the cursor.
+fn assert_cursor_after(app: &App, last: &str) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    let context = Context {
+        host: "gitlab.example.com".into(),
+        now: OffsetDateTime::now_utc(),
+    };
+    terminal.draw(|frame| draw(frame, app, &context)).unwrap();
+    let cursor = terminal.get_cursor_position().unwrap();
+    let buffer = terminal.backend().buffer();
+    let cells: Vec<&str> = (0..buffer.area.width)
+        .map(|x| buffer[(x, cursor.y)].symbol())
+        .collect();
+    let row = cells.concat();
+    let at = usize::from(cursor.x);
+    let marker = |c: &&str| *c == "[" || *c == "]";
+    let open = cells[..at].iter().rposition(marker);
+    let close = cells[at..].iter().position(marker).map(|i| at + i);
+    assert!(
+        open.is_some_and(|o| cells[o] == "[") && close.is_some_and(|c| c > at && cells[c] == "]"),
+        "cursor at {at}, outside the box: {row}"
+    );
+    assert_eq!(cells[at - 1], last, "{row}");
+    assert_eq!(cells[at], " ", "{row}");
+    row
+}
+
 /// The demo app on the jobs pane, with the newest pipeline's jobs replaced by one job.
 fn on_job(status: &str) -> App {
     let mut app = loaded();
@@ -334,26 +362,11 @@ fn a_value_wider_than_its_box_shows_its_end_with_the_cursor_after_it() {
 
     // When: a value of 40 characters is typed, and the form is drawn.
     type_text(&mut app, "0123456789abcdefghijklmnopqrstuvwxyzWXYZ");
-    let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
-    let context = Context {
-        host: "gitlab.example.com".into(),
-        now: OffsetDateTime::now_utc(),
-    };
-    terminal.draw(|frame| draw(frame, &app, &context)).unwrap();
-    let cursor = terminal.get_cursor_position().unwrap();
-    let buffer = terminal.backend().buffer();
-    let cells: Vec<&str> = (0..buffer.area.width)
-        .map(|x| buffer[(x, cursor.y)].symbol())
-        .collect();
-    let row = cells.concat();
-    let at = usize::from(cursor.x);
 
     // Then: the row shows the end of the value after an ellipsis, and the cursor sits after the
     // last character typed, inside the box, before its closing marker.
+    let row = assert_cursor_after(&app, "Z");
     assert!(row.contains("…") && row.contains("uvwxyzWXYZ"), "{row}");
-    assert_eq!(cells[at - 1], "Z", "{row}");
-    assert_eq!(cells[at], " ", "{row}");
-    assert!(cells[at + 1..].contains(&"]"), "{row}");
 
     // When: the cursor moves back to the key.
     key(&mut app, KeyCode::BackTab);
@@ -361,6 +374,46 @@ fn a_value_wider_than_its_box_shows_its_end_with_the_cursor_after_it() {
     // Then: the value is no longer typed, so it shows from its start.
     let shown = screen(&app);
     assert!(shown.contains("0123456789abcdefghijklmnop…"), "{shown}");
+}
+
+#[test]
+fn a_key_wider_than_its_box_shows_its_end_with_the_cursor_after_it() {
+    // Given: the run form, on the key of a variable row.
+    let mut app = loaded();
+    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('N'));
+    ctrl(&mut app, 'n');
+
+    // When: a key of 30 characters is typed, and the form is drawn.
+    type_text(&mut app, "abcdefghijklmnopqrstuvwxyzWXYZ");
+
+    // Then: the row shows the end of the key after an ellipsis, and the cursor sits after the
+    // last character typed, inside the box, before its closing marker.
+    let row = assert_cursor_after(&app, "Z");
+    assert!(row.contains("…") && row.contains("uvwxyzWXYZ"), "{row}");
+}
+
+#[test]
+fn a_ref_wider_than_its_box_shows_its_end_with_the_cursor_after_it() {
+    // Given: the run form, on its ref, cleared.
+    let mut app = loaded();
+    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('N'));
+    let seeded = app.form.as_ref().unwrap().git_ref.clone().unwrap();
+    for _ in seeded.chars() {
+        key(&mut app, KeyCode::Backspace);
+    }
+
+    // When: a ref of 54 characters is typed, and the form is drawn.
+    type_text(
+        &mut app,
+        "release/0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJ",
+    );
+
+    // Then: the row shows the end of the ref after an ellipsis, and the cursor sits after the
+    // last character typed, inside the box, before its closing marker.
+    let row = assert_cursor_after(&app, "J");
+    assert!(row.contains("…") && row.contains("wxyzABCDEFGHIJ"), "{row}");
 }
 
 #[test]
