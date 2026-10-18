@@ -103,6 +103,8 @@ const CLOSED_MERGE_REQUESTS: [(u64, &str, &str); 2] = [
     (394, "Try a second runner pool", "spike/runner-pool"),
     (385, "Move the handbook to a wiki", "docs/wiki"),
 ];
+/// The number GitLab gives the next merge request, one above the newest in the lists.
+const NEXT_MERGE_REQUEST: u64 = 413;
 
 pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
     let msg = match command {
@@ -219,6 +221,29 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             project,
             merge_request,
             reply: discussion.is_some(),
+        },
+        Cmd::LoadBranches { project, search } => Msg::BranchesLoaded {
+            project,
+            branches: branches(&search),
+            search,
+        },
+        Cmd::CreateMergeRequest {
+            project,
+            source,
+            target,
+            title,
+        } => Msg::MergeRequestCreated {
+            project,
+            merge_request: decode(json!({
+                "iid": NEXT_MERGE_REQUEST,
+                "title": title,
+                "state": "opened",
+                "author": {"name": AUTHORS[0]},
+                "source_branch": source,
+                "target_branch": target,
+                "web_url": format!("{WEB}/merge_requests/{NEXT_MERGE_REQUEST}"),
+                "updated_at": at(now, 0),
+            })),
         },
     };
     Some(msg)
@@ -389,6 +414,21 @@ fn merge_requests(
         })
         .map(decode)
         .collect()
+}
+
+/// Every branch a demo pipeline or merge request names, matched without regard to case as
+/// GitLab's branch search matches.
+fn branches(search: &str) -> Vec<String> {
+    let search = search.to_lowercase();
+    let listed = (OPEN_MERGE_REQUESTS.iter())
+        .chain(&MERGED_MERGE_REQUESTS)
+        .chain(&CLOSED_MERGE_REQUESTS)
+        .map(|&(_, _, branch)| branch);
+    let mut names: Vec<String> = REFS.into_iter().chain(listed).map(String::from).collect();
+    names.sort();
+    names.dedup();
+    names.retain(|name| name.to_lowercase().contains(&search));
+    names
 }
 
 fn threads(now: OffsetDateTime) -> Vec<crate::gitlab::Discussion> {

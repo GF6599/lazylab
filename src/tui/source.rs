@@ -10,7 +10,7 @@ use url::Url;
 use super::app::{Action, Cmd, Msg};
 use super::demo;
 use crate::config::Mode;
-use crate::gitlab::{Client, Error};
+use crate::gitlab::{Client, Error, NewMergeRequest};
 use crate::store::Store;
 
 /// Pipelines and merge requests load in pages of this size.
@@ -196,6 +196,35 @@ impl Live {
                     merge_request,
                     resolved,
                 }),
+            Cmd::LoadBranches { project, search } => self
+                .client
+                .list_branches(project, Some(search.as_str()).filter(|s| !s.is_empty()))
+                .await
+                .map(|branches| Msg::BranchesLoaded {
+                    project,
+                    search,
+                    branches,
+                }),
+            Cmd::CreateMergeRequest {
+                project,
+                source,
+                target,
+                title,
+            } => {
+                let new = NewMergeRequest {
+                    title: &title,
+                    source_branch: &source,
+                    target_branch: &target,
+                    description: "",
+                };
+                (self.client)
+                    .create_merge_request(project, &new)
+                    .await
+                    .map(|merge_request| Msg::MergeRequestCreated {
+                        project,
+                        merge_request,
+                    })
+            }
             Cmd::Comment {
                 project,
                 merge_request,

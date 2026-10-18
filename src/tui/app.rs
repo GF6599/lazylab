@@ -292,6 +292,16 @@ pub enum Msg {
         pipeline: u64,
         report: TestReport,
     },
+    /// `search` is the term the branches match, so an answer for a term typed over is dropped.
+    BranchesLoaded {
+        project: u64,
+        search: String,
+        branches: Vec<String>,
+    },
+    MergeRequestCreated {
+        project: u64,
+        merge_request: MergeRequest,
+    },
     /// The reason is already fit to show, with any credential redacted.
     Failed {
         cmd: Cmd,
@@ -370,6 +380,17 @@ pub enum Cmd {
         discussion: Option<String>,
         line: Option<DiffLine>,
         body: String,
+    },
+    /// The branches whose name holds `search`. An empty search lists the first page of them.
+    LoadBranches {
+        project: u64,
+        search: String,
+    },
+    CreateMergeRequest {
+        project: u64,
+        source: String,
+        target: String,
+        title: String,
     },
     Act(Action),
     /// The log of a job, in the project it runs in.
@@ -1280,6 +1301,7 @@ impl App {
                 self.test_report_loaded((project, pipeline), Some(report));
                 Vec::new()
             }
+            Msg::BranchesLoaded { .. } | Msg::MergeRequestCreated { .. } => Vec::new(),
         }
     }
 
