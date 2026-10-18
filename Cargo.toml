@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 ansi-to-tui = "8"
+base64 = "0.22"
 clap = { version = "4.6", features = ["derive"] }
 figment = { version = "0.10", features = ["env", "toml", "yaml", "json"] }
 ratatui = "0.30"
