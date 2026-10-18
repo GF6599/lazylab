@@ -242,15 +242,27 @@ fn column_of(row: &str, text: &str) -> u16 {
     row[..byte].chars().count() as u16
 }
 
+fn fail(app: &mut App, cmd: Cmd, error: &str) {
+    app.update(Msg::Failed {
+        cmd,
+        error: error.into(),
+    });
+}
+
+fn bottom(app: &App) -> String {
+    row_text(&render(app, 120, 32), 31)
+}
+
 #[test]
 fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
-    // Given: the demo data, and a pipeline list for the current project that failed.
+    // Given: the demo data, and a pipeline list for the current project that failed twice in a
+    // row.
     let mut app = loaded();
     let project = app.project().unwrap().id;
-    app.update(Msg::Failed {
-        cmd: Cmd::LoadPipelines { project, page: 1 },
-        error: "list pipelines: connection refused".into(),
-    });
+    for _ in 0..2 {
+        let cmd = Cmd::LoadPipelines { project, page: 1 };
+        fail(&mut app, cmd, "list pipelines: connection refused");
+    }
 
     // When: the screen is drawn, and drawn again after a key.
     let failed = render(&app, 120, 32);
@@ -262,6 +274,114 @@ fn a_failure_takes_the_status_bar_until_a_key_is_pressed() {
     let x = column_of(&bottom, "list pipelines: connection refused");
     assert_eq!(failed[(x, 31)].fg, T.love);
     assert!(!row_text(&after, 31).contains("list pipelines"));
+}
+
+#[test]
+fn a_refresh_that_fails_once_keeps_the_status_bar_hints() {
+    // Given: the demo data, with a pipeline in view.
+    let mut app = loaded();
+    let project = app.project().unwrap().id;
+    let pipeline = app.pipeline().unwrap().id;
+
+    // When: each load that every refresh repeats fails once.
+    fail(
+        &mut app,
+        Cmd::LoadPipelines { project, page: 1 },
+        "list pipelines: lost",
+    );
+    fail(
+        &mut app,
+        Cmd::LoadJobs { project, pipeline },
+        "list pipeline bridges: lost",
+    );
+    let child = Cmd::LoadChildJobs {
+        project,
+        pipeline: 7,
+    };
+    fail(&mut app, child, "list pipeline jobs: lost");
+
+    // Then: the status bar keeps its hints, because the next refresh asks again.
+    let shown = bottom(&app);
+    assert!(!shown.contains("lost"), "{shown}");
+    assert!(shown.contains("quit"), "{shown}");
+}
+
+#[test]
+fn a_refresh_error_clears_once_that_load_succeeds() {
+    // Given: the jobs of the pipeline in view failed twice in a row, so the failure shows.
+    let mut app = loaded();
+    let project = app.project().unwrap().id;
+    let pipeline = app.pipeline().unwrap().id;
+    for _ in 0..2 {
+        let cmd = Cmd::LoadJobs { project, pipeline };
+        fail(&mut app, cmd, "list pipeline bridges: timed out");
+    }
+    assert!(bottom(&app).contains("list pipeline bridges: timed out"));
+
+    // When: the next load of those jobs succeeds.
+    app.update(Msg::JobsLoaded {
+        pipeline,
+        jobs: Vec::new(),
+        bridges: Vec::new(),
+    });
+
+    // Then: the failure leaves the status bar without a key.
+    assert!(!bottom(&app).contains("timed out"), "{}", bottom(&app));
+}
+
+#[test]
+fn a_success_between_two_failures_starts_the_count_again() {
+    // Given: the jobs of the pipeline in view.
+    let mut app = loaded();
+    let project = app.project().unwrap().id;
+    let pipeline = app.pipeline().unwrap().id;
+
+    // When: a load fails, the next succeeds, and the one after fails.
+    fail(
+        &mut app,
+        Cmd::LoadJobs { project, pipeline },
+        "list pipeline jobs: lost",
+    );
+    app.update(Msg::JobsLoaded {
+        pipeline,
+        jobs: Vec::new(),
+        bridges: Vec::new(),
+    });
+    fail(
+        &mut app,
+        Cmd::LoadJobs { project, pipeline },
+        "list pipeline jobs: lost",
+    );
+
+    // Then: no two failures came in a row, so the status bar keeps its hints.
+    assert!(!bottom(&app).contains("lost"), "{}", bottom(&app));
+}
+
+#[test]
+fn a_refresh_success_leaves_another_failure_on_the_status_bar() {
+    // Given: the log of a job failed to load, which shows at once.
+    let mut app = loaded();
+    let project = app.project().unwrap().id;
+    let pipeline = app.pipeline().unwrap().id;
+    fail(
+        &mut app,
+        Cmd::LoadLog { project, job: 1 },
+        "get job log: refused",
+    );
+
+    // When: a load of the jobs succeeds.
+    app.update(Msg::JobsLoaded {
+        pipeline,
+        jobs: Vec::new(),
+        bridges: Vec::new(),
+    });
+
+    // Then: the log failure stays until a key.
+    assert!(
+        bottom(&app).contains("get job log: refused"),
+        "{}",
+        bottom(&app)
+    );
 }
 
 #[test]
