@@ -151,7 +151,7 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             if app.pane == Pane::MergeRequests && app.mr_tab == MrTab::Diff =>
         {
             &[
-                ("j/k", "scroll"),
+                ("j/k", "line"),
                 ("[ ]", "tab"),
                 ("h", "back"),
                 ("?", "help"),

@@ -9,9 +9,9 @@ use super::sidebar::row_name;
 use super::sidebar::row_status;
 use crate::gitlab::{Discussion, Status, TestCaseStatus};
 use crate::tui::app::{App, Focus, MrTab, Pane};
-use crate::tui::diff::Kind;
+use crate::tui::diff::{self, Kind};
 use crate::tui::jobs::JobRow;
-use crate::tui::panel::{block, bottom_label, kv, light_corners};
+use crate::tui::panel::{Row, block, bottom_label, kv, light_corners, marked_line, window_start};
 use crate::tui::text::{age, clamp_spans, expand_tabs, fit, pad, width as text_width};
 use crate::tui::theme::Theme;
 
@@ -248,8 +248,8 @@ fn threads(
     lines.split_off(top)
 }
 
+/// The view keeps the picked line in its middle, as the lists in the sidebar do.
 fn diff(app: &App, width: usize, height: usize, t: &Theme) -> Vec<Line<'static>> {
-    app.diff_height.set(height);
     let Some(diff) = app.shown_diff() else {
         return vec![Line::styled("loading the diff", t.dim())];
     };
@@ -259,21 +259,45 @@ fn diff(app: &App, width: usize, height: usize, t: &Theme) -> Vec<Line<'static>>
     if rows.is_empty() {
         return vec![Line::styled("no changes", t.dim())];
     }
-    let colour = |c| Style::new().fg(c);
-    (rows.iter().skip(app.diff_scroll()).take(height))
-        .map(|row| {
-            let style = match row.kind {
-                Kind::File => t.title(),
-                Kind::Rule => return Line::styled("─".repeat(RULE.min(width)), t.border()),
-                Kind::Added => colour(t.pine),
-                Kind::Removed => colour(t.love),
-                Kind::Hunk => colour(t.foam),
-                Kind::Context => t.body(),
-                Kind::Note => t.dim(),
+    let picked = app.picked_diff_row();
+    let start = window_start(rows.len(), picked.unwrap_or(0), height);
+    (rows.iter().enumerate().skip(start).take(height))
+        .map(|(i, row)| {
+            let on = picked == Some(i);
+            let spans = Row {
+                left: diff_spans(row, on, width, t),
+                right: Vec::new(),
             };
-            Line::styled(fit(&row.text, width), style)
+            marked_line(spans, width as u16, on, false, t)
         })
         .collect()
+}
+
+/// The sign of the picked line keeps the colour of its change, so the reader still sees whether
+/// the line was added or removed.
+fn diff_spans(row: &diff::Row, on: bool, width: usize, t: &Theme) -> Vec<Span<'static>> {
+    let colour = |c| Style::new().fg(c);
+    let style = match row.kind {
+        Kind::File => t.title(),
+        Kind::Rule => {
+            let rule = "─".repeat(RULE.min(width.saturating_sub(2)));
+            return vec![Span::styled(rule, t.border())];
+        }
+        Kind::Added => colour(t.pine),
+        Kind::Removed => colour(t.love),
+        Kind::Hunk => colour(t.foam),
+        Kind::Context | Kind::Gap => t.body(),
+        Kind::Note => t.dim(),
+    };
+    if !on {
+        return vec![Span::styled(row.text.clone(), style)];
+    }
+    let sign = row.text.chars().next().map_or(0, char::len_utf8);
+    let (sign, code) = row.text.split_at(sign);
+    vec![
+        Span::styled(sign.to_string(), style),
+        Span::styled(code.to_string(), t.marked()),
+    ]
 }
 
 /// The Go release shows this many lines of a failed case's output.

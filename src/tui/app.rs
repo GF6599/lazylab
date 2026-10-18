@@ -463,10 +463,8 @@ pub struct App {
     thread_row: usize,
     diff: Option<Diff>,
     diff_asked: Option<(u64, u64)>,
-    /// Lines between the top of the diff and the first line in view.
-    diff_scroll: usize,
-    /// The rows the detail pane gave the diff when it last drew, so a scroll stops at the end.
-    pub diff_height: Cell<usize>,
+    /// The line of code the cursor is on, counted among the lines of code of the diff alone.
+    diff_line: usize,
     /// The pipeline detail shows the test report instead of the stages.
     pub test_report_open: bool,
     test_report: Option<PipelineTestReport>,
@@ -531,8 +529,7 @@ impl App {
             thread_row: 0,
             diff: None,
             diff_asked: None,
-            diff_scroll: 0,
-            diff_height: Cell::new(0),
+            diff_line: 0,
             test_report_open: false,
             test_report: None,
             test_report_asked: None,
@@ -705,8 +702,10 @@ impl App {
         (self.diff.as_ref()).filter(|d| (d.project, d.merge_request) == wanted)
     }
 
-    pub fn diff_scroll(&self) -> usize {
-        self.diff_scroll
+    /// The row of the diff the line cursor is on, once the diff has a line of code.
+    pub fn picked_diff_row(&self) -> Option<usize> {
+        let rows = self.shown_diff()?.rows.as_deref()?;
+        diff::code_rows(rows).nth(self.diff_line)
     }
 
     fn ask_diff(&mut self) -> Vec<Cmd> {
@@ -738,16 +737,18 @@ impl App {
         });
     }
 
-    fn scroll_diff(&mut self, delta: isize) {
+    fn move_diff_line(&mut self, delta: isize) {
         let len = (self.shown_diff())
-            .and_then(|d| d.rows.as_ref())
-            .map_or(0, Vec::len);
-        self.diff_scroll = scrolled(self.diff_scroll, delta, len, self.diff_height.get());
+            .and_then(|d| d.rows.as_deref())
+            .map_or(0, |rows| diff::code_rows(rows).count());
+        if len > 0 {
+            self.diff_line = self.diff_line.saturating_add_signed(delta).min(len - 1);
+        }
     }
 
     fn clear_diff(&mut self) {
         self.diff = None;
-        self.diff_scroll = 0;
+        self.diff_line = 0;
     }
 
     fn wanted_test_report(&self) -> Option<(u64, u64)> {
@@ -1617,7 +1618,7 @@ impl App {
             return Vec::new();
         }
         if self.focus == Focus::Detail && self.wanted_diff().is_some() {
-            self.scroll_diff(delta);
+            self.move_diff_line(delta);
             return Vec::new();
         }
         if self.focus == Focus::Detail && self.wanted_test_report().is_some() {

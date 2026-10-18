@@ -16,11 +16,20 @@ pub struct Diff {
 pub enum Kind {
     File,
     Rule,
+    /// The blank row between two files.
+    Gap,
     Added,
     Removed,
     Hunk,
     Context,
     Note,
+}
+
+impl Kind {
+    /// A line of the code itself, which the line cursor can pick.
+    pub fn is_code(self) -> bool {
+        matches!(self, Kind::Added | Kind::Removed | Kind::Context)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -36,7 +45,7 @@ pub fn rows(files: &[FileDiff]) -> Vec<Row> {
     let mut rows = Vec::new();
     for (i, file) in files.iter().enumerate() {
         if i > 0 {
-            rows.push(row(Kind::Context, String::new()));
+            rows.push(row(Kind::Gap, String::new()));
         }
         let change = if file.new_file {
             format!("new file: {}", file.new_path)
@@ -67,4 +76,10 @@ pub fn rows(files: &[FileDiff]) -> Vec<Row> {
         }
     }
     rows
+}
+
+pub fn code_rows(rows: &[Row]) -> impl Iterator<Item = usize> + '_ {
+    (rows.iter().enumerate())
+        .filter(|(_, row)| row.kind.is_code())
+        .map(|(i, _)| i)
 }
