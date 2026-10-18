@@ -65,6 +65,16 @@ pub struct MergeRequestFields {
     pub source: String,
     pub target: String,
     pub title: String,
+    /// The branches GitLab matched for the branch field being typed. `None` until it answers.
+    pub matches: Option<BranchMatches>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchMatches {
+    pub search: String,
+    pub branches: Vec<String>,
+    /// The picked branch, which enter puts in the field.
+    pub row: usize,
 }
 
 pub enum Outcome {
@@ -190,6 +200,46 @@ impl Form {
         })
     }
 
+    /// The project and the term of the branch field being typed.
+    pub fn branch_search(&self) -> Option<(u64, &str)> {
+        let Purpose::MergeRequest { project } = self.purpose else {
+            return None;
+        };
+        let fields = self.merge_request.as_ref()?;
+        match self.current()? {
+            Field::Source => Some((project, &fields.source)),
+            Field::Target => Some((project, &fields.target)),
+            _ => None,
+        }
+    }
+
+    /// Matches for a term the branch field no longer holds are dropped.
+    pub fn show_branches(&mut self, project: u64, search: &str, branches: Vec<String>) {
+        if self.branch_search() != Some((project, search)) {
+            return;
+        }
+        if let Some(fields) = self.merge_request.as_mut() {
+            fields.matches = Some(BranchMatches {
+                search: search.to_string(),
+                branches,
+                row: 0,
+            });
+        }
+    }
+
+    fn branch_matches(&mut self) -> Option<&mut BranchMatches> {
+        self.merge_request.as_mut()?.matches.as_mut()
+    }
+
+    fn take_branch(&mut self) {
+        let picked = (self.branch_matches()).and_then(|m| m.branches.get(m.row).cloned());
+        if let (Some(picked), Some(Field::Source | Field::Target)) = (picked, self.current())
+            && let Some(text) = self.text()
+        {
+            *text = picked;
+        }
+    }
+
     fn text(&mut self) -> Option<&mut String> {
         match self.current()? {
             Field::Ref => self.git_ref.as_mut(),
@@ -216,6 +266,7 @@ impl Form {
 
     pub fn key(&mut self, key: KeyEvent) -> Outcome {
         let fields = self.fields();
+        let field = self.field;
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('s') if !self.takes_variables() => return self.send(),
@@ -237,7 +288,18 @@ impl Form {
             KeyCode::Enter if self.takes_variables() => return self.send(),
             KeyCode::Enter if self.current() == Some(Field::Title) => return self.send(),
             KeyCode::Enter if self.merge_request.is_some() => {
-                self.field = (self.field + 1) % fields
+                self.take_branch();
+                self.field = (self.field + 1) % fields;
+            }
+            KeyCode::Down => {
+                if let Some(m) = self.branch_matches() {
+                    m.row = (m.row + 1).min(m.branches.len().saturating_sub(1));
+                }
+            }
+            KeyCode::Up => {
+                if let Some(m) = self.branch_matches() {
+                    m.row = m.row.saturating_sub(1);
+                }
             }
             KeyCode::Enter => {
                 if let Some(text) = self.text() {
@@ -258,6 +320,11 @@ impl Form {
                 }
             }
             _ => {}
+        }
+        if self.field != field
+            && let Some(fields) = self.merge_request.as_mut()
+        {
+            fields.matches = None;
         }
         Outcome::Open
     }

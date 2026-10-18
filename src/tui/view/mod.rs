@@ -14,9 +14,9 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use time::OffsetDateTime;
 
 use super::app::{App, CommandMenu, Focus, Overlay};
-use super::form::{Field, Form};
+use super::form::{Field, Form, MergeRequestFields};
 use super::mark;
-use super::panel::block;
+use super::panel::{Row, block, label_style, marked_line, window_start};
 use super::text::{expand_tabs, fit, fit_end, pad, width};
 use super::theme::{ROSE_PINE, Theme};
 
@@ -118,6 +118,7 @@ const FORM_WIDTH: usize = 62;
 const FORM_LABEL: usize = 10;
 const FORM_KEY_BOX: usize = 18;
 const COMMENT_ROWS: usize = 8;
+const BRANCH_ROWS: usize = 6;
 const EQUALS: &str = " = ";
 
 /// One input: a filled box between the marker cells, which show only on the field being typed.
@@ -160,6 +161,8 @@ fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
             let active = current == Some(field);
             cursor = text_line(label, value, ref_box, active, &mut lines, t).or(cursor);
         }
+        let searching = matches!(current, Some(Field::Source | Field::Target));
+        branch_lines(fields, searching, ref_box, &mut lines, t);
     } else if let Some(git_ref) = &form.git_ref {
         let active = current == Some(Field::Ref);
         cursor = text_line("ref", git_ref, ref_box, active, &mut lines, t);
@@ -221,6 +224,44 @@ fn text_line(
     let cursor = active.then_some((FORM_LABEL + 1 + typed, lines.len()));
     lines.push(Line::from(line));
     cursor
+}
+
+/// The matches of the branch search below the fields, the picked one between the marker cells.
+/// The rows are kept on every field, so the frame holds still as the fields change.
+fn branch_lines(
+    fields: &MergeRequestFields,
+    searching: bool,
+    box_width: usize,
+    lines: &mut Vec<Line<'static>>,
+    t: &Theme,
+) {
+    lines.push(Line::raw(""));
+    let mut rows = Vec::new();
+    match (searching, &fields.matches) {
+        (false, _) => {}
+        (true, None) => rows.push(Line::styled(" searching branches", t.dim())),
+        (true, Some(m)) if m.branches.is_empty() => {
+            rows.push(Line::styled(" no branch matches", t.dim()));
+        }
+        (true, Some(m)) => {
+            let start = window_start(m.branches.len(), m.row, BRANCH_ROWS);
+            for (i, branch) in m.branches.iter().enumerate().skip(start).take(BRANCH_ROWS) {
+                let picked = i == m.row;
+                let row = Row {
+                    left: vec![Span::styled(branch.clone(), label_style(picked, t))],
+                    right: Vec::new(),
+                };
+                rows.push(marked_line(row, (box_width + 2) as u16, picked, false, t));
+            }
+        }
+    }
+    rows.resize(BRANCH_ROWS, Line::raw(""));
+    for (i, row) in rows.into_iter().enumerate() {
+        let label = if i == 0 { "branches" } else { "" };
+        let mut line = vec![Span::styled(format!("{label:<FORM_LABEL$}"), t.dim())];
+        line.extend(row.spans);
+        lines.push(Line::from(line));
+    }
 }
 
 /// The box grows with the comment up to `COMMENT_ROWS` lines, and then shows the last ones. The
