@@ -1326,6 +1326,7 @@ dependencies = [
  "clap",
  "figment",
  "insta",
+ "libc",
  "ratatui",
  "regex",
  "reqwest",

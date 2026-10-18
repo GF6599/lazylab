@@ -20,6 +20,7 @@ use url::Url;
 use crate::glab::Credentials;
 
 const DEFAULT_HOST: &str = "https://gitlab.com";
+const DEMO_HOST: &str = "https://demo.gitlab.example.com";
 const DEFAULT_PROJECTS_PER_PAGE: u8 = 30;
 /// The GitLab API caps a page here, and above it returns fewer rows with no error.
 const MAX_PROJECTS_PER_PAGE: i64 = 100;
@@ -27,7 +28,7 @@ const ENV_PREFIX: &str = "GITLAB_";
 /// figment's `Env` parses each value, so a token of digits would arrive as a number. These keys
 /// are taken as the text that was set.
 const ENV_TEXT_KEYS: [&str; 3] = ["host", "token", "log_level"];
-const ENV_NUMBER_KEYS: [&str; 1] = ["projects_per_page"];
+const ENV_PARSED_KEYS: [&str; 2] = ["projects_per_page", "demo"];
 
 #[derive(Args, Serialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -53,6 +54,10 @@ pub struct Flags {
     #[arg(long)]
     #[serde(skip)]
     pub config: Option<PathBuf>,
+    /// Run on sample data, with no token and no GitLab
+    #[arg(long)]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub demo: bool,
 }
 
 /// Prints as a placeholder, so no `{:?}` of a config can put the token in a log line.
@@ -76,10 +81,18 @@ impl fmt::Debug for Token {
     }
 }
 
+/// What the session talks to. Only a live session holds a token.
+#[derive(Debug, PartialEq)]
+pub enum Mode {
+    /// Sample data on the demo host, so no GitLab is asked.
+    Demo,
+    Live(Token),
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Config {
     pub host: Url,
-    pub token: Token,
+    pub mode: Mode,
     pub projects_per_page: u8,
     pub log_level: Level,
     pub config_file: Option<PathBuf>,
@@ -129,10 +142,14 @@ struct Merged {
     token: Option<String>,
     projects_per_page: Option<i64>,
     log_level: Option<String>,
+    demo: Option<bool>,
 }
 
 /// `glab` supplies the token, and the host when none is set, only when no other source has a
 /// token. It receives the host set so far, so it can return a token for that host only.
+///
+/// Demo mode replaces the host with the demo host and needs no token, so glab is not asked. The
+/// config file, the page size and the log level apply as in a live run.
 pub fn load(
     flags: &Flags,
     glab: &dyn Fn(Option<&str>) -> Option<Credentials>,
@@ -148,21 +165,26 @@ pub fn load(
     let merged: Merged = sources
         .merge(
             Env::prefixed(ENV_PREFIX)
-                .only(&ENV_NUMBER_KEYS)
+                .only(&ENV_PARSED_KEYS)
                 .map(|key| key.as_str().replace('_', "-").into()),
         )
         .merge(Serialized::defaults(env_text()))
         .merge(Serialized::defaults(flags))
         .extract()?;
 
+    let demo = merged.demo.unwrap_or_default();
     let present = |value: Option<String>| value.filter(|v| !v.is_empty());
     let mut host = present(merged.host);
     let mut token = present(merged.token).map(Token);
     if token.is_none()
+        && !demo
         && let Some(found) = glab(host.as_deref())
     {
         token = Some(found.token);
         host.get_or_insert(found.host);
+    }
+    if demo {
+        host = Some(DEMO_HOST.into());
     }
     let host = parse_host(&host.unwrap_or_else(|| DEFAULT_HOST.into()))?;
     let projects_per_page = match merged.projects_per_page {
@@ -188,15 +210,20 @@ pub fn load(
             )));
         }
     };
-    let token = token.ok_or_else(|| {
-        Error(
-            "gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`".into(),
-        )
-    })?;
+    let mode = if demo {
+        Mode::Demo
+    } else {
+        Mode::Live(token.ok_or_else(|| {
+            Error(
+                "gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`"
+                    .into(),
+            )
+        })?)
+    };
 
     Ok(Config {
         host,
-        token,
+        mode,
         projects_per_page,
         log_level,
         config_file,
@@ -282,7 +309,7 @@ fn parse_host(host: &str) -> Result<Url, Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
 
     use figment::Jail;
 
@@ -317,7 +344,7 @@ mod tests {
                 config,
                 Config {
                     host: Url::parse("https://gitlab.com").unwrap(),
-                    token: Token("t0ken".into()),
+                    mode: Mode::Live(Token("t0ken".into())),
                     projects_per_page: 30,
                     log_level: Level::ERROR,
                     config_file: None,
@@ -353,20 +380,114 @@ mod tests {
 
             // Then: glab's token and host come together, an explicit host stays and is the
             // hint, and a token from the environment means glab is not asked.
-            let glab_token = Token("glab-token".into());
+            let glab_token = Mode::Live(Token("glab-token".into()));
             assert_eq!(
-                (&alone.token, alone.host.as_str()),
+                (&alone.mode, alone.host.as_str()),
                 (&glab_token, "https://glab.example/")
             );
             assert_eq!(
-                (&with_host.token, with_host.host.as_str()),
+                (&with_host.mode, with_host.host.as_str()),
                 (&glab_token, "https://my.gitlab.test/")
             );
-            assert_eq!(with_env_token.token, Token("env-token".into()));
+            assert_eq!(with_env_token.mode, Mode::Live(Token("env-token".into())));
             assert_eq!(with_env_token.host.as_str(), "https://gitlab.com/");
             assert_eq!(
                 *hints.borrow(),
                 [None, Some("https://my.gitlab.test".into())]
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn demo_runs_on_the_demo_host_with_no_token_and_without_asking_glab() {
+        Jail::expect_with(|jail| {
+            // Given: no token anywhere, a host of the user's own, and a glab that counts its calls.
+            jail.clear_env();
+            jail.set_env("GITLAB_HOST", "https://my.gitlab.test");
+            let asked = Cell::new(0);
+            let glab = |_: Option<&str>| {
+                asked.set(asked.get() + 1);
+                None
+            };
+            // When: the demo flag is set.
+            let demo = Flags {
+                demo: true,
+                ..Flags::default()
+            };
+            let config = super::load(&demo, &glab).unwrap();
+            // Then: the session is the demo on the demo host, and glab is not asked.
+            assert_eq!(config.mode, Mode::Demo);
+            assert_eq!(config.host.as_str(), "https://demo.gitlab.example.com/");
+            assert_eq!(asked.get(), 0);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn the_demo_key_in_the_environment_does_what_the_flag_does() {
+        Jail::expect_with(|jail| {
+            // Given: no token anywhere, and the demo key set in the environment.
+            jail.clear_env();
+            jail.set_env("GITLAB_DEMO", "true");
+            // When: the settings load with no flags.
+            let config = load(&Flags::default()).unwrap();
+            // Then: the session is the demo on the demo host.
+            assert_eq!(config.mode, Mode::Demo);
+            assert_eq!(config.host.as_str(), "https://demo.gitlab.example.com/");
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn demo_still_reads_the_file_and_checks_the_page_size_and_the_level() {
+        Jail::expect_with(|jail| {
+            // Given: a file with a host that is not a URL, a page size and a level.
+            jail.clear_env();
+            jail.create_file(
+                "lazylab.toml",
+                "host = \"not a url\"\nprojects-per-page = 50\nlog-level = \"debug\"",
+            )?;
+            let demo = |change: fn(&mut Flags)| {
+                let mut flags = Flags {
+                    demo: true,
+                    config: Some("lazylab.toml".into()),
+                    ..Flags::default()
+                };
+                change(&mut flags);
+                load(&flags)
+            };
+            // When: the demo loads with the file, with a page size out of range, and with a
+            // file that is missing.
+            let config = demo(|_| {}).unwrap();
+            let too_large = demo(|f| f.projects_per_page = Some(101)).unwrap_err();
+            let missing = demo(|f| f.config = Some("missing.toml".into())).unwrap_err();
+            // Then: the host from the file is not used, and every other setting applies as in a
+            // live run.
+            assert_eq!(config.host.as_str(), "https://demo.gitlab.example.com/");
+            assert_eq!(
+                (config.projects_per_page, config.log_level),
+                (50, Level::DEBUG)
+            );
+            assert_eq!(config.config_file, Some(PathBuf::from("lazylab.toml")));
+            assert!(too_large.to_string().contains("between 1 and 100"));
+            assert!(missing.to_string().contains("missing.toml"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn demo_turned_off_in_the_environment_still_needs_a_token() {
+        Jail::expect_with(|jail| {
+            // Given: no token anywhere, and the demo key set to false.
+            jail.clear_env();
+            jail.set_env("GITLAB_DEMO", "false");
+            // When: the settings load.
+            let message = error(&Flags::default());
+            // Then: the run fails with the message of a run with no demo key.
+            assert_eq!(
+                message,
+                "gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`"
             );
             Ok(())
         });
@@ -402,7 +523,7 @@ mod tests {
             assert_eq!(env_over_file.projects_per_page, 20);
             assert_eq!(flags_over_env.host.as_str(), "https://flag.example/");
             assert_eq!(flags_over_env.projects_per_page, 40);
-            assert_eq!(flags_over_env.token, Token("from-file".into()));
+            assert_eq!(flags_over_env.mode, Mode::Live(Token("from-file".into())));
             Ok(())
         });
     }
@@ -531,7 +652,7 @@ mod tests {
                 // When: the settings load.
                 let config = load(&Flags::default()).unwrap();
                 // Then: the token is the text as written.
-                assert_eq!(config.token, Token(token.into()));
+                assert_eq!(config.mode, Mode::Live(Token(token.into())));
                 Ok(())
             });
         }

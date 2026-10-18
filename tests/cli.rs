@@ -1,4 +1,6 @@
-use std::process::{Command, Output};
+use std::io;
+use std::os::unix::process::CommandExt;
+use std::process::{Command, Output, Stdio};
 
 fn lazylab(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_lazylab"))
@@ -15,6 +17,22 @@ fn lazylab_without_env(args: &[&str]) -> Output {
         .env_clear()
         .output()
         .expect("the binary runs")
+}
+
+/// Runs with no environment in a session of its own. The session has no controlling terminal, so
+/// the binary cannot take the terminal of the person who runs the tests, and it stops where it
+/// opens the screen.
+fn lazylab_without_env_or_terminal(args: &[&str]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_lazylab"));
+    command.args(args).env_clear().stdin(Stdio::null());
+    // SAFETY: setsid is async-signal-safe, so it can run between fork and exec.
+    unsafe {
+        command.pre_exec(|| match libc::setsid() {
+            -1 => Err(io::Error::last_os_error()),
+            _ => Ok(()),
+        });
+    }
+    command.output().expect("the binary runs")
 }
 
 #[test]
@@ -70,4 +88,15 @@ fn no_token_from_any_source_exits_with_the_reason() {
         String::from_utf8_lossy(&out.stderr),
         "error: config error: gitlab token is required: set --token, $GITLAB_TOKEN, or run `glab auth login`\n"
     );
+}
+
+#[test]
+fn demo_starts_with_no_token_from_any_source() {
+    // When: lazylab starts with --demo, no token anywhere and no terminal.
+    let out = lazylab_without_env_or_terminal(&["--demo"]);
+    // Then: the settings load, and the only failure is the screen that cannot open.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(stderr.starts_with("error: terminal error: "), "{stderr}");
+    assert!(!stderr.contains("token"), "{stderr}");
 }

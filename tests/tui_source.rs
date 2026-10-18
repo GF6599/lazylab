@@ -1,13 +1,17 @@
 mod common;
 
+use std::collections::BTreeMap;
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use common::client_for;
+use lazylab::config::Mode;
 use lazylab::gitlab::{DiffLine, DiffRefs, MergeRequestState, Project, Status};
 use lazylab::store::Store;
 use lazylab::tui::Source;
 use lazylab::tui::app::{Action, Cmd, Msg};
+use time::OffsetDateTime;
 use url::Url;
 use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -145,6 +149,49 @@ async fn a_cache_that_cannot_be_read_or_kept_is_a_miss() {
         // Then: the answer is a miss, so the projects load from GitLab.
         assert!(matches!(answer, Some(Msg::CacheLoaded(None))), "{answer:?}");
     }
+}
+
+fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            (name, fs::read(&path).unwrap())
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_demo_writes_nothing_to_the_store_folder() {
+    // Given: a store folder that holds the favorites and the project cache of a real host, and
+    // a demo source given that folder.
+    let dir = tempfile::tempdir().unwrap();
+    let real = Store::new(
+        dir.path().to_path_buf(),
+        &Url::parse("https://gitlab.example.com").unwrap(),
+    );
+    real.save_favorites(&[1]).unwrap();
+    real.save_projects(&[project(1)], 1, OffsetDateTime::now_utc())
+        .unwrap();
+    let before = files(dir.path());
+    let demo_host = Url::parse("https://demo.gitlab.example.com").unwrap();
+    let source = Source::new(&demo_host, &Mode::Demo, Some(dir.path().to_path_buf())).unwrap();
+
+    // When: the demo saves favorites and projects.
+    let saves = [
+        Cmd::SaveFavorites(vec![101, 102]),
+        Cmd::SaveProjects {
+            projects: vec![project(101)],
+            total: 1,
+        },
+    ];
+    for save in saves {
+        assert!(source.answer(save).await.is_none());
+    }
+
+    // Then: the folder holds the same files as before, each with the same bytes.
+    assert_eq!(files(dir.path()), before);
 }
 
 #[tokio::test]
