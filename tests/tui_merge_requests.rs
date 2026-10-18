@@ -1732,6 +1732,23 @@ fn c_on_the_diff_tab_starts_a_thread_on_the_picked_line() {
 }
 
 #[test]
+fn c_on_a_file_header_of_the_diff_asks_for_a_line_of_code() {
+    // Given: the diff of the first merge request with its diff refs, the cursor on the header of
+    // its first file, and the detail pane focused.
+    let mut app = on_diff();
+    press(&mut app, 'l');
+
+    // When: `c` is pressed.
+    let pressed = press(&mut app, 'c');
+
+    // Then: no form opens, and the status bar asks for a line of code.
+    assert_eq!(app.overlay, Overlay::None);
+    assert_eq!(comments(&pressed), []);
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    assert!(bar.contains("Pick a line of code to comment on"), "{bar}");
+}
+
+#[test]
 fn c_on_the_diff_tab_without_the_diff_refs_says_so_and_opens_no_form() {
     let failed: fn(Cmd) -> Option<Msg> = |cmd| {
         Some(Msg::Failed {
