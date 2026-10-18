@@ -53,7 +53,13 @@ fn main() -> ExitCode {
             return ExitCode::from(e.exit_code());
         }
     };
-    if let Err(e) = tui::launch(&config.host, config.projects_per_page, source) {
+    let launched = tui::launch(
+        &config.host,
+        config.projects_per_page,
+        &config.explorer,
+        source,
+    );
+    if let Err(e) = launched {
         eprintln!("error: {}", redact(&format!("terminal error: {e}")));
         return ExitCode::from(exit::GENERIC);
     }

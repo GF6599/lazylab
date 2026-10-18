@@ -36,9 +36,9 @@ expression: screen(&buffer)
 │ ⠋ integration            │ y           copy the glab command of the item                 │                           │
 └──────────────────────────│ Y           choose a glab command of the item to copy         │                           │
 ┌─ merge requests ─────────│ ctrl+o      copy the web address of the item                  │                           │
-│[!412 Cache the runner ima│ z           full screen for the pane in view                  │                           │
-│ !409 Retry the flaky chec│ ?           open or close this help                           │                           │
-│ !407 Add SSO login behind│ q ctrl+c    quit                                              │                           │
-│ !401 Split the e2e suite └───────────────────────────────────────────────────────────────┘                           │
-└──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
+│[!412 Cache the runner ima│ e           browse the files at the ref of the item           │                           │
+│ !409 Retry the flaky chec│ z           full screen for the pane in view                  │                           │
+│ !407 Add SSO login behind│ ?           open or close this help                           │                           │
+│ !401 Split the e2e suite │ q ctrl+c    quit                                              │                           │
+└──────────────────────────└───────────────────────────────────────────────────────────────┘───────────────────────────┘
  HELP  esc close

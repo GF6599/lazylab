@@ -53,6 +53,7 @@ const HELP: &[(&str, &str)] = &[
     ("y", "copy the glab command of the item"),
     ("Y", "choose a glab command of the item to copy"),
     ("ctrl+o", "copy the web address of the item"),
+    ("e", "browse the files at the ref of the item"),
     ("z", "full screen for the pane in view"),
     ("?", "open or close this help"),
     ("q ctrl+c", "quit"),
