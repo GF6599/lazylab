@@ -230,6 +230,7 @@ fn threads(
     if discussions.is_empty() {
         return vec![Line::styled("no threads", t.dim())];
     }
+    let code = app.threads_diff();
     let mut lines = Vec::new();
     let mut picked = 0..0;
     for (row, discussion) in discussions.iter().enumerate() {
@@ -239,7 +240,7 @@ fn threads(
         }
         let start = lines.len();
         let on = row == app.thread_row();
-        lines.extend(thread(discussion, on, context, width, t));
+        lines.extend(thread(discussion, on, code, context, width, t));
         if on {
             picked = start..lines.len();
         }
@@ -374,10 +375,14 @@ fn test_report(app: &App, width: usize, t: &Theme) -> Vec<Line<'static>> {
     lines
 }
 
+/// The Go release shows this many lines of the diff on each side of the line a thread is on.
+const CONTEXT_LINES: usize = 10;
+
 /// A note's first body line hangs from the tree, and its other lines continue the tree.
 fn thread(
     discussion: &Discussion,
     on: bool,
+    code: Option<&[diff::Row]>,
     context: &Context,
     width: usize,
     t: &Theme,
@@ -424,6 +429,11 @@ fn thread(
                 fit(&format!("  {path}:{line}"), width),
                 t.dim(),
             ));
+            for row in code.map_or(&[][..], |rows| diff::around(rows, position, CONTEXT_LINES)) {
+                let mut spans = vec![Span::raw(pad(2))];
+                spans.extend(diff_spans(row, false, width, t));
+                lines.push(Line::from(clamp_spans(spans, width)));
+            }
         }
         let (hang, carry) = match (first, last) {
             (_, true) => ("└ ", "  "),
