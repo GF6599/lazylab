@@ -2,7 +2,8 @@
 //! and reused by the next checkout of the same project and ref.
 //!
 //! The token reaches git only in the environment of the fetch, so no argument, URL or file holds
-//! it, and the process list does not show it.
+//! it, and the process list does not show it. git sends the header to the configured origin only
+//! and follows no redirect, so the token never leaves that origin.
 
 use std::fmt;
 use std::io;
@@ -98,14 +99,17 @@ impl Checkouts {
         };
         let mut fetch = git(&["fetch", "--quiet", "--depth", "1", "--", &remote, &refspec]);
         let credential = BASE64_STANDARD.encode(format!("{USER}:{}", self.token.expose()));
+        let origin = self.host.origin().ascii_serialization();
         fetch
             .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_CONFIG_COUNT", "1")
-            .env("GIT_CONFIG_KEY_0", "http.extraHeader")
+            .env("GIT_CONFIG_COUNT", "2")
+            .env("GIT_CONFIG_KEY_0", format!("http.{origin}/.extraHeader"))
             .env(
                 "GIT_CONFIG_VALUE_0",
                 format!("Authorization: Basic {credential}"),
-            );
+            )
+            .env("GIT_CONFIG_KEY_1", "http.followRedirects")
+            .env("GIT_CONFIG_VALUE_1", "false");
         let checkout = git(&["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
         Ok([git(&["init", "--quiet"]), fetch, checkout])
     }
