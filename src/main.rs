@@ -3,9 +3,8 @@ use std::process::ExitCode;
 use std::sync::Mutex;
 
 use clap::Parser;
-use lazylab::gitlab::Client;
 use lazylab::redact::redact;
-use lazylab::store::{self, Store};
+use lazylab::store;
 use lazylab::tui::{self, Source};
 use lazylab::{config, exit, glab, logging};
 
@@ -47,15 +46,13 @@ fn main() -> ExitCode {
     if let Some(path) = &config.config_file {
         tracing::debug!(path = %path.display(), "using config file");
     }
-    let client = match Client::new(&config.host, &config.token) {
-        Ok(client) => client,
+    let source = match Source::new(&config.host, &config.mode, dir) {
+        Ok(source) => source,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::from(e.exit_code());
         }
     };
-    let store = dir.map(|dir| Store::new(dir, &config.host));
-    let source = Source::live(client, store);
     if let Err(e) = tui::launch(&config.host, config.projects_per_page, source) {
         eprintln!("error: {}", redact(&format!("terminal error: {e}")));
         return ExitCode::from(exit::GENERIC);

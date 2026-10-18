@@ -76,10 +76,16 @@ impl fmt::Debug for Token {
     }
 }
 
+/// What the session talks to. Only a live session holds a token.
+#[derive(Debug, PartialEq)]
+pub enum Mode {
+    Live(Token),
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Config {
     pub host: Url,
-    pub token: Token,
+    pub mode: Mode,
     pub projects_per_page: u8,
     pub log_level: Level,
     pub config_file: Option<PathBuf>,
@@ -196,7 +202,7 @@ pub fn load(
 
     Ok(Config {
         host,
-        token,
+        mode: Mode::Live(token),
         projects_per_page,
         log_level,
         config_file,
@@ -317,7 +323,7 @@ mod tests {
                 config,
                 Config {
                     host: Url::parse("https://gitlab.com").unwrap(),
-                    token: Token("t0ken".into()),
+                    mode: Mode::Live(Token("t0ken".into())),
                     projects_per_page: 30,
                     log_level: Level::ERROR,
                     config_file: None,
@@ -353,16 +359,16 @@ mod tests {
 
             // Then: glab's token and host come together, an explicit host stays and is the
             // hint, and a token from the environment means glab is not asked.
-            let glab_token = Token("glab-token".into());
+            let glab_token = Mode::Live(Token("glab-token".into()));
             assert_eq!(
-                (&alone.token, alone.host.as_str()),
+                (&alone.mode, alone.host.as_str()),
                 (&glab_token, "https://glab.example/")
             );
             assert_eq!(
-                (&with_host.token, with_host.host.as_str()),
+                (&with_host.mode, with_host.host.as_str()),
                 (&glab_token, "https://my.gitlab.test/")
             );
-            assert_eq!(with_env_token.token, Token("env-token".into()));
+            assert_eq!(with_env_token.mode, Mode::Live(Token("env-token".into())));
             assert_eq!(with_env_token.host.as_str(), "https://gitlab.com/");
             assert_eq!(
                 *hints.borrow(),
@@ -402,7 +408,7 @@ mod tests {
             assert_eq!(env_over_file.projects_per_page, 20);
             assert_eq!(flags_over_env.host.as_str(), "https://flag.example/");
             assert_eq!(flags_over_env.projects_per_page, 40);
-            assert_eq!(flags_over_env.token, Token("from-file".into()));
+            assert_eq!(flags_over_env.mode, Mode::Live(Token("from-file".into())));
             Ok(())
         });
     }
@@ -531,7 +537,7 @@ mod tests {
                 // When: the settings load.
                 let config = load(&Flags::default()).unwrap();
                 // Then: the token is the text as written.
-                assert_eq!(config.token, Token(token.into()));
+                assert_eq!(config.mode, Mode::Live(Token(token.into())));
                 Ok(())
             });
         }
