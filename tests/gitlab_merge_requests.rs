@@ -88,6 +88,32 @@ async fn open_merge_requests_are_listed_with_their_display_fields() {
 }
 
 #[tokio::test]
+async fn a_list_of_merged_or_closed_merge_requests_asks_for_that_state() {
+    for (state, name) in [
+        (MergeRequestState::Merged, "merged"),
+        (MergeRequestState::Closed, "closed"),
+    ] {
+        // Given: GitLab answers only a request for this state.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v4/projects/1/merge_requests"))
+            .and(query_param("state", name))
+            .respond_with(json_body(MERGE_REQUESTS))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // When: merge requests in this state are listed.
+        let page = client_for(&server.uri())
+            .list_merge_requests(1, Some(state), 1, 25)
+            .await;
+
+        // Then: GitLab answers, because the request named the state.
+        assert!(page.is_ok(), "{name}: {page:?}");
+    }
+}
+
+#[tokio::test]
 async fn a_list_with_no_state_asks_for_every_state() {
     // Given: GitLab answers only a request that names no state.
     let server = MockServer::start().await;
