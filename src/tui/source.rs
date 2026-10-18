@@ -85,8 +85,9 @@ impl Live {
                 }
                 return None;
             }
-            // The event loop writes a copy to the terminal, so none reaches a source.
-            Cmd::Copy(_) => return None,
+            // The event loop writes a copy to the terminal and runs the explorer, so neither
+            // reaches a source.
+            Cmd::Copy(_) | Cmd::Browse(_) => return None,
             Cmd::CheckOut { .. } => return Some(self.check_out(cmd).await),
             Cmd::SaveProjects { projects, total } => {
                 if let Some(store) = &self.store

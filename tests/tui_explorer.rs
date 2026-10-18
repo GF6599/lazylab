@@ -1,15 +1,19 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use lazylab::checkout::Revision;
 use lazylab::config::{Mode, Token};
-use lazylab::explorer::Browse;
+use lazylab::explorer::{Browse, Ended};
 use lazylab::gitlab::Project;
 use lazylab::store::CachedProjects;
 use lazylab::tui::app::{App, Cmd, Msg};
-use lazylab::tui::{Source, demo};
+use lazylab::tui::{Source, demo, run};
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::json;
 use time::OffsetDateTime;
+use tokio::sync::mpsc;
 
 const PATH: &str = "acme/platform/api";
 const WEB_URL: &str = "https://gitlab.example.com/acme/platform/api";
@@ -131,7 +135,7 @@ fn a_second_e_waits_for_the_checkout_and_a_failed_checkout_says_why() {
 }
 
 #[test]
-fn a_finished_checkout_says_where_its_files_are() {
+fn a_finished_checkout_goes_to_the_explorer_and_its_end_shows_in_the_status_line() {
     // Given: a checkout on its way.
     let mut app = loaded();
     app.update(char('e'));
@@ -139,13 +143,81 @@ fn a_finished_checkout_says_where_its_files_are() {
     // When: it is ready.
     let commands = app.update(Msg::CheckedOut(browse()));
 
-    // Then: nothing more goes out, and the status line names the folder.
-    assert_eq!(commands, []);
-    let dir = browse().dir;
-    assert_eq!(
-        app.notice,
-        Some(format!("Checked out main in {}", dir.display()))
+    // Then: the terminal goes to the explorer.
+    assert_eq!(commands, [Cmd::Browse(browse())]);
+    // And: each end of the explorer reads as a status, and a clean end clears the line.
+    let ends = [
+        (Ended::Missing, Some("yazi is not installed")),
+        (Ended::Exited(Some(3)), Some("yazi exited with code 3")),
+        (Ended::Exited(None), Some("yazi was stopped by a signal")),
+        (
+            Ended::Relative,
+            Some("yazi is a relative path, set explorer to a name or an absolute path"),
+        ),
+        (
+            Ended::NotStarted("Permission denied".into()),
+            Some("yazi did not start: Permission denied"),
+        ),
+        (Ended::Closed, None),
+    ];
+    for (ended, error) in ends {
+        app.update(Msg::Browsed {
+            program: "yazi".into(),
+            ended,
+        });
+        assert_eq!(app.error.as_deref(), error);
+        assert_eq!(app.notice, None);
+    }
+}
+
+#[tokio::test]
+async fn the_loop_hands_the_terminal_to_the_explorer_and_reads_how_it_ended() {
+    // Given: a screen that reports a finished checkout once the projects are shown, and keeps
+    // the first error the status line shows, then quits.
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let (outbox, inbox) = mpsc::unbounded_channel();
+    let keys = outbox.clone();
+    let mut sent = false;
+    let mut shown = None;
+    let draw = |_: &mut ratatui::Frame, app: &App| {
+        if !app.projects.is_empty() && !sent {
+            keys.send(Msg::CheckedOut(browse())).unwrap();
+            sent = true;
+        }
+        if app.error.is_some() && shown.is_none() {
+            shown = app.error.clone();
+            keys.send(char('q')).unwrap();
+        }
+    };
+    let mut browsed = Vec::new();
+    let explore = |request: &Browse| {
+        browsed.push(request.clone());
+        Msg::Browsed {
+            program: "yazi".into(),
+            ended: Ended::Exited(Some(2)),
+        }
+    };
+
+    let mut clipboard = Vec::new();
+
+    // When: the loop runs, for at most five seconds.
+    let running = run(
+        &mut terminal,
+        App::new(30),
+        Source::Demo,
+        (outbox, inbox),
+        &mut clipboard,
+        draw,
+        explore,
     );
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("the loop ends once q arrives")
+        .unwrap();
+
+    // Then: the explorer got the checkout once, and its end reached the status line.
+    assert_eq!(browsed, [browse()]);
+    assert_eq!(shown.as_deref(), Some("yazi exited with code 2"));
 }
 
 fn git(dir: &std::path::Path, args: &[&str]) {
@@ -223,4 +295,44 @@ fn e_in_the_demo_says_it_has_no_files_and_asks_for_no_checkout() {
             Some("The demo has no files to browse")
         );
     }
+}
+
+#[tokio::test]
+async fn a_demo_run_answers_e_with_the_demo_message() {
+    // Given: a demo run that presses e once the projects are shown, and keeps what the status
+    // line shows after it.
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let (outbox, inbox) = mpsc::unbounded_channel();
+    let keys = outbox.clone();
+    let mut pressed = false;
+    let mut shown = None;
+    let draw = |_: &mut ratatui::Frame, app: &App| {
+        if pressed && shown.is_none() && app.notice.is_some() {
+            shown = app.notice.clone();
+            keys.send(char('q')).unwrap();
+        }
+        if !app.projects.is_empty() && !pressed {
+            keys.send(char('e')).unwrap();
+            pressed = true;
+        }
+    };
+    let mut clipboard = Vec::new();
+
+    // When: the loop runs, for at most five seconds.
+    let running = run(
+        &mut terminal,
+        App::new(30),
+        Source::Demo,
+        (outbox, inbox),
+        &mut clipboard,
+        draw,
+        |_: &Browse| -> Msg { unreachable!("the demo has no checkout to browse") },
+    );
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("the loop ends once q arrives")
+        .unwrap();
+
+    // Then: the status line said the demo has no files.
+    assert_eq!(shown.as_deref(), Some("The demo has no files to browse"));
 }

@@ -14,7 +14,7 @@ use super::form::{Form, MergeRequestFields, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
 use crate::checkout::Revision;
-use crate::explorer::Browse;
+use crate::explorer::{Browse, Ended};
 use crate::gitlab::{
     Bridge, DiffLine, DiffRefs, Discussion, FileDiff, Job, MergeRequest, MergeRequestState, Page,
     Pipeline, Project, Status, TestReport, Variable,
@@ -308,6 +308,11 @@ pub enum Msg {
     },
     /// A checkout is ready for the explorer.
     CheckedOut(Browse),
+    /// The explorer gave the terminal back.
+    Browsed {
+        program: String,
+        ended: Ended,
+    },
     /// The reason is already fit to show, with any credential redacted.
     Failed {
         cmd: Cmd,
@@ -412,6 +417,8 @@ pub enum Cmd {
         web_url: String,
         revision: Revision,
     },
+    /// The event loop gives the terminal to the explorer until it exits.
+    Browse(Browse),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1230,8 +1237,11 @@ impl App {
             }
             Msg::CheckedOut(browse) => {
                 self.checking_out = false;
-                let (at, dir) = (browse.git_ref, browse.dir.display());
-                self.notice = Some(format!("Checked out {at} in {dir}"));
+                self.notice = None;
+                vec![Cmd::Browse(browse)]
+            }
+            Msg::Browsed { program, ended } => {
+                self.browsed(&program, ended);
                 Vec::new()
             }
             Msg::Failed {
@@ -2022,6 +2032,21 @@ impl App {
             web_url,
             revision,
         }]
+    }
+
+    /// A clean end clears the status line, because the checkout notice is out of date.
+    fn browsed(&mut self, program: &str, ended: Ended) {
+        self.notice = None;
+        self.error = match ended {
+            Ended::Closed => None,
+            Ended::Exited(Some(code)) => Some(format!("{program} exited with code {code}")),
+            Ended::Exited(None) => Some(format!("{program} was stopped by a signal")),
+            Ended::Missing => Some(format!("{program} is not installed")),
+            Ended::Relative => Some(format!(
+                "{program} is a relative path, set explorer to a name or an absolute path"
+            )),
+            Ended::NotStarted(e) => Some(format!("{program} did not start: {e}")),
+        };
     }
 
     fn copy_line(&mut self, line: String) -> Vec<Cmd> {

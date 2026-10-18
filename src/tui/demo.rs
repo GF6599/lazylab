@@ -133,7 +133,9 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             project,
             status: pipelines(project, now).first().map(|p| p.status),
         },
-        Cmd::SaveProjects { .. } | Cmd::SaveFavorites(_) | Cmd::Copy(_) => return None,
+        Cmd::SaveProjects { .. } | Cmd::SaveFavorites(_) | Cmd::Copy(_) | Cmd::Browse(_) => {
+            return None;
+        }
         cmd @ Cmd::CheckOut { .. } => Msg::Failed {
             cmd,
             error: "The demo has no repository to check out".into(),

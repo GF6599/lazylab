@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use base64::prelude::{BASE64_STANDARD, Engine};
+use lazylab::explorer::Browse;
 use lazylab::gitlab::MergeRequestState;
 use lazylab::tui::app::{App, Cmd, Focus, Msg, Overlay, Pane};
 use lazylab::tui::{Source, demo, run};
@@ -361,10 +362,10 @@ async fn the_loop_runs_each_command_and_feeds_its_answer_back_until_quit() {
         &mut terminal,
         App::new(PAGE_SIZE),
         Source::Demo,
-        inbox,
-        outbox,
+        (outbox, inbox),
         &mut clipboard,
         draw,
+        |_: &Browse| -> Msg { unreachable!("nothing asks for the explorer") },
     );
     let app = tokio::time::timeout(Duration::from_secs(5), running)
         .await
@@ -397,10 +398,10 @@ async fn the_loop_writes_a_copy_to_the_terminal_as_one_osc_52_sequence() {
         &mut terminal,
         App::new(PAGE_SIZE),
         Source::Demo,
-        inbox,
-        outbox,
+        (outbox, inbox),
         &mut written,
         draw,
+        |_: &Browse| -> Msg { unreachable!("nothing asks for the explorer") },
     );
     tokio::time::timeout(Duration::from_secs(5), running)
         .await
