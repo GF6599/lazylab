@@ -77,7 +77,10 @@ async fn an_answered_request_logs_its_operation_path_status_and_duration_at_debu
 #[tokio::test]
 async fn a_request_that_gets_no_answer_logs_a_warning_with_its_duration() {
     // Given: a port that nothing listens on, and only warnings and errors captured.
-    let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let closed = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
     let (log, _guard) = capture(Level::WARN);
 
     // When: the bridges are listed there.
