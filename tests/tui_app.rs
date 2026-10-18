@@ -354,6 +354,8 @@ async fn the_loop_runs_each_command_and_feeds_its_answer_back_until_quit() {
         }
     };
 
+    let mut clipboard = Vec::new();
+
     // When: the loop runs, for at most five seconds.
     let running = run(
         &mut terminal,
@@ -361,7 +363,7 @@ async fn the_loop_runs_each_command_and_feeds_its_answer_back_until_quit() {
         Source::Demo,
         inbox,
         outbox,
-        &mut Vec::new(),
+        &mut clipboard,
         draw,
     );
     let app = tokio::time::timeout(Duration::from_secs(5), running)

@@ -33,4 +33,4 @@ expression: screen(&buffer)
 │ !407 Add SSO login behind a flag          1d ││                                                                      │
 │ !401 Split the e2e suite by shard         3d ││                                                                      │
 └──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
- BROWSE  j/k move  l open  [ ] page  T tests  1-4 pane  z zoom  ? help  q quit
+ BROWSE  j/k move  l open  [ ] page  T tests  1-4 pane  z zoom  ? help  q quit  y copy glab  ctrl+o copy url

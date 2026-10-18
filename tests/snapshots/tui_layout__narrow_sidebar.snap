@@ -25,4 +25,4 @@ expression: screen(&sidebar)
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────── 1/9 ─┘
 ─ merge requests · !412 Cache the runner image layers ──────────────────────────
- BROWSE  j/k move  l open  1-4 pane  z zoom  ? help  q quit
+ BROWSE  j/k move  l open  1-4 pane  z zoom  ? help  q quit  y copy glab

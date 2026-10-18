@@ -97,7 +97,7 @@ fn y_copies_the_first_glab_command_of_the_item_in_each_pane_and_its_detail() {
             // Then: the command goes to the clipboard, and the status line says so.
             assert_eq!(
                 copies(&commands),
-                [want.clone()],
+                [want.as_str()],
                 "pane {pane}, detail {detail}"
             );
             assert_eq!(app.notice, Some(format!("Copied: {want}")));
@@ -142,7 +142,7 @@ fn ctrl_o_copies_the_web_address_of_the_item_in_each_pane_and_its_detail() {
             // Then: the address goes to the clipboard, and the status line says so.
             assert_eq!(
                 copies(&commands),
-                [want.clone()],
+                [want.as_str()],
                 "pane {pane}, detail {detail}"
             );
             assert_eq!(app.notice.as_deref(), Some(notice.as_str()));

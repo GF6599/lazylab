@@ -145,6 +145,8 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
                 ("h", "back"),
                 ("?", "help"),
                 ("q", "quit"),
+                ("y", "copy glab"),
+                ("ctrl+o", "copy url"),
             ]
         }
         (Overlay::None, Focus::Detail)
@@ -157,6 +159,8 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
                 ("h", "back"),
                 ("?", "help"),
                 ("q", "quit"),
+                ("y", "copy glab"),
+                ("ctrl+o", "copy url"),
             ]
         }
         (Overlay::None, Focus::Detail) if app.pane == Pane::MergeRequests => &[
@@ -165,6 +169,8 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("h", "back"),
             ("?", "help"),
             ("q", "quit"),
+            ("y", "copy glab"),
+            ("ctrl+o", "copy url"),
         ],
         (Overlay::None, Focus::Detail) if app.pane == Pane::Pipelines && app.test_report_open => &[
             ("j/k", "scroll"),
@@ -172,11 +178,24 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("h", "back"),
             ("?", "help"),
             ("q", "quit"),
+            ("y", "copy glab"),
+            ("ctrl+o", "copy url"),
         ],
-        (Overlay::None, Focus::Detail) if app.pane == Pane::Pipelines => {
-            &[("T", "tests"), ("h", "back"), ("?", "help"), ("q", "quit")]
-        }
-        (Overlay::None, Focus::Detail) => &[("h", "back"), ("?", "help"), ("q", "quit")],
+        (Overlay::None, Focus::Detail) if app.pane == Pane::Pipelines => &[
+            ("T", "tests"),
+            ("h", "back"),
+            ("?", "help"),
+            ("q", "quit"),
+            ("y", "copy glab"),
+            ("ctrl+o", "copy url"),
+        ],
+        (Overlay::None, Focus::Detail) => &[
+            ("h", "back"),
+            ("?", "help"),
+            ("q", "quit"),
+            ("y", "copy glab"),
+            ("ctrl+o", "copy url"),
+        ],
         (Overlay::None, Focus::Sidebar) if app.pane == Pane::Projects => &[
             ("j/k", "move"),
             ("l", "open"),
@@ -185,6 +204,8 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("z", "zoom"),
             ("?", "help"),
             ("q", "quit"),
+            ("y", "copy glab"),
+            ("ctrl+o", "copy url"),
         ],
         (Overlay::None, Focus::Sidebar) if app.pane == Pane::Pipelines => &[
             ("j/k", "move"),
@@ -195,6 +216,8 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("z", "zoom"),
             ("?", "help"),
             ("q", "quit"),
+            ("y", "copy glab"),
+            ("ctrl+o", "copy url"),
         ],
         (Overlay::None, Focus::Sidebar) if app.pane == Pane::MergeRequests => &[
             ("j/k", "move"),
@@ -205,6 +228,8 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("z", "zoom"),
             ("?", "help"),
             ("q", "quit"),
+            ("y", "copy glab"),
+            ("ctrl+o", "copy url"),
         ],
         (Overlay::None, Focus::Sidebar) => &[
             ("j/k", "move"),
@@ -213,6 +238,8 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("z", "zoom"),
             ("?", "help"),
             ("q", "quit"),
+            ("y", "copy glab"),
+            ("ctrl+o", "copy url"),
         ],
     }
 }

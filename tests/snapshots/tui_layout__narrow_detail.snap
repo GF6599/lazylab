@@ -25,4 +25,4 @@ expression: screen(&detail)
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
- DETAIL  h back  ? help  q quit
+ DETAIL  h back  ? help  q quit  y copy glab  ctrl+o copy url
