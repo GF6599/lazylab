@@ -7,6 +7,8 @@ use lazylab::checkout::{Checkouts, Revision};
 use lazylab::config::Token;
 use tempfile::TempDir;
 use url::Url;
+use wiremock::matchers::any;
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TOKEN: &str = "glpat-abcdefghijklmnopqrst";
 const PROJECT: &str = "acme/platform/api";
@@ -179,10 +181,10 @@ fn the_folder_is_one_name_for_the_project_and_one_for_the_ref_under_the_host() {
 }
 
 #[test]
-fn the_token_reaches_git_only_through_the_environment_of_the_fetch() {
-    // Given: checkouts for a GitLab host.
+fn the_token_reaches_git_only_through_the_environment_of_the_fetch_for_the_configured_origin() {
+    // Given: checkouts for a GitLab host on a port of its own.
     let cache = TempDir::new().unwrap();
-    let host = Url::parse("https://gitlab.example.com").unwrap();
+    let host = Url::parse("https://gitlab.example.com:8443").unwrap();
     let checkouts = Checkouts::new(cache.path(), &host, Token::new(TOKEN));
 
     // When: the git commands of a checkout are built.
@@ -200,31 +202,76 @@ fn the_token_reaches_git_only_through_the_environment_of_the_fetch() {
             "{argument}"
         );
     }
-    let remote = "https://gitlab.example.com/acme/platform/api.git";
+    let remote = "https://gitlab.example.com:8443/acme/platform/api.git";
     assert!(arguments.iter().any(|a| a == remote), "{arguments:?}");
 
-    // And: the fetch carries the header in git's configuration variables, and never prompts.
-    let env = |command: &Command, name: &str| {
-        (command.get_envs())
-            .find(|(key, _)| *key == name)
-            .and_then(|(_, value)| value)
-            .map(|value| value.to_string_lossy().into_owned())
+    // And: the fetch sends the header to the configured origin only, follows no redirect, and
+    // never prompts.
+    let settings = |command: &Command| {
+        let mut set: Vec<(String, String)> = (command.get_envs())
+            .filter_map(|(key, value)| Some((key.to_str()?, value?.to_str()?)))
+            .filter(|(key, _)| key.starts_with("GIT_"))
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        set.sort();
+        set
     };
     let fetch = (commands.iter())
         .find(|c| c.get_args().any(|a| a == "fetch"))
         .expect("a fetch");
-    assert_eq!(env(fetch, "GIT_CONFIG_COUNT").as_deref(), Some("1"));
+    let pair = |key: &str, value: &str| (key.to_string(), value.to_string());
     assert_eq!(
-        env(fetch, "GIT_CONFIG_KEY_0").as_deref(),
-        Some("http.extraHeader")
+        settings(fetch),
+        [
+            pair("GIT_CONFIG_COUNT", "2"),
+            pair(
+                "GIT_CONFIG_KEY_0",
+                "http.https://gitlab.example.com:8443/.extraHeader"
+            ),
+            pair("GIT_CONFIG_KEY_1", "http.followRedirects"),
+            pair(
+                "GIT_CONFIG_VALUE_0",
+                &format!("Authorization: Basic {encoded}")
+            ),
+            pair("GIT_CONFIG_VALUE_1", "false"),
+            pair("GIT_TERMINAL_PROMPT", "0"),
+        ]
     );
-    assert_eq!(
-        env(fetch, "GIT_CONFIG_VALUE_0"),
-        Some(format!("Authorization: Basic {encoded}"))
-    );
-    assert_eq!(env(fetch, "GIT_TERMINAL_PROMPT").as_deref(), Some("0"));
-    // And: no other command gets the header.
+    // And: no other command gets any of git's settings.
     for command in commands.iter().filter(|c| !std::ptr::eq(*c, fetch)) {
-        assert_eq!(env(command, "GIT_CONFIG_VALUE_0"), None);
+        assert_eq!(settings(command), []);
     }
+}
+
+#[tokio::test]
+async fn a_redirect_from_the_configured_host_never_carries_the_token_elsewhere() {
+    // Given: a GitLab that redirects every request to a second server, which records what it
+    // receives.
+    let elsewhere = MockServer::start().await;
+    let gitlab = MockServer::start().await;
+    let target = format!("{}/{PROJECT}.git/info/refs", elsewhere.uri());
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", target.as_str()))
+        .mount(&gitlab)
+        .await;
+    let cache = TempDir::new().unwrap();
+    let host = Url::parse(&gitlab.uri()).unwrap();
+    let checkouts = Checkouts::new(cache.path(), &host, Token::new(TOKEN));
+
+    // When: a checkout runs against it.
+    let ended = tokio::task::spawn_blocking(move || checkouts.check_out(PROJECT, &branch("main")))
+        .await
+        .unwrap();
+
+    // Then: the checkout fails, the configured host got the token, and the second server got
+    // no request. The check does not rest on whether curl drops the header on a redirect.
+    assert!(ended.is_err());
+    let asked = gitlab.received_requests().await.unwrap();
+    assert!(
+        asked
+            .iter()
+            .any(|r| r.headers.contains_key("authorization"))
+    );
+    let redirected = elsewhere.received_requests().await.unwrap();
+    assert!(redirected.is_empty(), "{redirected:?}");
 }
