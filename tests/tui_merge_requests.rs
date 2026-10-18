@@ -2027,6 +2027,25 @@ fn a_thread_names_a_removed_line_by_its_old_line_and_others_by_their_new_line() 
 }
 
 #[test]
+fn a_thread_shows_the_lines_of_its_own_file() {
+    // Given: two files that each add a new line 5, with distinct text.
+    let files = vec![
+        file("first.rs", "@@ -0,0 +5,1 @@\n+first file five\n"),
+        file("second.rs", "@@ -0,0 +5,1 @@\n+second file five\n"),
+    ];
+
+    // When: a thread is on new line 5 of the second file.
+    let buffer = thread_on(
+        files,
+        serde_json::json!({"old_path": "second.rs", "new_path": "second.rs", "new_line": 5}),
+    );
+
+    // Then: it shows the line of the second file, and not the line of the first file.
+    assert!(shows(&buffer, "+second file five"), "{}", screen(&buffer));
+    assert!(!shows(&buffer, "+first file five"));
+}
+
+#[test]
 fn the_picked_thread_stays_in_view_below_the_lines_around_a_thread() {
     // Given: the threads tab over the loaded diff, with the detail pane focused.
     let mut app = on_threads_after_diff();
