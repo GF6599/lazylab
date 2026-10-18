@@ -810,8 +810,11 @@ impl App {
 
     /// The diff of the merge request in view, once it loaded or failed to.
     pub fn shown_diff(&self) -> Option<&Diff> {
-        let wanted = self.wanted_diff()?;
-        (self.diff.as_ref()).filter(|d| (d.project, d.merge_request) == wanted)
+        self.diff_of(self.wanted_diff()?)
+    }
+
+    fn diff_of(&self, key: (u64, u64)) -> Option<&Diff> {
+        (self.diff.as_ref()).filter(|d| (d.project, d.merge_request) == key)
     }
 
     /// The row of the diff the cursor is on, once the diff has a row it rests on.
@@ -968,6 +971,12 @@ impl App {
     pub fn shown_threads(&self) -> Option<&Threads> {
         let wanted = self.wanted_threads()?;
         (self.threads.as_ref()).filter(|t| (t.project, t.merge_request) == wanted)
+    }
+
+    /// The diff of the merge request whose threads are in view, when the diff tab loaded it. The
+    /// threads tab never asks for it.
+    pub fn threads_diff(&self) -> Option<&[diff::Row]> {
+        self.diff_of(self.wanted_threads()?)?.rows.as_deref()
     }
 
     pub fn thread_row(&self) -> usize {

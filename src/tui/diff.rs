@@ -1,7 +1,7 @@
 //! A merge request's diff as the rows the detail pane draws: a header for each file, then its
 //! lines.
 
-use crate::gitlab::FileDiff;
+use crate::gitlab::{FileDiff, Position};
 use crate::tui::text::expand_tabs;
 
 #[derive(Debug)]
@@ -122,6 +122,34 @@ fn hunk_start(header: &str) -> (u32, u32) {
             .unwrap_or(0)
     };
     (start('-'), start('+'))
+}
+
+/// The rows around the line of code a comment is on, `count` on each side at most. They go back
+/// to the start of its file and forward to the end of its hunk, as in the Go release. The new
+/// line names the line when the comment has one, so only a removed line is named by its old line.
+pub fn around<'a>(rows: &'a [Row], position: &Position, count: usize) -> &'a [Row] {
+    let Some(path) = position.path() else {
+        return &[];
+    };
+    let on = |code: &CodeLine| {
+        let line = match (position.new_line, position.old_line) {
+            (Some(new), _) => code.new_line == Some(new),
+            (None, Some(old)) => code.old_line == Some(old),
+            (None, None) => false,
+        };
+        line && (code.new_path == path || code.old_path == path)
+    };
+    let Some(at) = rows
+        .iter()
+        .position(|row| row.code.as_ref().is_some_and(on))
+    else {
+        return &[];
+    };
+    let in_hunk = |row: &&Row| row.kind.is_code() || row.kind == Kind::Note;
+    let in_file = |row: &&Row| in_hunk(row) || row.kind == Kind::Hunk;
+    let before = rows[..at].iter().rev().take(count).take_while(in_file);
+    let after = rows[at + 1..].iter().take(count).take_while(in_hunk);
+    &rows[at - before.count()..=at + after.count()]
 }
 
 pub fn cursor_rows(rows: &[Row]) -> impl Iterator<Item = usize> + '_ {
