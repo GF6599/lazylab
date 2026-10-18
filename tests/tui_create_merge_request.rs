@@ -394,3 +394,27 @@ fn the_create_form_lists_the_branches_that_match_the_search() {
     // Then: the matches show under the fields, the picked one between gold brackets.
     insta::assert_snapshot!(screen(&app));
 }
+
+#[test]
+fn a_failed_branch_search_says_so_and_shows_no_matches() {
+    // Given: a search for "x" out.
+    let mut app = listed();
+    type_text(&mut app, "x");
+    let asked = ticks(&mut app, SETTLE_TICKS);
+    let [cmd] = &asked[..] else {
+        panic!("one search, got {asked:?}");
+    };
+
+    // When: GitLab fails to answer it.
+    app.update(Msg::Failed {
+        cmd: cmd.clone(),
+        error: "list branches: GitLab answered 500 Internal Server Error".into(),
+    });
+
+    // Then: the form stays open with no matches, and the status bar shows the error.
+    assert_eq!(app.overlay, Overlay::Form);
+    assert_eq!(matches(&app), Some(("x".into(), Vec::new())));
+    let shown = screen(&app);
+    assert!(shown.contains("no branch matches"), "{shown}");
+    assert!(status_bar(&app).contains("500"), "{shown}");
+}
