@@ -33,5 +33,6 @@ strip = "symbols"
 [dev-dependencies]
 figment = { version = "0.10", features = ["test"] }
 insta = "1"
+libc = "0.2"
 tokio = { version = "1", features = ["macros", "rt", "time"] }
 wiremock = "0.6"
