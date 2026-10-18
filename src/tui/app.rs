@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use url::Url;
 
 use super::diff::{self, CodeLine, Diff};
 use super::form::{Form, Outcome};
@@ -16,6 +17,7 @@ use crate::gitlab::{
     Bridge, DiffLine, DiffRefs, Discussion, FileDiff, Job, MergeRequest, MergeRequestState, Page,
     Pipeline, Project, Status, TestReport, Variable,
 };
+use crate::glab_command::{self, GlabCommand, Item};
 use crate::store::CachedProjects;
 
 const PAGE: isize = 10;
@@ -28,6 +30,7 @@ const SETTLE_TICKS: u64 = (SETTLE.as_millis() / TICK.as_millis()) as u64;
 /// The Go release asks for the pipelines and jobs in view this often.
 const REFRESH: Duration = Duration::from_secs(5);
 const REFRESH_TICKS: u64 = (REFRESH.as_millis() / TICK.as_millis()) as u64;
+const NO_GLAB_COMMAND: &str = "No glab command for this selection";
 
 /// A selection whose lists load once the cursor has rested on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -372,6 +375,8 @@ pub enum Cmd {
         project: u64,
         job: u64,
     },
+    /// Text for the system clipboard, which the event loop writes to the terminal.
+    Copy(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -439,6 +444,8 @@ pub struct App {
     pub search: Search,
     pub statuses: HashMap<u64, ProjectStatus>,
     page_size: u8,
+    /// The GitLab the copied glab commands name. `None` leaves the choice to glab.
+    host: Option<Url>,
     load: u64,
     /// The selection that waits, and the tick its lists load on.
     waiting: Option<(Waiting, u64)>,
@@ -522,6 +529,7 @@ impl App {
             search: Search::default(),
             statuses: HashMap::new(),
             page_size,
+            host: None,
             load: 0,
             waiting: None,
             lists_asked: false,
@@ -563,6 +571,11 @@ impl App {
             test_report_height: Cell::new(0),
             cursors: [0; Pane::ALL.len()],
         }
+    }
+
+    pub fn with_host(mut self, host: Url) -> App {
+        self.host = Some(host);
+        self
     }
 
     pub fn start(&mut self) -> Vec<Cmd> {
@@ -1299,6 +1312,7 @@ impl App {
                 KeyCode::Char('r') if self.overlay == Overlay::None => self.reload(),
                 KeyCode::Char('d') if self.overlay == Overlay::None => self.move_by(PAGE),
                 KeyCode::Char('u') if self.overlay == Overlay::None => self.move_by(-PAGE),
+                KeyCode::Char('o') if self.overlay == Overlay::None => self.copy_web_address(),
                 _ => Vec::new(),
             };
         }
@@ -1352,6 +1366,7 @@ impl App {
             KeyCode::Char('T') if self.pane == Pane::Pipelines => self.toggle_test_report(),
             KeyCode::Char('N') if self.pane == Pane::Pipelines => return self.open_run_form(),
             KeyCode::Char('P') if self.pane == Pane::Jobs => return self.open_play_form(),
+            KeyCode::Char('y') => return self.copy_glab_command(),
             KeyCode::Char('R') => return self.propose(true),
             KeyCode::Char('C') => return self.propose(false),
             KeyCode::Char('q') => self.quit = true,
@@ -1611,6 +1626,97 @@ impl App {
             Err(reason) => self.notice = Some(reason.to_string()),
         }
         Vec::new()
+    }
+
+    /// The glab commands for the item of the pane in view, which its detail shows as well.
+    fn glab_commands(&self) -> Vec<GlabCommand> {
+        let Some(project) = self.project() else {
+            return Vec::new();
+        };
+        let item = match self.pane {
+            Pane::Projects => Some(Item::Project),
+            Pane::Pipelines => self.pipeline().map(|p| Item::Pipeline {
+                id: p.id,
+                git_ref: &p.git_ref,
+            }),
+            // A child pipeline's job can run in a project known only by its ID, and glab needs
+            // the path. A group or a bridge is not one job.
+            Pane::Jobs => match self.job_rows.get(self.cursor(Pane::Jobs)) {
+                Some(JobRow::Job {
+                    job,
+                    project: runs_in,
+                    ..
+                }) if *runs_in == project.id => Some(Item::Job { id: job.id }),
+                _ => None,
+            },
+            Pane::MergeRequests => (self.merge_requests)
+                .get(self.cursor(Pane::MergeRequests))
+                .map(|mr| Item::MergeRequest { iid: mr.iid }),
+        };
+        item.map_or_else(Vec::new, |item| {
+            glab_command::commands(self.host.as_ref(), &project.path_with_namespace, item)
+        })
+    }
+
+    fn copy_glab_command(&mut self) -> Vec<Cmd> {
+        match self.glab_commands().into_iter().next() {
+            Some(command) => self.copy(format!("Copied: {}", command.line), command.line),
+            None => {
+                self.notice = Some(NO_GLAB_COMMAND.to_string());
+                Vec::new()
+            }
+        }
+    }
+
+    /// The web address of the item of the pane in view and the notice for its copy, or the reason
+    /// there is none.
+    fn web_address(&self) -> Result<(String, String), &'static str> {
+        let (url, notice, missing) = match self.pane {
+            Pane::Projects => {
+                let project = self.project().ok_or("No project selected")?;
+                let notice = format!("Copied {} URL", project.path_with_namespace);
+                (&project.web_url, notice, "Project has no URL")
+            }
+            Pane::Pipelines => {
+                let pipeline = self.pipeline().ok_or("No pipeline selected")?;
+                let notice = format!("Copied pipeline #{} URL", pipeline.id);
+                (&pipeline.web_url, notice, "Pipeline has no URL")
+            }
+            Pane::Jobs => {
+                let job = self.job().ok_or("No job selected")?;
+                (
+                    &job.web_url,
+                    format!("Copied job {} URL", job.name),
+                    "Job has no URL",
+                )
+            }
+            Pane::MergeRequests => {
+                let mr = (self.merge_requests)
+                    .get(self.cursor(Pane::MergeRequests))
+                    .ok_or("No merge request selected")?;
+                let notice = format!("Copied !{} URL", mr.iid);
+                (&mr.web_url, notice, "Merge request has no URL")
+            }
+        };
+        if url.is_empty() {
+            return Err(missing);
+        }
+        Ok((url.clone(), notice))
+    }
+
+    fn copy_web_address(&mut self) -> Vec<Cmd> {
+        match self.web_address() {
+            Ok((url, notice)) => self.copy(notice, url),
+            Err(reason) => {
+                self.notice = Some(reason.to_string());
+                Vec::new()
+            }
+        }
+    }
+
+    fn copy(&mut self, notice: String, text: String) -> Vec<Cmd> {
+        self.notice = Some(notice);
+        vec![Cmd::Copy(text)]
     }
 
     fn selected(&self) -> Option<u64> {

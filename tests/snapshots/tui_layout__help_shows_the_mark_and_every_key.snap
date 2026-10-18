@@ -4,41 +4,41 @@ expression: screen(&buffer)
 ---
  {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
 [1 projects]  2 pipelines   3 jobs   4 merge requests
-┌─ projects ───────────────────────────────────┐┌─ acme/platform/api ──────────────────────────────────────────────────┐
-│[⠋ acme/platform/api      ┌─ help ────────────────────────────────────────────────────────┐-out                       │
-│ ✓ acme/platform/web      │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
-│ ⠋ acme/platform/workers  │ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
-│ ✓ acme/infra/terraform   │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │/platform/api              │
-│ ⠋ acme/infra/helm-charts │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
-│ ✓ acme/infra/runner-image│ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
-│ ⠋ acme/data/ingest       │ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
-│ ✓ acme/data/warehouse-mod│                                                               │                           │
-│ ⠋ acme/tools/lazylab     │ j k ↑ ↓     move                                              │                           │
-│ ✓ acme/tools/release-bot │ g G         first, last                                       │                           │
-│ ⠋ acme/mobile/ios-app    │ ctrl+d u    page down, up                                     │                           │
-│ ✓ acme/mobile/android-app│ 1-4 tab     choose a pane                                     │                           │
-│ ⠋ acme/docs/handbook     │ l enter     open the detail pane                              │                           │
-│                          │ h esc       back                                              │                           │
+┌─ projects ───────────────┌─ help ────────────────────────────────────────────────────────┐───────────────────────────┐
+│[⠋ acme/platform/api      │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │-out                       │
+│ ✓ acme/platform/web      │ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
+│ ⠋ acme/platform/workers  │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
+│ ✓ acme/infra/terraform   │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │/platform/api              │
+│ ⠋ acme/infra/helm-charts │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
+│ ✓ acme/infra/runner-image│ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
+│ ⠋ acme/data/ingest       │                                                               │                           │
+│ ✓ acme/data/warehouse-mod│ j k ↑ ↓     move                                              │                           │
+│ ⠋ acme/tools/lazylab     │ g G         first, last                                       │                           │
+│ ✓ acme/tools/release-bot │ ctrl+d u    page down, up                                     │                           │
+│ ⠋ acme/mobile/ios-app    │ 1-4 tab     choose a pane                                     │                           │
+│ ✓ acme/mobile/android-app│ l enter     open the detail pane                              │                           │
+│ ⠋ acme/docs/handbook     │ h esc       back                                              │                           │
 │                          │ /           search the projects                               │                           │
 │                          │ f           favorite the project, or not                      │                           │
 │                          │ t           favorites only, or every project                  │                           │
-└──────────────────────────│ { }         move a favorite up, down                          │                           │
-┌─ pipelines ──────────────│ ctrl+r      reload the projects                               │                           │
-│[⠋ #61441 main            │ [ ]         the page of pipelines before, after               │                           │
-│ ✓ #61434 feat/runner-cach│ T           the test report of the pipeline, or its stages    │                           │
-│ ✗ #61427 fix/flaky-e2e   │ t T         the merge request state after, before             │                           │
-│ ✓ #61420 main            │ [ ]         the merge request tab before, after               │                           │
-└──────────────────────────│ r           resolve or reopen the thread                      │                           │
-┌─ jobs ───────────────────│ c           start a thread, reply, or comment on the line     │                           │
-│[✓ compile                │ R           retry the pipeline or job, after a question       │                           │
-│ ✓ image                  │ C           cancel the pipeline or job, after a question      │                           │
-│ ⠋ unit                   │ N           run a pipeline, with variables                    │                           │
-│ ⠋ integration            │ P           play a manual job, with variables                 │                           │
-└──────────────────────────│ z           full screen for the pane in view                  │                           │
-┌─ merge requests ─────────│ ?           open or close this help                           │                           │
-│[!412 Cache the runner ima│ q ctrl+c    quit                                              │                           │
-│ !409 Retry the flaky chec└───────────────────────────────────────────────────────────────┘                           │
-│ !407 Add SSO login behind a flag          1d ││                                                                      │
+│                          │ { }         move a favorite up, down                          │                           │
+└──────────────────────────│ ctrl+r      reload the projects                               │                           │
+┌─ pipelines ──────────────│ [ ]         the page of pipelines before, after               │                           │
+│[⠋ #61441 main            │ T           the test report of the pipeline, or its stages    │                           │
+│ ✓ #61434 feat/runner-cach│ t T         the merge request state after, before             │                           │
+│ ✗ #61427 fix/flaky-e2e   │ [ ]         the merge request tab before, after               │                           │
+│ ✓ #61420 main            │ r           resolve or reopen the thread                      │                           │
+└──────────────────────────│ c           start a thread, reply, or comment on the line     │                           │
+┌─ jobs ───────────────────│ R           retry the pipeline or job, after a question       │                           │
+│[✓ compile                │ C           cancel the pipeline or job, after a question      │                           │
+│ ✓ image                  │ N           run a pipeline, with variables                    │                           │
+│ ⠋ unit                   │ P           play a manual job, with variables                 │                           │
+│ ⠋ integration            │ y           copy the glab command of the item                 │                           │
+└──────────────────────────│ ctrl+o      copy the web address of the item                  │                           │
+┌─ merge requests ─────────│ z           full screen for the pane in view                  │                           │
+│[!412 Cache the runner ima│ ?           open or close this help                           │                           │
+│ !409 Retry the flaky chec│ q ctrl+c    quit                                              │                           │
+│ !407 Add SSO login behind└───────────────────────────────────────────────────────────────┘                           │
 │ !401 Split the e2e suite by shard         3d ││                                                                      │
 └──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
  HELP  esc close

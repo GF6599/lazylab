@@ -1,6 +1,7 @@
 //! The terminal interface, drawn with ratatui in the house terminal idiom.
 
 pub mod app;
+pub mod clipboard;
 pub mod demo;
 pub mod diff;
 pub mod form;
@@ -13,7 +14,7 @@ pub mod text;
 pub mod theme;
 pub mod view;
 
-use std::io;
+use std::io::{self, Write};
 use std::panic;
 use std::thread;
 
@@ -40,8 +41,14 @@ pub fn launch(host: &Url, page_size: u8, source: Source) -> io::Result<()> {
         paste_off();
         restore(info);
     }));
-    let ended = execute!(io::stdout(), EnableBracketedPaste)
-        .and_then(|()| runtime.block_on(session(&mut terminal, host, App::new(page_size), source)));
+    let ended = execute!(io::stdout(), EnableBracketedPaste).and_then(|()| {
+        runtime.block_on(session(
+            &mut terminal,
+            host,
+            App::new(page_size).with_host(host.clone()),
+            source,
+        ))
+    });
     paste_off();
     ratatui::restore();
     ended
@@ -65,10 +72,18 @@ async fn session(
         host: host.host_str().unwrap_or_default().to_string(),
         now: OffsetDateTime::now_utc(),
     };
-    run(terminal, app, source, inbox, outbox, |frame, app| {
-        context.now = OffsetDateTime::now_utc();
-        view::draw(frame, app, &context);
-    })
+    run(
+        terminal,
+        app,
+        source,
+        inbox,
+        outbox,
+        &mut io::stdout(),
+        |frame, app| {
+            context.now = OffsetDateTime::now_utc();
+            view::draw(frame, app, &context);
+        },
+    )
     .await?;
     Ok(())
 }
@@ -102,27 +117,42 @@ fn tick(outbox: UnboundedSender<Msg>) {
 }
 
 /// Keys, ticks and finished work all arrive through `inbox`, so they are handled one at a time.
+/// A copy goes to `clipboard`, which is the output the terminal draws to.
 pub async fn run<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
     source: Source,
     mut inbox: UnboundedReceiver<Msg>,
     outbox: UnboundedSender<Msg>,
+    clipboard: &mut impl Write,
     mut draw: impl FnMut(&mut Frame, &App),
 ) -> Result<App, B::Error> {
-    dispatch(app.start(), &source, &outbox);
+    dispatch(app.start(), &source, &outbox, clipboard);
     while !app.quit {
         terminal.draw(|frame| draw(frame, &app))?;
         match inbox.recv().await {
-            Some(msg) => dispatch(app.update(msg), &source, &outbox),
+            Some(msg) => dispatch(app.update(msg), &source, &outbox, clipboard),
             None => break,
         }
     }
     Ok(app)
 }
 
-fn dispatch(commands: Vec<Cmd>, source: &Source, outbox: &UnboundedSender<Msg>) {
+fn dispatch(
+    commands: Vec<Cmd>,
+    source: &Source,
+    outbox: &UnboundedSender<Msg>,
+    clipboard: &mut impl Write,
+) {
     for command in commands {
+        if let Cmd::Copy(text) = &command {
+            let written = clipboard.write_all(&clipboard::osc52(text));
+            let written = written.and_then(|()| clipboard.flush());
+            if let Err(e) = written {
+                tracing::warn!(error = %e, "write the clipboard");
+            }
+            continue;
+        }
         let (source, outbox) = (source.clone(), outbox.clone());
         tokio::spawn(async move {
             if let Some(msg) = source.answer(command).await {

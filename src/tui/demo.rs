@@ -59,6 +59,7 @@ const PROJECTS: [(&str, &str, &str); 13] = [
     ("acme/docs/handbook", "Engineering handbook", "main"),
 ];
 const FIRST_PROJECT: u64 = 101;
+const WEB: &str = "https://gitlab.example.com";
 const PIPELINES_PER_PROJECT: u64 = 14;
 const PIPELINE_ID_STEP: u64 = 7;
 const REFS: [&str; 6] = [
@@ -130,7 +131,7 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             project,
             status: pipelines(project, now).first().map(|p| p.status),
         },
-        Cmd::SaveProjects { .. } | Cmd::SaveFavorites(_) => return None,
+        Cmd::SaveProjects { .. } | Cmd::SaveFavorites(_) | Cmd::Copy(_) => return None,
         Cmd::LoadPipelines { project, page } => {
             let items = if page == 1 {
                 pipelines(project, now)
@@ -237,7 +238,7 @@ fn projects(now: OffsetDateTime) -> Vec<crate::gitlab::Project> {
                 "name": path.rsplit('/').next(),
                 "path_with_namespace": path,
                 "description": description,
-                "web_url": format!("https://gitlab.example.com/{path}"),
+                "web_url": format!("{WEB}/{path}"),
                 "default_branch": branch,
                 "last_activity_at": at(now, minutes),
             })
@@ -262,6 +263,7 @@ fn pipelines(project: u64, now: OffsetDateTime) -> Vec<crate::gitlab::Pipeline> 
                 "id": pipeline_id(project, i as u64),
                 "status": pipeline_status(project, i as u64),
                 "ref": git_ref,
+                "web_url": format!("{}/-/pipelines/{}", project_url(project), pipeline_id(project, i as u64)),
                 "sha": format!("{:07x}", 0x3f2a9c1u32.wrapping_mul(k as u32 + 7) & 0x0fff_ffff),
                 "source": source,
                 "created_at": at(now, minutes),
@@ -272,6 +274,12 @@ fn pipelines(project: u64, now: OffsetDateTime) -> Vec<crate::gitlab::Pipeline> 
         })
         .map(decode)
         .collect()
+}
+
+fn project_url(project: u64) -> String {
+    let index = project.saturating_sub(FIRST_PROJECT) as usize;
+    let path = PROJECTS.get(index).map_or("acme/unknown", |p| p.0);
+    format!("{WEB}/{path}")
 }
 
 fn pipeline_id(project: u64, index: u64) -> u64 {
@@ -303,6 +311,7 @@ fn jobs(project: u64, pipeline: u64) -> Vec<crate::gitlab::Job> {
                 "name": name,
                 "stage": stage,
                 "status": job_status(status, stage, name),
+                "web_url": format!("{}/-/jobs/{}", project_url(project), pipeline * 10 + i),
                 "duration": (20 + (i * 41) % 300) as f64,
             })
         })
@@ -374,7 +383,7 @@ fn merge_requests(
                 "author": {"name": AUTHORS[(i + shift) % AUTHORS.len()]},
                 "source_branch": source,
                 "target_branch": "main",
-                "web_url": format!("https://gitlab.example.com/merge_requests/{iid}"),
+                "web_url": format!("{WEB}/merge_requests/{iid}"),
                 "updated_at": at(now, minutes),
             })
         })

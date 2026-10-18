@@ -59,6 +59,8 @@ impl Live {
                 }
                 return None;
             }
+            // The event loop writes a copy to the terminal, so none reaches a source.
+            Cmd::Copy(_) => return None,
             Cmd::SaveProjects { projects, total } => {
                 if let Some(store) = &self.store
                     && let Err(e) = store.save_projects(&projects, total, OffsetDateTime::now_utc())

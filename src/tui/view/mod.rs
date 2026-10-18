@@ -49,6 +49,8 @@ const HELP: &[(&str, &str)] = &[
     ("C", "cancel the pipeline or job, after a question"),
     ("N", "run a pipeline, with variables"),
     ("P", "play a manual job, with variables"),
+    ("y", "copy the glab command of the item"),
+    ("ctrl+o", "copy the web address of the item"),
     ("z", "full screen for the pane in view"),
     ("?", "open or close this help"),
     ("q ctrl+c", "quit"),
