@@ -124,6 +124,9 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
         _ if app.search.typing => &[("enter", "keep"), ("esc", "clear")],
         (Overlay::Help, _) => &[("esc", "close")],
         (Overlay::Confirm, _) => &[("y", "yes"), ("n", "no")],
+        (Overlay::Form, _) if app.form.as_ref().is_some_and(|f| !f.takes_variables()) => {
+            &[("ctrl+s", "send"), ("enter", "new line"), ("esc", "close")]
+        }
         (Overlay::Form, _) => &[
             ("enter", "send"),
             ("esc", "close"),
@@ -137,6 +140,7 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             &[
                 ("j/k", "thread"),
                 ("r", "resolve"),
+                ("c", "reply"),
                 ("[ ]", "tab"),
                 ("h", "back"),
                 ("?", "help"),
@@ -154,9 +158,13 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
                 ("q", "quit"),
             ]
         }
-        (Overlay::None, Focus::Detail) if app.pane == Pane::MergeRequests => {
-            &[("[ ]", "tab"), ("h", "back"), ("?", "help"), ("q", "quit")]
-        }
+        (Overlay::None, Focus::Detail) if app.pane == Pane::MergeRequests => &[
+            ("c", "comment"),
+            ("[ ]", "tab"),
+            ("h", "back"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
         (Overlay::None, Focus::Detail) if app.pane == Pane::Pipelines && app.test_report_open => &[
             ("j/k", "scroll"),
             ("T", "tests"),

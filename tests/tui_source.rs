@@ -648,3 +648,49 @@ async fn the_test_report_of_a_pipeline_comes_back_for_that_pipeline() {
     };
     assert!(report.test_suites.is_empty());
 }
+
+#[tokio::test]
+async fn a_reply_posts_in_its_thread_and_a_new_thread_on_its_merge_request() {
+    // Given: GitLab accepts a note in thread d3 and a new thread, on merge request !412 of
+    // project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(
+            "/api/v4/projects/1/merge_requests/412/discussions/d3/notes",
+        ))
+        .and(body_json(serde_json::json!({"body": "Done"})))
+        .respond_with(json_body(r#"{"id":9,"body":"Done"}"#))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/merge_requests/412/discussions"))
+        .and(body_json(serde_json::json!({"body": "Ship it"})))
+        .respond_with(json_body(r#"{"id":"d9","notes":[]}"#))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    for (discussion, body) in [(Some("d3"), "Done"), (None, "Ship it")] {
+        // When: the reply is sent, then the new thread.
+        let answer = source
+            .answer(Cmd::Comment {
+                project: 1,
+                merge_request: 412,
+                discussion: discussion.map(String::from),
+                body: body.into(),
+            })
+            .await;
+
+        // Then: each answer names the merge request, and whether it was a reply.
+        assert_eq!(
+            answer,
+            Some(Msg::Commented {
+                project: 1,
+                merge_request: 412,
+                reply: discussion.is_some(),
+            })
+        );
+    }
+}

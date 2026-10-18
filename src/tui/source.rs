@@ -167,6 +167,28 @@ impl Live {
                     merge_request,
                     resolved,
                 }),
+            Cmd::Comment {
+                project,
+                merge_request,
+                discussion,
+                body,
+            } => match &discussion {
+                Some(thread) => {
+                    (self.client)
+                        .add_merge_request_discussion_note(project, merge_request, thread, &body)
+                        .await
+                }
+                None => {
+                    (self.client)
+                        .create_merge_request_discussion(project, merge_request, &body, None)
+                        .await
+                }
+            }
+            .map(|()| Msg::Commented {
+                project,
+                merge_request,
+                reply: discussion.is_some(),
+            }),
         };
         Some(result.unwrap_or_else(|e: Error| {
             tracing::warn!(error = %e, "GitLab call failed");

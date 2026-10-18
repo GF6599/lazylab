@@ -1,6 +1,7 @@
 use lazylab::gitlab::Discussion;
-use lazylab::tui::app::{App, Cmd, Msg, Pane};
+use lazylab::tui::app::{App, Cmd, Msg, Overlay, Pane};
 use lazylab::tui::demo;
+use lazylab::tui::form::Purpose;
 use lazylab::tui::theme::ROSE_PINE as T;
 use lazylab::tui::view::{Context, draw};
 use ratatui::Terminal;
@@ -860,4 +861,384 @@ fn a_reload_due_goes_out_once_after_a_failed_reload() {
     // Then: the due reload goes out once, and no more after it fails.
     assert_eq!(threads_asked(&due), [(PROJECT, 412)]);
     assert_eq!(threads_asked(&after), []);
+}
+
+fn comments(commands: &[Cmd]) -> Vec<Cmd> {
+    (commands.iter())
+        .filter(|c| matches!(c, Cmd::Comment { .. }))
+        .cloned()
+        .collect()
+}
+
+fn key(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Vec<Cmd> {
+    app.update(Msg::Key(KeyEvent::new(code, modifiers)))
+}
+
+/// Presses `c`, types the text, and presses ctrl+s.
+fn comment(app: &mut App, text: &str) -> Vec<Cmd> {
+    let mut commands = press(app, 'c');
+    for c in text.chars() {
+        commands.extend(press(app, c));
+    }
+    commands.extend(key(app, KeyCode::Char('s'), KeyModifiers::CONTROL));
+    commands
+}
+
+fn body(app: &App) -> String {
+    (app.form.as_ref())
+        .and_then(|form| form.body.clone())
+        .unwrap_or_default()
+}
+
+/// The info tab with the comment form open, and the lines typed with enter between them.
+fn typed_lines(lines: &[&str]) -> App {
+    let mut app = loaded();
+    press(&mut app, '4');
+    press(&mut app, 'l');
+    press(&mut app, 'c');
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        }
+        for c in line.chars() {
+            press(&mut app, c);
+        }
+    }
+    app
+}
+
+fn commented(reply: bool) -> Msg {
+    Msg::Commented {
+        project: PROJECT,
+        merge_request: 412,
+        reply,
+    }
+}
+
+#[test]
+fn c_on_the_info_tab_starts_a_thread_on_the_merge_request_in_view() {
+    // Given: the info of the second merge request, with the detail pane focused.
+    let mut app = loaded();
+    press(&mut app, '4');
+    press(&mut app, 'j');
+    press(&mut app, 'l');
+
+    // When: `c` opens the form, and a comment is typed and sent.
+    let sent = comment(&mut app, "Ship it");
+
+    // Then: a new thread goes to that merge request, and the form closes.
+    assert_eq!(
+        comments(&sent),
+        [Cmd::Comment {
+            project: PROJECT,
+            merge_request: 409,
+            discussion: None,
+            body: "Ship it".into(),
+        }]
+    );
+    assert_eq!(app.overlay, Overlay::None);
+    assert!(app.form.is_none());
+}
+
+#[test]
+fn c_on_the_threads_tab_replies_in_the_picked_thread() {
+    // Given: the second thread picked, with the detail pane focused.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    press(&mut app, 'j');
+
+    // When: `c` opens the form, and a reply is typed and sent.
+    let sent = comment(&mut app, "Done in the docs");
+
+    // Then: the reply goes to that thread, in the merge request it is in.
+    assert_eq!(
+        comments(&sent),
+        [Cmd::Comment {
+            project: PROJECT,
+            merge_request: 412,
+            discussion: Some("d3".into()),
+            body: "Done in the docs".into(),
+        }]
+    );
+}
+
+#[test]
+fn c_opens_no_form_on_the_diff_tab_or_from_the_sidebar() {
+    // Given: the diff tab with the detail pane focused, and the threads tab with the sidebar
+    // focused.
+    let mut diff = on_diff();
+    press(&mut diff, 'l');
+    let mut threads = on_threads();
+
+    for app in [&mut diff, &mut threads] {
+        // When: `c` is pressed.
+        let commands = press(app, 'c');
+
+        // Then: no form opens, and nothing goes to GitLab.
+        assert_eq!(app.overlay, Overlay::None);
+        assert_eq!(comments(&commands), []);
+    }
+}
+
+#[test]
+fn a_blank_comment_is_not_sent_and_the_form_stays_open() {
+    // Given: the info tab, with the detail pane focused.
+    let mut app = loaded();
+    press(&mut app, '4');
+    press(&mut app, 'l');
+
+    // When: a comment of spaces alone is sent.
+    let sent = comment(&mut app, "   ");
+
+    // Then: nothing goes to GitLab, and the form is still open.
+    assert_eq!(comments(&sent), []);
+    assert_eq!(app.overlay, Overlay::Form);
+}
+
+#[test]
+fn a_reply_answered_says_so_and_the_threads_load_again() {
+    // Given: a reply sent in the first thread.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    comment(&mut app, "Thanks");
+
+    // When: GitLab answers that the reply is in.
+    let reload = app.update(commented(true));
+
+    // Then: the status bar says so, and the threads load again.
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    assert!(bar.contains("Replied in the thread"), "{bar}");
+    assert_eq!(threads_asked(&reload), [(PROJECT, 412)]);
+}
+
+#[test]
+fn a_comment_answered_during_a_reload_loads_the_threads_once_more() {
+    // Given: a reply answered, and the reload that follows still on its way.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    let first = app.update(commented(true));
+
+    // When: a second reply is answered before that reload answers, and then it answers.
+    let second = app.update(commented(true));
+    let reload = demo::answer(first.into_iter().next().unwrap(), now()).unwrap();
+    let after = app.update(reload);
+
+    // Then: one load is out at a time, and the threads load once more after the first.
+    assert_eq!(threads_asked(&second), []);
+    assert_eq!(threads_asked(&after), [(PROJECT, 412)]);
+}
+
+#[test]
+fn a_thread_started_from_the_info_tab_shows_once_the_threads_tab_opens() {
+    // Given: the threads of the first merge request loaded, and then the info tab in the detail.
+    let mut app = on_threads();
+    press(&mut app, '[');
+    press(&mut app, 'l');
+
+    // When: a new thread is answered, and the threads tab opens.
+    let answered = app.update(commented(false));
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    let opened = press(&mut app, ']');
+
+    // Then: the status bar said so, no threads load while out of view, and they load on the
+    // threads tab.
+    assert!(bar.contains("Started a thread"), "{bar}");
+    assert_eq!(threads_asked(&answered), []);
+    assert_eq!(threads_asked(&opened), [(PROJECT, 412)]);
+}
+
+#[test]
+fn a_refused_reply_opens_its_form_again_with_its_text() {
+    // Given: a reply sent in the first thread.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    let sent = comment(&mut app, "Thanks");
+
+    // When: GitLab refuses it.
+    let commands = app.update(Msg::Failed {
+        cmd: comments(&sent).remove(0),
+        error: "reply in merge request thread: 403 Forbidden".into(),
+    });
+
+    // Then: the status bar shows the error, the reply form to the same thread is open with the
+    // text, and nothing loads again.
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    assert!(bar.contains("403 Forbidden"), "{bar}");
+    assert_eq!(app.overlay, Overlay::Form);
+    let form = app.form.as_ref().unwrap();
+    assert_eq!(
+        form.purpose,
+        Purpose::Comment {
+            project: PROJECT,
+            merge_request: 412,
+            discussion: Some("d1".into()),
+        }
+    );
+    assert_eq!(body(&app), "Thanks");
+    assert_eq!(commands, []);
+
+    // When: more text is typed, and the reply is sent again.
+    press(&mut app, '!');
+    let again = key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+
+    // Then: the text goes on from its end.
+    assert!(
+        matches!(&comments(&again)[..], [Cmd::Comment { body, .. }] if body == "Thanks!"),
+        "{again:?}"
+    );
+}
+
+#[test]
+fn a_comment_refused_while_another_form_is_open_leaves_that_form() {
+    // Given: a reply sent, and then the run form open on the pipelines pane.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+    let sent = comment(&mut app, "Thanks");
+    press(&mut app, '2');
+    press(&mut app, 'N');
+
+    // When: GitLab refuses the reply.
+    app.update(Msg::Failed {
+        cmd: comments(&sent).remove(0),
+        error: "reply in merge request thread: 403 Forbidden".into(),
+    });
+
+    // Then: the status bar shows the error, and the run form is still open.
+    let bar = rows(&render(&app)).last().unwrap().clone();
+    assert!(bar.contains("403 Forbidden"), "{bar}");
+    assert_eq!(app.form.as_ref().unwrap().title(), "run pipeline");
+}
+
+#[test]
+fn the_comment_form_starts_a_thread() {
+    // Given: the info tab, with the detail pane focused.
+    let mut app = loaded();
+    press(&mut app, '4');
+    press(&mut app, 'l');
+
+    // When: `c` opens the form, and a comment is typed.
+    press(&mut app, 'c');
+    for c in "Ship it".chars() {
+        press(&mut app, c);
+    }
+
+    // Then: a framed form shows the comment in a marked box, and the key bar offers to send it.
+    insta::assert_snapshot!(screen(&render_at(&app, 12)));
+}
+
+#[test]
+fn the_comment_form_replies_in_the_picked_thread() {
+    // Given: the threads tab, with the detail pane focused.
+    let mut app = on_threads();
+    press(&mut app, 'l');
+
+    // When: `c` opens the form.
+    press(&mut app, 'c');
+
+    // Then: the form says it replies, with an empty box.
+    insta::assert_snapshot!(screen(&render_at(&app, 12)));
+}
+
+#[test]
+fn the_key_bar_offers_c_on_the_info_and_threads_tabs() {
+    // Given: the info tab and the threads tab, each with the detail pane focused.
+    let mut info = loaded();
+    press(&mut info, '4');
+    press(&mut info, 'l');
+    let mut threads = on_threads();
+    press(&mut threads, 'l');
+
+    // When: the screens are drawn.
+    let bar = |app: &App| rows(&render(app)).last().unwrap().clone();
+
+    // Then: the info tab offers a comment, and the threads tab a reply.
+    assert!(bar(&info).contains("c comment"), "{}", bar(&info));
+    assert!(bar(&threads).contains("c reply"), "{}", bar(&threads));
+}
+
+#[test]
+fn enter_adds_a_line_and_ctrl_s_sends_the_comment_with_it() {
+    // Given: a comment of two lines typed, with enter between them.
+    let mut app = typed_lines(&["First", "Second"]);
+
+    // Then: enter sent nothing, and the form is still open.
+    assert_eq!(app.overlay, Overlay::Form);
+
+    // When: ctrl+s is pressed.
+    let sent = key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+
+    // Then: the comment goes with its line break.
+    assert!(
+        matches!(&comments(&sent)[..], [Cmd::Comment { body, .. }] if body == "First\nSecond"),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn a_paste_keeps_its_line_breaks_in_a_comment() {
+    // Given: the comment form.
+    let mut app = typed_lines(&[]);
+
+    // When: text with each kind of line break is pasted.
+    app.update(Msg::Paste("a\r\nb\rc\nd".into()));
+
+    // Then: each break is a new line, and the form is still open.
+    assert_eq!(body(&app), "a\nb\nc\nd");
+    assert_eq!(app.overlay, Overlay::Form);
+}
+
+#[test]
+fn backspace_at_the_start_of_a_line_joins_it_to_the_line_above() {
+    // Given: a comment with an empty second line.
+    let mut app = typed_lines(&["First", ""]);
+
+    // When: backspace is pressed, and more text is typed.
+    key(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+    press(&mut app, '!');
+
+    // Then: the text is one line again.
+    assert_eq!(body(&app), "First!");
+}
+
+#[test]
+fn the_comment_form_grows_with_its_lines() {
+    // Given: the comment form, with a line typed and two lines pasted, one indented with a tab.
+    let mut app = typed_lines(&["Ship it"]);
+    app.update(Msg::Paste("\r\n\tafter the docs\r\nthanks".into()));
+
+    // Then: the body keeps the tab, and the box shows three lines with the tab expanded.
+    assert_eq!(body(&app), "Ship it\n\tafter the docs\nthanks");
+    insta::assert_snapshot!(screen(&render_at(&app, 14)));
+}
+
+#[test]
+fn a_comment_longer_than_the_box_shows_its_last_lines() {
+    // Given: a comment of twelve lines.
+    let lines: Vec<String> = (1..=12).map(|n| format!("line {n}")).collect();
+    let app = typed_lines(&lines.iter().map(String::as_str).collect::<Vec<_>>());
+
+    // Then: the box shows the last eight lines.
+    insta::assert_snapshot!(screen(&render_at(&app, 20)));
+}
+
+#[test]
+fn the_cursor_sits_after_the_last_character_of_the_last_line() {
+    // Given: a comment of three lines.
+    let app = typed_lines(&["one", "two", "three"]);
+
+    // When: the screen is drawn.
+    let mut terminal = Terminal::new(TestBackend::new(120, 32)).unwrap();
+    let context = Context {
+        host: "gitlab.example.com".into(),
+        now: now(),
+    };
+    terminal.draw(|frame| draw(frame, &app, &context)).unwrap();
+    let cursor = terminal.get_cursor_position().unwrap();
+    let buffer = terminal.backend().buffer();
+
+    // Then: the cursor is on the row of the last line, right after its last character.
+    let row = &rows(buffer)[usize::from(cursor.y)];
+    assert!(row.contains("three"), "{row}");
+    assert_eq!(buffer[(cursor.x - 1, cursor.y)].symbol(), "e", "{row}");
+    assert_eq!(buffer[(cursor.x, cursor.y)].symbol(), " ", "{row}");
 }

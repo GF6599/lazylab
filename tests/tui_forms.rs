@@ -362,3 +362,19 @@ fn a_value_wider_than_its_box_shows_its_end_with_the_cursor_after_it() {
     let shown = screen(&app);
     assert!(shown.contains("0123456789abcdefghijklmnop…"), "{shown}");
 }
+
+#[test]
+fn a_paste_into_the_ref_stays_one_line() {
+    // Given: the run form, on its ref.
+    let mut app = loaded();
+    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('N'));
+    let seeded = app.form.as_ref().unwrap().git_ref.clone().unwrap();
+
+    // When: text with a line break is pasted.
+    app.update(Msg::Paste("a\r\nb".into()));
+
+    // Then: the ref holds the text without the break.
+    let git_ref = app.form.as_ref().unwrap().git_ref.clone().unwrap();
+    assert_eq!(git_ref, format!("{seeded}ab"));
+}

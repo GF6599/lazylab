@@ -257,6 +257,12 @@ pub enum Msg {
         merge_request: u64,
         resolved: bool,
     },
+    /// `reply` is true for a note in a thread, and false for a new thread.
+    Commented {
+        project: u64,
+        merge_request: u64,
+        reply: bool,
+    },
     DiffLoaded {
         project: u64,
         merge_request: u64,
@@ -330,6 +336,14 @@ pub enum Cmd {
         merge_request: u64,
         discussion: String,
         resolved: bool,
+    },
+    /// `discussion` is the thread a reply goes in, and `None` starts a thread on the merge
+    /// request.
+    Comment {
+        project: u64,
+        merge_request: u64,
+        discussion: Option<String>,
+        body: String,
     },
     Act(Action),
     /// The log of a job, in the project it runs in.
@@ -879,7 +893,25 @@ impl App {
     fn thread_resolved(&mut self, key: (u64, u64), resolved: bool) -> Vec<Cmd> {
         let done = if resolved { "Resolved" } else { "Reopened" };
         self.notice = Some(format!("{done} the thread"));
+        self.reload_threads(key)
+    }
+
+    fn commented(&mut self, key: (u64, u64), reply: bool) -> Vec<Cmd> {
+        let done = if reply {
+            "Replied in the thread"
+        } else {
+            "Started a thread"
+        };
+        self.notice = Some(done.to_string());
+        self.reload_threads(key)
+    }
+
+    /// Threads out of view are dropped instead, so the threads tab loads them when it opens.
+    fn reload_threads(&mut self, key: (u64, u64)) -> Vec<Cmd> {
         if self.wanted_threads() != Some(key) {
+            if (self.threads.as_ref()).is_some_and(|t| (t.project, t.merge_request) == key) {
+                self.clear_threads();
+            }
             return Vec::new();
         }
         if self.threads_asked == Some(key) {
@@ -1007,6 +1039,23 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd:
+                    Cmd::Comment {
+                        project,
+                        merge_request,
+                        discussion,
+                        body,
+                    },
+                error,
+            } => {
+                self.error = Some(error);
+                if self.overlay == Overlay::None {
+                    self.form = Some(Form::comment(project, merge_request, discussion, body));
+                    self.overlay = Overlay::Form;
+                }
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -1080,6 +1129,11 @@ impl App {
                 merge_request,
                 resolved,
             } => self.thread_resolved((project, merge_request), resolved),
+            Msg::Commented {
+                project,
+                merge_request,
+                reply,
+            } => self.commented((project, merge_request), reply),
             Msg::DiffLoaded {
                 project,
                 merge_request,
@@ -1099,13 +1153,11 @@ impl App {
         }
     }
 
-    /// A paste goes only into a field being typed, so it can never act as keys. A field is one
-    /// line, so a newline in the paste is dropped and cannot send the form.
+    /// A paste goes only into a field being typed, so it can never act as keys.
     fn on_paste(&mut self, text: &str) -> Vec<Cmd> {
-        let text: String = text.chars().filter(|c| !matches!(c, '\r' | '\n')).collect();
         if self.overlay == Overlay::Form {
             if let Some(form) = self.form.as_mut() {
-                form.paste(&text);
+                form.paste(text);
             }
             return Vec::new();
         }
@@ -1113,7 +1165,7 @@ impl App {
             return Vec::new();
         }
         let before = self.selected();
-        self.search.query.push_str(&text);
+        (self.search.query).extend(text.chars().filter(|c| !matches!(c, '\r' | '\n')));
         self.reshow(before)
     }
 
@@ -1176,6 +1228,7 @@ impl App {
                 self.mr_tab = self.mr_tab.step(MrTab::ALL.len() - 1);
             }
             KeyCode::Char('r') if self.focus == Focus::Detail => return self.resolve_thread(),
+            KeyCode::Char('c') if self.focus == Focus::Detail => return self.open_comment_form(),
             KeyCode::Char(']') if on_pipelines => {
                 if let Some(next) = self.next_pipeline_page {
                     return self.turn_pipeline_page(next);
@@ -1300,9 +1353,9 @@ impl App {
         };
         match form.key(key) {
             Outcome::Open => Vec::new(),
-            Outcome::Send(action) => {
+            Outcome::Send(cmd) => {
                 self.close_form();
-                vec![Cmd::Act(action)]
+                vec![cmd]
             }
             Outcome::Closed => {
                 self.close_form();
@@ -1324,6 +1377,23 @@ impl App {
             .or_else(|| project.default_branch.clone())
             .unwrap_or_default();
         self.form = Some(Form::run(project.id, git_ref));
+        self.overlay = Overlay::Form;
+        Vec::new()
+    }
+
+    /// A new thread on the info tab, and a reply in the picked thread on the threads tab.
+    fn open_comment_form(&mut self) -> Vec<Cmd> {
+        let picked = self.picked_thread().map(|thread| thread.id.clone());
+        let form = match (self.wanted(MrTab::Info), self.wanted_threads(), picked) {
+            (Some((project, merge_request)), ..) => {
+                Form::comment(project, merge_request, None, String::new())
+            }
+            (_, Some((project, merge_request)), Some(thread)) => {
+                Form::comment(project, merge_request, Some(thread), String::new())
+            }
+            _ => return Vec::new(),
+        };
+        self.form = Some(form);
         self.overlay = Overlay::Form;
         Vec::new()
     }

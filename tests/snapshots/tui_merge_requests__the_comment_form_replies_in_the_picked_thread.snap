@@ -1,0 +1,16 @@
+---
+source: tests/tui_merge_requests.rs
+expression: "screen(&render_at(&app, 12))"
+---
+ {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
+ 1 projects   2 pipelines   3 jobs  [4 merge requests]
+─ projects · acme/platform/api ─────────────────┌─ merge request !412 ─────────────────────────────────────────────────┐
+─ pipelines · ⠋ #61441 main ────────────────────│  info  [threads]  diff                                               │
+─ jobs · ✓ build:compile ──┌─ reply ────────────────────────────────────────────────────────┐                          │
+┌─ merge requests ─────────│ comment   [                                                  ] │                          │
+│[!412 Cache the runner ima└────────────────────────────────────────────────────────────────┘                          │
+│ !409 Retry the flaky checkout step        6h ││   │ Does the cache key change when the base image is retagged but n… │
+│ !407 Add SSO login behind a flag          1d ││                                                                      │
+│ !401 Split the e2e suite by shard         3d ││   Dana · 2h ago                                                      │
+└──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
+ FORM  ctrl+s send  enter new line  esc close

@@ -29,15 +29,15 @@ expression: screen(&buffer)
 │ ✗ #61427 fix/flaky-e2e   │ T           the test report of the pipeline, or its stages    │                           │
 │ ✓ #61420 main            │ [ ]         the merge request tab before, after               │                           │
 └──────────────────────────│ r           resolve or reopen the thread                      │                           │
-┌─ jobs ───────────────────│ R           retry the pipeline or job, after a question       │                           │
-│[✓ compile                │ C           cancel the pipeline or job, after a question      │                           │
-│ ✓ image                  │ N           run a pipeline, with variables                    │                           │
-│ ⠋ unit                   │ P           play a manual job, with variables                 │                           │
-│ ⠋ integration            │ z           full screen for the pane in view                  │                           │
-└──────────────────────────│ ?           open or close this help                           │                           │
-┌─ merge requests ─────────│ q ctrl+c    quit                                              │                           │
-│[!412 Cache the runner ima└───────────────────────────────────────────────────────────────┘                           │
-│ !409 Retry the flaky checkout step        6h ││                                                                      │
+┌─ jobs ───────────────────│ c           start a thread, or reply in the thread            │                           │
+│[✓ compile                │ R           retry the pipeline or job, after a question       │                           │
+│ ✓ image                  │ C           cancel the pipeline or job, after a question      │                           │
+│ ⠋ unit                   │ N           run a pipeline, with variables                    │                           │
+│ ⠋ integration            │ P           play a manual job, with variables                 │                           │
+└──────────────────────────│ z           full screen for the pane in view                  │                           │
+┌─ merge requests ─────────│ ?           open or close this help                           │                           │
+│[!412 Cache the runner ima│ q ctrl+c    quit                                              │                           │
+│ !409 Retry the flaky chec└───────────────────────────────────────────────────────────────┘                           │
 │ !407 Add SSO login behind a flag          1d ││                                                                      │
 │ !401 Split the e2e suite by shard         3d ││                                                                      │
 └──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
