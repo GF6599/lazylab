@@ -347,6 +347,7 @@ mod tests {
                     mode: Mode::Live(Token("t0ken".into())),
                     projects_per_page: 30,
                     log_level: Level::ERROR,
+                    explorer: "yazi".into(),
                     config_file: None,
                 }
             );
@@ -524,6 +525,28 @@ mod tests {
             assert_eq!(flags_over_env.host.as_str(), "https://flag.example/");
             assert_eq!(flags_over_env.projects_per_page, 40);
             assert_eq!(flags_over_env.mode, Mode::Live(Token("from-file".into())));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn the_explorer_is_yazi_unless_the_file_or_a_flag_names_another() {
+        Jail::expect_with(|jail| {
+            // Given: no explorer set, then one in the file, then one in the flags as well.
+            jail.clear_env();
+            let unset = load(&flags("t")).unwrap();
+            jail.create_file("lazylab.toml", "explorer = \"lf\"")?;
+            jail.set_env("LAZYLAB_CONFIG", "lazylab.toml");
+            let file = load(&flags("t")).unwrap();
+            let flag = load(&Flags {
+                explorer: Some("nnn".into()),
+                ..flags("t")
+            })
+            .unwrap();
+
+            // Then: yazi is the default, and the flag beats the file.
+            let explorers = [unset, file, flag].map(|config| config.explorer);
+            assert_eq!(explorers, ["yazi", "lf", "nnn"]);
             Ok(())
         });
     }
