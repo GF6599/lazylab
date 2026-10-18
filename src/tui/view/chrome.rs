@@ -136,7 +136,9 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             &[("enter", "open"), ("tab", "next field"), ("esc", "close")]
         }
         (Overlay::Form, _) if app.form.as_ref().is_some_and(|f| f.merge_request.is_some()) => &[
-            ("enter", "next field"),
+            ("↑/↓", "branch"),
+            ("enter", "take it"),
+            ("tab", "next field"),
             ("ctrl+s", "open"),
             ("esc", "close"),
         ],

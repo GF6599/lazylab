@@ -468,6 +468,8 @@ pub struct App {
     pub confirm: Option<Action>,
     /// Variable values live here while the form is open, and nowhere once it closes.
     pub form: Option<Form>,
+    /// The tick the branch search of the form goes out on, once the typing has settled.
+    branches_due: Option<u64>,
     pub command_menu: Option<CommandMenu>,
     /// In the order the user set, which the favorites view keeps.
     pub favorites: Vec<u64>,
@@ -555,6 +557,7 @@ impl App {
             notice: None,
             confirm: None,
             form: None,
+            branches_due: None,
             command_menu: None,
             favorites: Vec::new(),
             favorites_only: false,
@@ -1089,6 +1092,7 @@ impl App {
             Msg::Tick => {
                 self.tick += 1;
                 let mut commands = self.settled();
+                commands.extend(self.branches_settled());
                 commands.extend(self.refresh());
                 commands
             }
@@ -1198,6 +1202,16 @@ impl App {
                 Vec::new()
             }
             Msg::Failed {
+                cmd: Cmd::LoadBranches { project, search },
+                error,
+            } => {
+                self.error = Some(error);
+                if let Some(form) = self.form.as_mut() {
+                    form.show_branches(project, &search, Vec::new());
+                }
+                Vec::new()
+            }
+            Msg::Failed {
                 cmd: Cmd::LoadStatus { project },
                 ..
             } => {
@@ -1301,16 +1315,28 @@ impl App {
                 self.test_report_loaded((project, pipeline), Some(report));
                 Vec::new()
             }
-            Msg::BranchesLoaded { .. } | Msg::MergeRequestCreated { .. } => Vec::new(),
+            Msg::BranchesLoaded {
+                project,
+                search,
+                branches,
+            } => {
+                if let Some(form) = self.form.as_mut() {
+                    form.show_branches(project, &search, branches);
+                }
+                Vec::new()
+            }
+            Msg::MergeRequestCreated { .. } => Vec::new(),
         }
     }
 
     /// A paste goes only into a field being typed, so it can never act as keys.
     fn on_paste(&mut self, text: &str) -> Vec<Cmd> {
         if self.overlay == Overlay::Form {
+            let before = self.branch_search();
             if let Some(form) = self.form.as_mut() {
                 form.paste(text);
             }
+            self.search_branches_later(before);
             return Vec::new();
         }
         if !self.search.typing {
@@ -1514,12 +1540,16 @@ impl App {
             self.quit = true;
             return Vec::new();
         }
+        let before = self.branch_search();
         let Some(form) = self.form.as_mut() else {
             self.overlay = Overlay::None;
             return Vec::new();
         };
         match form.key(key) {
-            Outcome::Open => Vec::new(),
+            Outcome::Open => {
+                self.search_branches_later(before);
+                Vec::new()
+            }
             Outcome::Send(cmd) => {
                 self.close_form();
                 vec![cmd]
@@ -1534,6 +1564,39 @@ impl App {
     fn close_form(&mut self) {
         self.form = None;
         self.overlay = Overlay::None;
+        self.branches_due = None;
+    }
+
+    /// The field being typed and its branch search, which a key or a paste can change.
+    fn branch_search(&self) -> Option<(usize, u64, String)> {
+        let form = self.form.as_ref()?;
+        let (project, search) = form.branch_search()?;
+        Some((form.field, project, search.to_string()))
+    }
+
+    /// A search waits until the typing settles, as a moving cursor does, so only the term the
+    /// user stops on goes to GitLab.
+    fn search_branches_later(&mut self, before: Option<(usize, u64, String)>) {
+        let after = self.branch_search();
+        if after != before {
+            self.branches_due = after.map(|_| self.tick + SETTLE_TICKS);
+        }
+    }
+
+    fn branches_settled(&mut self) -> Vec<Cmd> {
+        match self.branches_due {
+            Some(due) if self.tick >= due => {
+                self.branches_due = None;
+                self.search_branches()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn search_branches(&self) -> Vec<Cmd> {
+        (self.branch_search().into_iter())
+            .map(|(_, project, search)| Cmd::LoadBranches { project, search })
+            .collect()
     }
 
     fn open_run_form(&mut self) -> Vec<Cmd> {
@@ -1548,7 +1611,8 @@ impl App {
         Vec::new()
     }
 
-    /// The target is the project's default branch, as in the Go release.
+    /// The target is the project's default branch, as in the Go release. The empty source branch
+    /// lists the branches at once.
     fn open_merge_request_form(&mut self) -> Vec<Cmd> {
         let Some(project) = self.project() else {
             return Vec::new();
@@ -1559,7 +1623,7 @@ impl App {
         };
         self.form = Some(Form::merge_request(project.id, fields));
         self.overlay = Overlay::Form;
-        Vec::new()
+        self.search_branches()
     }
 
     /// A new thread on the info tab, a reply in the picked thread on the threads tab, and a new
