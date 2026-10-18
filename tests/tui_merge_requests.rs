@@ -1875,3 +1875,169 @@ fn late_diff_refs_for_a_merge_request_the_cursor_left_are_dropped() {
         "{sent:?}"
     );
 }
+
+/// The threads tab of the first merge request, after the diff tab loaded its diff.
+fn on_threads_after_diff() -> App {
+    let mut app = on_diff();
+    let commands = press(&mut app, '[');
+    answer(&mut app, commands);
+    app
+}
+
+/// The rows of the detail body from the row that holds `text`, as far as `n` rows, trimmed.
+fn rows_from(buffer: &Buffer, text: &str, n: usize) -> Vec<String> {
+    let shown = rows(buffer);
+    let start = (shown.iter().position(|row| row.contains(text)))
+        .unwrap_or_else(|| panic!("no {text:?} in\n{}", shown.join("\n")));
+    let left = shown[start][..shown[start].find(text).unwrap()]
+        .chars()
+        .count();
+    (shown[start..].iter().take(n))
+        .map(|row| {
+            let detail: String = row.chars().skip(left).collect();
+            detail.trim_end_matches([' ', '│']).to_string()
+        })
+        .collect()
+}
+
+#[test]
+fn a_thread_on_a_line_of_a_loaded_diff_shows_the_lines_around_it() {
+    // Given: the diff of the first merge request loaded on the diff tab, then the threads tab.
+    let app = on_threads_after_diff();
+
+    // When: the screen is drawn tall enough for every thread.
+    let buffer = render_at(&app, 60);
+
+    // Then: the thread on line 14 shows its hunk from the header to the tenth line after line
+    // 14, between its file and line and its first note.
+    assert_eq!(
+        rows_from(&buffer, ".gitlab-ci.yml:14", 17),
+        [
+            ".gitlab-ci.yml:14",
+            "@@ -12,6 +12,13 @@ default:",
+            "   image: registry.example.com/ci/base:2026.10",
+            "   interruptible: true",
+            "+  cache:",
+            "+    key:",
+            "+      files: [ci/base.digest]",
+            "+    paths: [.layers/]",
+            "+    policy: pull-push",
+            "",
+            " stages: [build, test, security, deploy]",
+            "-compile:",
+            "-  script: just ci-compile",
+            "+compile:",
+            "+  script:",
+            "│ Does the cache key change when the base image is retagged but n…",
+            "",
+        ],
+        "{}",
+        screen(&buffer)
+    );
+
+    // And: the lines keep the colours of the diff tab.
+    assert_eq!(colour_of(&buffer, "@@ -12,6 +12,13 @@"), T.foam);
+    assert_eq!(colour_of(&buffer, "+  cache:"), T.pine);
+    assert_eq!(colour_of(&buffer, "-compile:"), T.love);
+    assert_eq!(colour_of(&buffer, "   interruptible: true"), T.text);
+
+    // And: a thread on a file the diff does not change shows its file and line only.
+    assert_eq!(
+        rows_from(&buffer, "ci/runner.toml:8", 2),
+        [
+            "ci/runner.toml:8",
+            "│ Should the cache survive a runner restart?"
+        ]
+    );
+    insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
+fn a_thread_whose_diff_is_not_loaded_shows_its_file_and_line_only() {
+    // Given: the threads tab of the first merge request, with its diff never loaded.
+    let app = on_threads();
+
+    // When: the screen is drawn.
+    let buffer = render_at(&app, 60);
+
+    // Then: the thread on line 14 shows its file and line, then its first note.
+    assert_eq!(
+        rows_from(&buffer, ".gitlab-ci.yml:14", 2),
+        [
+            ".gitlab-ci.yml:14",
+            "│ Does the cache key change when the base image is retagged but n…"
+        ],
+        "{}",
+        screen(&buffer)
+    );
+    assert!(!shows(&buffer, "+  cache:"));
+}
+
+/// The threads tab over a loaded diff of these files, with one thread on `position`.
+fn thread_on(files: Vec<FileDiff>, position: serde_json::Value) -> Buffer {
+    let mut app = on_diff();
+    app.update(Msg::DiffLoaded {
+        project: PROJECT,
+        merge_request: 412,
+        files,
+    });
+    press(&mut app, '[');
+    let thread: Discussion = serde_json::from_value(serde_json::json!({"id": "d9", "notes": [
+        {"id": 9, "author": {"name": "Kofi"}, "body": "Why?", "position": position},
+    ]}))
+    .unwrap();
+    app.update(Msg::ThreadsLoaded {
+        project: PROJECT,
+        merge_request: 412,
+        discussions: vec![thread],
+    });
+    render(&app)
+}
+
+#[test]
+fn a_thread_names_a_removed_line_by_its_old_line_and_others_by_their_new_line() {
+    // Given: a file whose first hunk adds new line 30, and whose second hunk removes old line
+    // 30 between two unchanged lines.
+    let files = || {
+        vec![file(
+            "app.rs",
+            "@@ -1,0 +30,1 @@\n+decoy\n@@ -29,3 +31,2 @@\n ctx\n-gone\n tail\n",
+        )]
+    };
+    let at = |old: Option<u32>, new: Option<u32>| serde_json::json!({"old_path": "app.rs", "new_path": "app.rs", "old_line": old, "new_line": new});
+
+    // When: a thread is on old line 30 only. Then: it shows the second hunk to its end, so the
+    // removed line is the one it is on, and not the added line with the same number.
+    let removed = thread_on(files(), at(Some(30), None));
+    assert!(shows(&removed, "-gone"), "{}", screen(&removed));
+    assert_eq!(colour_of(&removed, "-gone"), T.love);
+    assert!(shows(&removed, " tail"));
+
+    // When: a thread is on new line 30 only. Then: it shows the first hunk, which ends at the
+    // added line.
+    let added = thread_on(files(), at(None, Some(30)));
+    assert!(shows(&added, "+decoy"), "{}", screen(&added));
+    assert!(!shows(&added, "-gone"));
+
+    // When: a thread is on the unchanged line with old line 31 and new line 32. Then: it shows
+    // that line.
+    let unchanged = thread_on(files(), at(Some(31), Some(32)));
+    assert!(shows(&unchanged, " tail"), "{}", screen(&unchanged));
+    assert!(shows(&unchanged, "-gone"));
+}
+
+#[test]
+fn the_picked_thread_stays_in_view_below_the_lines_around_a_thread() {
+    // Given: the threads tab over the loaded diff, with the detail pane focused.
+    let mut app = on_threads_after_diff();
+    press(&mut app, 'l');
+
+    // When: the third thread is picked, below the lines around the first thread.
+    press(&mut app, 'j');
+    press(&mut app, 'j');
+
+    // Then: the picked thread shows whole.
+    let buffer = render(&app);
+    assert_eq!(marked_thread(&buffer), "Ravi");
+    assert!(shows(&buffer, "One nit below."), "{}", screen(&buffer));
+}
