@@ -1,4 +1,5 @@
-use lazylab::tui::app::{App, Cmd, Msg, Overlay};
+use lazylab::gitlab::MergeRequestState;
+use lazylab::tui::app::{App, Cmd, Msg, Overlay, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::form::{Field, Purpose};
 use lazylab::tui::view::{Context, draw};
@@ -417,4 +418,115 @@ fn a_failed_branch_search_says_so_and_shows_no_matches() {
     let shown = screen(&app);
     assert!(shown.contains("no branch matches"), "{shown}");
     assert!(status_bar(&app).contains("500"), "{shown}");
+}
+
+/// The form filled with a branch, main and a title, and the create it sends.
+fn sent() -> (App, Cmd) {
+    let mut app = listed();
+    type_text(&mut app, "feat/sso-login");
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Tab);
+    type_text(&mut app, "Add SSO login");
+    let sent = key(&mut app, KeyCode::Enter);
+    let [cmd] = &creates(&sent)[..] else {
+        panic!("one create, got {sent:?}");
+    };
+    (app, cmd.clone())
+}
+
+#[test]
+fn a_created_merge_request_is_selected_in_the_open_list() {
+    // Given: the merged merge requests in view, and a create sent from the form.
+    let mut app = loaded();
+    press(&mut app, '4');
+    let merged = press(&mut app, 't');
+    answer(&mut app, merged);
+    let asked = press(&mut app, 'N');
+    answer(&mut app, asked);
+    type_text(&mut app, "feat/sso-login");
+    key(&mut app, KeyCode::BackTab);
+    type_text(&mut app, "Add SSO login");
+    let sent = ctrl(&mut app, 's');
+
+    // When: GitLab answers with the new merge request.
+    let created = demo::answer(creates(&sent).remove(0), now()).unwrap();
+    let Msg::MergeRequestCreated { merge_request, .. } = &created else {
+        panic!("a created merge request, got {created:?}");
+    };
+    let merge_request = merge_request.clone();
+    let reload = app.update(created);
+
+    // Then: the status bar names it, and the open merge requests load again.
+    assert!(status_bar(&app).contains(&format!("!{}", merge_request.iid)));
+    assert_eq!(
+        reload,
+        [Cmd::LoadMergeRequests {
+            project: PROJECT,
+            state: MergeRequestState::Opened,
+        }]
+    );
+
+    // When: the open list arrives with the new merge request on its third row.
+    let Some(Msg::MergeRequestsLoaded {
+        mut merge_requests, ..
+    }) = demo::answer(reload[0].clone(), now())
+    else {
+        panic!("an open list");
+    };
+    merge_requests.insert(2, merge_request.clone());
+    app.update(Msg::MergeRequestsLoaded {
+        project: PROJECT,
+        state: MergeRequestState::Opened,
+        merge_requests,
+    });
+
+    // Then: the list shows the open merge requests, with the new one selected.
+    assert_eq!(app.mr_state, MergeRequestState::Opened);
+    assert_eq!(app.cursor(Pane::MergeRequests), 2);
+    assert_eq!(app.merge_requests[2], merge_request);
+}
+
+#[test]
+fn a_refused_create_opens_its_form_again_with_its_text() {
+    // Given: a create sent from the form.
+    let (mut app, cmd) = sent();
+
+    // When: GitLab refuses it, because a merge request is open for the branch already.
+    let commands = app.update(Msg::Failed {
+        cmd: cmd.clone(),
+        error: "open merge request: GitLab answered 409 Conflict: [\"Another open merge request already exists for this source branch: !407\"]".into(),
+    });
+
+    // Then: the status bar shows the refusal, and the form is open again with what was typed,
+    // on its source branch, whose branches are searched again.
+    assert!(status_bar(&app).contains("409 Conflict"));
+    assert_eq!(app.overlay, Overlay::Form);
+    assert_eq!(
+        fields(&app),
+        (
+            "feat/sso-login".into(),
+            "main".into(),
+            "Add SSO login".into()
+        )
+    );
+    assert_eq!(current(&app), Some(Field::Source));
+    assert_eq!(searches(&commands), ["feat/sso-login"]);
+
+    // When: ctrl+s is pressed. Then: the same create is sent again.
+    assert_eq!(creates(&ctrl(&mut app, 's')), [cmd]);
+}
+
+#[test]
+fn a_form_without_a_branch_or_a_title_is_not_sent_and_says_why() {
+    // Given: the form with no source branch and no title.
+    let mut app = listed();
+
+    // When: ctrl+s is pressed.
+    let sent = ctrl(&mut app, 's');
+
+    // Then: nothing is sent, the form stays open, and the status bar says what is missing.
+    assert_eq!(creates(&sent), []);
+    assert_eq!(app.overlay, Overlay::Form);
+    let bar = status_bar(&app);
+    assert!(bar.contains("needs a source branch"), "{bar}");
 }
