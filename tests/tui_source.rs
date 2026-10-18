@@ -4,7 +4,7 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use common::client_for;
-use lazylab::gitlab::{MergeRequestState, Project, Status};
+use lazylab::gitlab::{DiffLine, DiffRefs, MergeRequestState, Project, Status};
 use lazylab::store::Store;
 use lazylab::tui::Source;
 use lazylab::tui::app::{Action, Cmd, Msg};
@@ -719,6 +719,7 @@ async fn a_reply_posts_in_its_thread_and_a_new_thread_on_its_merge_request() {
                 project: 1,
                 merge_request: 412,
                 discussion: discussion.map(String::from),
+                line: None,
                 body: body.into(),
             })
             .await;
@@ -733,4 +734,95 @@ async fn a_reply_posts_in_its_thread_and_a_new_thread_on_its_merge_request() {
             })
         );
     }
+}
+
+fn diff_refs() -> DiffRefs {
+    DiffRefs {
+        base_sha: "base123".into(),
+        head_sha: "head456".into(),
+        start_sha: "start789".into(),
+    }
+}
+
+#[tokio::test]
+async fn the_diff_refs_of_a_merge_request_come_back_for_it() {
+    // Given: GitLab with merge request !412 of project 1, whose diff it has prepared.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/merge_requests/412"))
+        .respond_with(json_body(
+            r#"{"iid":412,"diff_refs":{"base_sha":"base123","head_sha":"head456","start_sha":"start789"}}"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: its diff refs are asked for.
+    let answer = source
+        .answer(Cmd::LoadDiffRefs {
+            project: 1,
+            merge_request: 412,
+        })
+        .await;
+
+    // Then: the three commits come back for that merge request.
+    assert_eq!(
+        answer,
+        Some(Msg::DiffRefsLoaded {
+            project: 1,
+            merge_request: 412,
+            refs: Some(diff_refs()),
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_comment_on_a_diff_line_starts_a_thread_at_that_line() {
+    // Given: GitLab accepts a new thread on removed line 16 of .gitlab-ci.yml, on merge request
+    // !412 of project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/merge_requests/412/discussions"))
+        .and(body_json(serde_json::json!({
+            "body": "Why?",
+            "position": {
+                "position_type": "text",
+                "base_sha": "base123", "head_sha": "head456", "start_sha": "start789",
+                "old_path": ".gitlab-ci.yml", "new_path": ".gitlab-ci.yml",
+                "old_line": 16,
+            },
+        })))
+        .respond_with(json_body(r#"{"id":"d9","notes":[]}"#))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the comment is sent with its line.
+    let answer = source
+        .answer(Cmd::Comment {
+            project: 1,
+            merge_request: 412,
+            discussion: None,
+            line: Some(DiffLine {
+                diff_refs: diff_refs(),
+                old_path: ".gitlab-ci.yml".into(),
+                new_path: ".gitlab-ci.yml".into(),
+                old_line: Some(16),
+                new_line: None,
+            }),
+            body: "Why?".into(),
+        })
+        .await;
+
+    // Then: GitLab took the line, and the answer is a new thread on the merge request.
+    assert_eq!(
+        answer,
+        Some(Msg::Commented {
+            project: 1,
+            merge_request: 412,
+            reply: false,
+        })
+    );
 }

@@ -1,4 +1,4 @@
-use lazylab::gitlab::{Discussion, FileDiff, MergeRequestState};
+use lazylab::gitlab::{DiffLine, DiffRefs, Discussion, FileDiff, MergeRequestState};
 use lazylab::tui::app::{App, Cmd, Msg, Overlay, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::form::Purpose;
@@ -1138,6 +1138,7 @@ fn c_on_the_info_tab_starts_a_thread_on_the_merge_request_in_view() {
             project: PROJECT,
             merge_request: 409,
             discussion: None,
+            line: None,
             body: "Ship it".into(),
         }]
     );
@@ -1162,20 +1163,19 @@ fn c_on_the_threads_tab_replies_in_the_picked_thread() {
             project: PROJECT,
             merge_request: 412,
             discussion: Some("d3".into()),
+            line: None,
             body: "Done in the docs".into(),
         }]
     );
 }
 
 #[test]
-fn c_opens_no_form_on_the_diff_tab_or_from_the_sidebar() {
-    // Given: the diff tab with the detail pane focused, and the threads tab with the sidebar
-    // focused.
-    let mut diff = on_diff();
-    press(&mut diff, 'l');
+fn c_opens_no_form_from_the_sidebar() {
+    // Given: the threads tab and the diff tab, each with the sidebar focused.
     let mut threads = on_threads();
+    let mut diff = on_diff();
 
-    for app in [&mut diff, &mut threads] {
+    for app in [&mut threads, &mut diff] {
         // When: `c` is pressed.
         let commands = press(app, 'c');
 
@@ -1277,6 +1277,7 @@ fn a_refused_reply_opens_its_form_again_with_its_text() {
             project: PROJECT,
             merge_request: 412,
             discussion: Some("d1".into()),
+            line: None,
         }
     );
     assert_eq!(body(&app), "Thanks");
@@ -1345,20 +1346,23 @@ fn the_comment_form_replies_in_the_picked_thread() {
 }
 
 #[test]
-fn the_key_bar_offers_c_on_the_info_and_threads_tabs() {
-    // Given: the info tab and the threads tab, each with the detail pane focused.
+fn the_key_bar_offers_c_on_every_merge_request_tab() {
+    // Given: the info tab, the threads tab and the diff tab, each with the detail pane focused.
     let mut info = loaded();
     press(&mut info, '4');
     press(&mut info, 'l');
     let mut threads = on_threads();
     press(&mut threads, 'l');
+    let mut diff = on_diff();
+    press(&mut diff, 'l');
 
     // When: the screens are drawn.
     let bar = |app: &App| rows(&render(app)).last().unwrap().clone();
 
-    // Then: the info tab offers a comment, and the threads tab a reply.
+    // Then: the info and diff tabs offer a comment, and the threads tab a reply.
     assert!(bar(&info).contains("c comment"), "{}", bar(&info));
     assert!(bar(&threads).contains("c reply"), "{}", bar(&threads));
+    assert!(bar(&diff).contains("c comment"), "{}", bar(&diff));
 }
 
 #[test]
@@ -1620,4 +1624,233 @@ fn the_key_bar_offers_t_to_switch_the_merge_request_state() {
     // Then: the key bar offers `t/T` to switch the state.
     let bar = shown.last().unwrap();
     assert!(bar.contains("t/T state"), "{bar}");
+}
+
+fn diff_refs_asked(commands: &[Cmd]) -> Vec<(u64, u64)> {
+    (commands.iter())
+        .filter_map(|c| match c {
+            Cmd::LoadDiffRefs {
+                project,
+                merge_request,
+            } => Some((*project, *merge_request)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The diff refs the demo data gives the merge request.
+fn refs_of(merge_request: u64) -> DiffRefs {
+    let cmd = Cmd::LoadDiffRefs {
+        project: PROJECT,
+        merge_request,
+    };
+    match demo::answer(cmd, now()) {
+        Some(Msg::DiffRefsLoaded {
+            refs: Some(refs), ..
+        }) => refs,
+        other => panic!("diff refs, got {other:?}"),
+    }
+}
+
+fn line_of(
+    paths: (&str, &str),
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+    merge_request: u64,
+) -> DiffLine {
+    DiffLine {
+        diff_refs: refs_of(merge_request),
+        old_path: paths.0.into(),
+        new_path: paths.1.into(),
+        old_line,
+        new_line,
+    }
+}
+
+#[test]
+fn the_diff_tab_loads_the_diff_refs_of_the_merge_request_the_cursor_rests_on() {
+    // Given: the demo data on the merge requests pane, on its info tab.
+    let mut app = loaded();
+    press(&mut app, '4');
+
+    // When: the diff tab opens.
+    let opened = press(&mut app, '[');
+
+    // Then: the diff refs of the first merge request are asked for with its diff.
+    assert_eq!(diff_refs_asked(&opened), [(PROJECT, 412)]);
+
+    // When: the cursor moves down two merge requests, then rests.
+    let moving = [press(&mut app, 'j'), press(&mut app, 'j')].concat();
+    let settled = ticks(&mut app, SETTLE_TICKS);
+
+    // Then: only the diff refs of the merge request it stopped on are asked for, once it rests.
+    assert_eq!(diff_refs_asked(&moving), []);
+    assert_eq!(diff_refs_asked(&settled), [(PROJECT, 407)]);
+}
+
+#[test]
+fn c_on_the_diff_tab_starts_a_thread_on_the_picked_line() {
+    // Given: the diff of the first merge request with its diff refs, and the detail pane focused.
+    let mut app = on_diff();
+    press(&mut app, 'l');
+    let ci = (".gitlab-ci.yml", ".gitlab-ci.yml");
+    let renamed = ("ci/cache.sh", "ci/layers.sh");
+
+    for (moves, kind, line) in [
+        (0, "an unchanged line", line_of(ci, Some(12), Some(12), 412)),
+        (2, "an added line", line_of(ci, None, Some(14), 412)),
+        (9, "a removed line", line_of(ci, Some(16), None, 412)),
+        (
+            15,
+            "an unchanged line",
+            line_of(renamed, Some(1), Some(1), 412),
+        ),
+        (17, "an added line", line_of(renamed, None, Some(2), 412)),
+    ] {
+        // When: the line is picked, and a comment is typed and sent.
+        press(&mut app, 'g');
+        presses(&mut app, 'j', moves);
+        let sent = comment(&mut app, "Why?");
+
+        // Then: a new thread goes to that line, named by the side of the diff the line is on:
+        // the new side for an added line, the old side for a removed one, and both for the rest.
+        assert_eq!(
+            comments(&sent),
+            [Cmd::Comment {
+                project: PROJECT,
+                merge_request: 412,
+                discussion: None,
+                line: Some(line),
+                body: "Why?".into(),
+            }],
+            "{kind} after {moves} moves"
+        );
+        assert_eq!(app.overlay, Overlay::None);
+    }
+}
+
+#[test]
+fn c_on_the_diff_tab_without_the_diff_refs_says_so_and_opens_no_form() {
+    let failed = |cmd: Cmd| {
+        Some(Msg::Failed {
+            cmd,
+            error: "get merge request diff refs: 502 Bad Gateway".into(),
+        })
+    };
+    let not_prepared = |cmd: Cmd| match cmd {
+        Cmd::LoadDiffRefs {
+            project,
+            merge_request,
+        } => Some(Msg::DiffRefsLoaded {
+            project,
+            merge_request,
+            refs: None,
+        }),
+        other => panic!("a diff refs load, got {other:?}"),
+    };
+    let on_their_way = |_: Cmd| None;
+    let cases: [(&str, &dyn Fn(Cmd) -> Option<Msg>); 3] = [
+        ("still on their way", &on_their_way),
+        ("not prepared by GitLab", &not_prepared),
+        ("failed to load", &failed),
+    ];
+    for (case, refs_answer) in cases {
+        // Given: the diff of the first merge request loaded, and its diff refs in that case.
+        let mut app = loaded();
+        press(&mut app, '4');
+        let (refs, diff): (Vec<Cmd>, Vec<Cmd>) = press(&mut app, '[')
+            .into_iter()
+            .partition(|c| matches!(c, Cmd::LoadDiffRefs { .. }));
+        answer(&mut app, diff);
+        let answered = (refs_answer(refs[0].clone()))
+            .map(|msg| app.update(msg))
+            .unwrap_or_default();
+        press(&mut app, 'l');
+
+        // When: `c` is pressed on the first line, and time passes.
+        let pressed = press(&mut app, 'c');
+        let bar = rows(&render(&app)).last().unwrap().clone();
+        let waited = ticks(&mut app, SETTLE_TICKS * 3);
+
+        // Then: no form opens, the status bar says why, and the diff refs are not asked for
+        // again.
+        assert_eq!(app.overlay, Overlay::None, "{case}");
+        assert_eq!(comments(&pressed), [], "{case}");
+        assert!(
+            bar.contains("The diff refs are not loaded yet"),
+            "{case}: {bar}"
+        );
+        assert_eq!(diff_refs_asked(&[answered, waited].concat()), [], "{case}");
+    }
+}
+
+#[test]
+fn a_refused_line_comment_opens_its_form_again_with_its_text_and_its_line() {
+    // Given: a comment sent on the first added line of the diff.
+    let mut app = on_diff();
+    press(&mut app, 'l');
+    presses(&mut app, 'j', 2);
+    let sent = comments(&comment(&mut app, "Why?")).remove(0);
+
+    // When: GitLab refuses it.
+    let commands = app.update(Msg::Failed {
+        cmd: sent.clone(),
+        error: "start merge request thread: 400 Bad Request".into(),
+    });
+
+    // Then: the comment form is open again with the text, for the same line.
+    assert_eq!(app.overlay, Overlay::Form);
+    assert_eq!(
+        app.form.as_ref().unwrap().purpose,
+        Purpose::Comment {
+            project: PROJECT,
+            merge_request: 412,
+            discussion: None,
+            line: Some(line_of(
+                (".gitlab-ci.yml", ".gitlab-ci.yml"),
+                None,
+                Some(14),
+                412
+            )),
+        }
+    );
+    assert_eq!(body(&app), "Why?");
+    assert_eq!(commands, []);
+
+    // When: it is sent again. Then: it goes to the same line.
+    let again = key(&mut app, KeyCode::Char('s'), KeyModifiers::CONTROL);
+    assert_eq!(comments(&again), [sent]);
+}
+
+#[test]
+fn late_diff_refs_for_a_merge_request_the_cursor_left_are_dropped() {
+    // Given: the second merge request's diff and diff refs in view, while the first merge
+    // request's diff refs are still on their way.
+    let mut app = loaded();
+    press(&mut app, '4');
+    let late: Vec<Cmd> = (press(&mut app, '[').into_iter())
+        .filter(|c| matches!(c, Cmd::LoadDiffRefs { .. }))
+        .collect();
+    press(&mut app, 'j');
+    let asked = ticks(&mut app, SETTLE_TICKS);
+    answer(&mut app, asked);
+    press(&mut app, 'l');
+
+    // When: the first merge request's diff refs arrive.
+    let late = demo::answer(late[0].clone(), now()).unwrap();
+    let commands = app.update(late);
+
+    // Then: they are not asked for again, and a comment on the first line still names the
+    // diff refs of the second merge request.
+    assert_eq!(diff_refs_asked(&commands), []);
+    let sent = comment(&mut app, "Why?");
+    let ci = (".gitlab-ci.yml", ".gitlab-ci.yml");
+    assert!(
+        matches!(
+            &comments(&sent)[..],
+            [Cmd::Comment { merge_request: 409, line: Some(line), .. }]
+                if *line == line_of(ci, Some(12), Some(12), 409)
+        ),
+        "{sent:?}"
+    );
 }
