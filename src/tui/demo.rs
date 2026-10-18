@@ -8,7 +8,7 @@ use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 use super::app::{Cmd, Msg};
-use crate::gitlab::Page;
+use crate::gitlab::{MergeRequestState, Page};
 use crate::store::CachedProjects;
 
 const PROJECTS: [(&str, &str, &str); 13] = [
@@ -85,12 +85,22 @@ const JOB_PLAN: [(&str, &str); 9] = [
     ("deploy", "staging"),
     ("deploy", "production"),
 ];
-const MERGE_REQUESTS: [(u64, &str, &str); 5] = [
+const OPEN_MERGE_REQUESTS: [(u64, &str, &str); 5] = [
     (412, "Cache the runner image layers", "feat/runner-cache"),
     (409, "Retry the flaky checkout step", "fix/flaky-e2e"),
     (407, "Add SSO login behind a flag", "feat/sso-login"),
     (401, "Split the e2e suite by shard", "feat/e2e-shards"),
     (398, "Bump the toolchain", "chore/bump-deps"),
+];
+const MERGED_MERGE_REQUESTS: [(u64, &str, &str); 4] = [
+    (396, "Cache the dependency downloads", "feat/dep-cache"),
+    (392, "Pin the base image digest", "chore/pin-base"),
+    (388, "Fix the nightly time zone", "fix/nightly-tz"),
+    (381, "Add worker health checks", "feat/worker-health"),
+];
+const CLOSED_MERGE_REQUESTS: [(u64, &str, &str); 2] = [
+    (394, "Try a second runner pool", "spike/runner-pool"),
+    (385, "Move the handbook to a wiki", "docs/wiki"),
 ];
 
 pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
@@ -155,9 +165,10 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             pipeline,
             jobs: Vec::new(),
         },
-        Cmd::LoadMergeRequests { project } => Msg::MergeRequestsLoaded {
+        Cmd::LoadMergeRequests { project, state } => Msg::MergeRequestsLoaded {
             project,
-            merge_requests: merge_requests(project, now),
+            state,
+            merge_requests: merge_requests(project, state, now),
         },
         Cmd::LoadThreads {
             project,
@@ -331,9 +342,19 @@ fn test_report(project: u64, pipeline: u64) -> crate::gitlab::TestReport {
     }))
 }
 
-fn merge_requests(project: u64, now: OffsetDateTime) -> Vec<crate::gitlab::MergeRequest> {
+fn merge_requests(
+    project: u64,
+    state: MergeRequestState,
+    now: OffsetDateTime,
+) -> Vec<crate::gitlab::MergeRequest> {
     let shift = project.saturating_sub(FIRST_PROJECT) as usize;
-    MERGE_REQUESTS
+    let listed: &[(u64, &str, &str)] = match state {
+        MergeRequestState::Opened => &OPEN_MERGE_REQUESTS,
+        MergeRequestState::Merged => &MERGED_MERGE_REQUESTS,
+        MergeRequestState::Closed => &CLOSED_MERGE_REQUESTS,
+        MergeRequestState::Locked | MergeRequestState::Unknown => &[],
+    };
+    listed
         .iter()
         .zip([120, 360, 1440, 4320, 10080])
         .enumerate()
@@ -341,7 +362,7 @@ fn merge_requests(project: u64, now: OffsetDateTime) -> Vec<crate::gitlab::Merge
             json!({
                 "iid": iid,
                 "title": title,
-                "state": "opened",
+                "state": state.as_str(),
                 "author": {"name": AUTHORS[(i + shift) % AUTHORS.len()]},
                 "source_branch": source,
                 "target_branch": "main",

@@ -4,7 +4,7 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use common::client_for;
-use lazylab::gitlab::{Project, Status};
+use lazylab::gitlab::{MergeRequestState, Project, Status};
 use lazylab::store::Store;
 use lazylab::tui::Source;
 use lazylab::tui::app::{Action, Cmd, Msg};
@@ -189,7 +189,12 @@ async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
             pipeline: 100,
         })
         .await;
-    let merge_requests = source.answer(Cmd::LoadMergeRequests { project: 1 }).await;
+    let merge_requests = source
+        .answer(Cmd::LoadMergeRequests {
+            project: 1,
+            state: MergeRequestState::Opened,
+        })
+        .await;
     let child = source
         .answer(Cmd::LoadChildJobs {
             project: 77,
@@ -211,7 +216,7 @@ async fn pipelines_jobs_and_open_merge_requests_come_from_gitlab() {
         "{child:?}"
     );
     assert!(
-        matches!(&merge_requests, Some(Msg::MergeRequestsLoaded { project: 1, merge_requests }) if !merge_requests.is_empty()),
+        matches!(&merge_requests, Some(Msg::MergeRequestsLoaded { project: 1, merge_requests, .. }) if !merge_requests.is_empty()),
         "{merge_requests:?}"
     );
 }
@@ -496,6 +501,41 @@ async fn a_refused_run_answers_without_the_variable_value_it_echoed() {
     };
     assert!(error.starts_with("create pipeline"), "{error}");
     assert!(!error.contains("s3cr3t-value-9f2"), "{error}");
+}
+
+#[tokio::test]
+async fn merge_requests_come_from_gitlab_in_the_state_the_load_names() {
+    // Given: GitLab with merged merge requests for project 1, and nothing in another state.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/merge_requests"))
+        .and(query_param("state", "merged"))
+        .respond_with(json_body(MERGE_REQUESTS))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the merged merge requests are asked for.
+    let answer = source
+        .answer(Cmd::LoadMergeRequests {
+            project: 1,
+            state: MergeRequestState::Merged,
+        })
+        .await;
+
+    // Then: they come back for that project and that state.
+    assert!(
+        matches!(
+            &answer,
+            Some(Msg::MergeRequestsLoaded {
+                project: 1,
+                state: MergeRequestState::Merged,
+                merge_requests,
+            }) if !merge_requests.is_empty()
+        ),
+        "{answer:?}"
+    );
 }
 
 #[tokio::test]

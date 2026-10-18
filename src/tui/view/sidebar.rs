@@ -6,7 +6,7 @@ use ratatui::widgets::Paragraph;
 use time::OffsetDateTime;
 
 use super::Context;
-use crate::gitlab::Status;
+use crate::gitlab::{MergeRequestState, Status};
 use crate::tui::app::{App, Focus, Pane, ProjectStatus};
 use crate::tui::jobs::JobRow;
 use crate::tui::panel::{
@@ -100,12 +100,14 @@ fn draw_pane(frame: &mut Frame, app: &App, context: &Context, pane: Pane, area: 
     } else {
         position
     };
-    let title = if pane == Pane::Projects && app.favorites_only {
-        FAVORITES_TITLE
-    } else {
-        pane.label()
+    let title = match pane {
+        Pane::Projects if app.favorites_only => FAVORITES_TITLE.to_string(),
+        Pane::MergeRequests if app.mr_state != MergeRequestState::Opened => {
+            format!("{} · {}", pane.label(), app.mr_state.as_str())
+        }
+        _ => pane.label().to_string(),
     };
-    let frame_block = block(title, false, t).title_bottom(bottom_label(label, t));
+    let frame_block = block(&title, false, t).title_bottom(bottom_label(label, t));
     let list = frame_block.inner(area);
     frame.render_widget(frame_block, area);
 

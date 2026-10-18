@@ -1,3 +1,4 @@
+use lazylab::gitlab::MergeRequestState;
 use lazylab::tui::app::{App, Cmd, Msg};
 use lazylab::tui::demo;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -56,7 +57,10 @@ fn the_first_project_after_a_start_loads_its_lists_at_once() {
         lists(&commands),
         [
             Cmd::LoadPipelines { project, page: 1 },
-            Cmd::LoadMergeRequests { project },
+            Cmd::LoadMergeRequests {
+                project,
+                state: MergeRequestState::Opened,
+            },
         ]
     );
 }
@@ -91,7 +95,10 @@ fn fast_moves_load_the_lists_of_the_project_the_cursor_stops_on_once() {
         lists(&settled),
         [
             Cmd::LoadPipelines { project, page: 1 },
-            Cmd::LoadMergeRequests { project },
+            Cmd::LoadMergeRequests {
+                project,
+                state: MergeRequestState::Opened,
+            },
         ]
     );
 }

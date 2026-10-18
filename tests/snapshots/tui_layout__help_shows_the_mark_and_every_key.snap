@@ -5,28 +5,28 @@ expression: screen(&buffer)
  {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
 [1 projects]  2 pipelines   3 jobs   4 merge requests
 ┌─ projects ───────────────────────────────────┐┌─ acme/platform/api ──────────────────────────────────────────────────┐
-│[⠋ acme/platform/api                       4m]││ about      Public REST API and webhook fan-out                       │
-│ ✓ acme/platform/web      ┌─ help ────────────────────────────────────────────────────────┐                           │
-│ ⠋ acme/platform/workers  │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
-│ ✓ acme/infra/terraform   │ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │/platform/api              │
-│ ⠋ acme/infra/helm-charts │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
-│ ✓ acme/infra/runner-image│ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
-│ ⠋ acme/data/ingest       │ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
-│ ✓ acme/data/warehouse-mod│ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
-│ ⠋ acme/tools/lazylab     │                                                               │                           │
-│ ✓ acme/tools/release-bot │ j k ↑ ↓     move                                              │                           │
-│ ⠋ acme/mobile/ios-app    │ g G         first, last                                       │                           │
-│ ✓ acme/mobile/android-app│ ctrl+d u    page down, up                                     │                           │
-│ ⠋ acme/docs/handbook     │ 1-4 tab     choose a pane                                     │                           │
-│                          │ l enter     open the detail pane                              │                           │
+│[⠋ acme/platform/api      ┌─ help ────────────────────────────────────────────────────────┐-out                       │
+│ ✓ acme/platform/web      │ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │                           │
+│ ⠋ acme/platform/workers  │ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │                           │
+│ ✓ acme/infra/terraform   │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │/platform/api              │
+│ ⠋ acme/infra/helm-charts │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
+│ ✓ acme/infra/runner-image│ │ ███████╗██║  ██║███████╗   ██║   ███████╗██║  ██║██████╔╝ │ │                           │
+│ ⠋ acme/data/ingest       │ ╰ ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═════╝  ╯ │                           │
+│ ✓ acme/data/warehouse-mod│                                                               │                           │
+│ ⠋ acme/tools/lazylab     │ j k ↑ ↓     move                                              │                           │
+│ ✓ acme/tools/release-bot │ g G         first, last                                       │                           │
+│ ⠋ acme/mobile/ios-app    │ ctrl+d u    page down, up                                     │                           │
+│ ✓ acme/mobile/android-app│ 1-4 tab     choose a pane                                     │                           │
+│ ⠋ acme/docs/handbook     │ l enter     open the detail pane                              │                           │
 │                          │ h esc       back                                              │                           │
 │                          │ /           search the projects                               │                           │
 │                          │ f           favorite the project, or not                      │                           │
-└──────────────────────────│ t           favorites only, or every project                  │                           │
-┌─ pipelines ──────────────│ { }         move a favorite up, down                          │                           │
-│[⠋ #61441 main            │ ctrl+r      reload the projects                               │                           │
-│ ✓ #61434 feat/runner-cach│ [ ]         the page of pipelines before, after               │                           │
-│ ✗ #61427 fix/flaky-e2e   │ T           the test report of the pipeline, or its stages    │                           │
+│                          │ t           favorites only, or every project                  │                           │
+└──────────────────────────│ { }         move a favorite up, down                          │                           │
+┌─ pipelines ──────────────│ ctrl+r      reload the projects                               │                           │
+│[⠋ #61441 main            │ [ ]         the page of pipelines before, after               │                           │
+│ ✓ #61434 feat/runner-cach│ T           the test report of the pipeline, or its stages    │                           │
+│ ✗ #61427 fix/flaky-e2e   │ t T         the merge request state after, before             │                           │
 │ ✓ #61420 main            │ [ ]         the merge request tab before, after               │                           │
 └──────────────────────────│ r           resolve or reopen the thread                      │                           │
 ┌─ jobs ───────────────────│ c           start a thread, or reply in the thread            │                           │

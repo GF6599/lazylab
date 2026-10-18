@@ -1,4 +1,4 @@
-use lazylab::gitlab::Discussion;
+use lazylab::gitlab::{Discussion, MergeRequestState};
 use lazylab::tui::app::{App, Cmd, Msg, Overlay, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::form::Purpose;
@@ -1241,4 +1241,178 @@ fn the_cursor_sits_after_the_last_character_of_the_last_line() {
     assert!(row.contains("three"), "{row}");
     assert_eq!(buffer[(cursor.x - 1, cursor.y)].symbol(), "e", "{row}");
     assert_eq!(buffer[(cursor.x, cursor.y)].symbol(), " ", "{row}");
+}
+
+fn merge_requests_asked(commands: &[Cmd]) -> Vec<(u64, MergeRequestState)> {
+    (commands.iter())
+        .filter_map(|c| match c {
+            Cmd::LoadMergeRequests { project, state } => Some((*project, *state)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn shown_states(app: &App) -> Vec<MergeRequestState> {
+    app.merge_requests.iter().map(|mr| mr.state).collect()
+}
+
+/// Presses `key`, lets the demo answer the one merge request load it sends, and returns the
+/// state that load named.
+fn switch(app: &mut App, key: char) -> MergeRequestState {
+    let asked = press(app, key);
+    let [(PROJECT, state)] = merge_requests_asked(&asked)[..] else {
+        panic!("one merge request load, got {asked:?}");
+    };
+    assert!(app.merge_requests.is_empty(), "{:?}", shown_states(app));
+    answer(app, asked);
+    state
+}
+
+#[test]
+fn t_turns_the_merge_request_list_to_merged_then_closed_then_open() {
+    // Given: the second open merge request on the threads tab of the merge requests pane.
+    let mut app = on_threads();
+    press(&mut app, 'j');
+
+    // When: `t` is pressed. Then: the merged merge requests are asked for and shown, from the
+    // first row, on the info tab.
+    assert_eq!(switch(&mut app, 't'), MergeRequestState::Merged);
+    let merged = shown_states(&app);
+    assert!(!merged.is_empty());
+    assert!(
+        merged.iter().all(|&s| s == MergeRequestState::Merged),
+        "{merged:?}"
+    );
+    assert_eq!(app.cursor(Pane::MergeRequests), 0);
+    assert_eq!(marked_tab(&render(&app)), "info");
+
+    // When: `t` is pressed again. Then: the closed merge requests are asked for and shown.
+    assert_eq!(switch(&mut app, 't'), MergeRequestState::Closed);
+    let closed = shown_states(&app);
+    assert!(!closed.is_empty());
+    assert!(
+        closed.iter().all(|&s| s == MergeRequestState::Closed),
+        "{closed:?}"
+    );
+
+    // When: `t` is pressed once more. Then: the list is back on the open merge requests.
+    assert_eq!(switch(&mut app, 't'), MergeRequestState::Opened);
+    let open = shown_states(&app);
+    assert!(!open.is_empty());
+    assert!(
+        open.iter().all(|&s| s == MergeRequestState::Opened),
+        "{open:?}"
+    );
+}
+
+#[test]
+fn shift_t_turns_the_merge_request_list_back_from_open_to_closed_then_merged() {
+    // Given: the open merge requests on the merge requests pane.
+    let mut app = loaded();
+    press(&mut app, '4');
+
+    // When: `T` is pressed three times. Then: closed, merged and open, in that order.
+    assert_eq!(switch(&mut app, 'T'), MergeRequestState::Closed);
+    assert_eq!(switch(&mut app, 'T'), MergeRequestState::Merged);
+    assert_eq!(switch(&mut app, 'T'), MergeRequestState::Opened);
+}
+
+#[test]
+fn t_on_the_projects_pane_and_shift_t_on_the_pipelines_pane_keep_their_own_meaning() {
+    // Given: the demo data on the projects pane.
+    let mut app = loaded();
+
+    // When: `t` is pressed there.
+    let asked = press(&mut app, 't');
+
+    // Then: the projects pane shows the favorites only, and the merge requests stay open.
+    assert!(app.favorites_only);
+    assert_eq!(merge_requests_asked(&asked), []);
+    assert_eq!(app.mr_state, MergeRequestState::Opened);
+
+    // When: every project shows again, and `T` is pressed on the pipelines pane.
+    press(&mut app, 't');
+    press(&mut app, '2');
+    let asked = press(&mut app, 'T');
+
+    // Then: the test report opens, and the merge requests stay open.
+    assert!(app.test_report_open);
+    assert_eq!(merge_requests_asked(&asked), []);
+    assert_eq!(app.mr_state, MergeRequestState::Opened);
+}
+
+#[test]
+fn a_late_answer_for_the_state_the_list_left_is_dropped() {
+    // Given: the list turned from open to merged, with the merged answer still on its way.
+    let mut app = loaded();
+    press(&mut app, '4');
+    let merged = press(&mut app, 't');
+
+    // When: an answer for the open merge requests arrives.
+    let late = Cmd::LoadMergeRequests {
+        project: PROJECT,
+        state: MergeRequestState::Opened,
+    };
+    app.update(demo::answer(late, now()).unwrap());
+
+    // Then: the list does not show it.
+    assert_eq!(shown_states(&app), []);
+
+    // When: the merged answer arrives. Then: the list shows the merged merge requests.
+    answer(&mut app, merged);
+    let shown = shown_states(&app);
+    assert!(!shown.is_empty());
+    assert!(
+        shown.iter().all(|&s| s == MergeRequestState::Merged),
+        "{shown:?}"
+    );
+}
+
+#[test]
+fn a_switch_while_the_project_waits_asks_for_the_merge_requests_once_it_rests() {
+    // Given: the cursor moved to the second project, and the merge requests pane in view before
+    // the project's lists load.
+    let mut app = loaded();
+    let moved = press(&mut app, 'j');
+    press(&mut app, '4');
+
+    // When: `t` is pressed, and the cursor rests.
+    let switched = press(&mut app, 't');
+    let settled = ticks(&mut app, SETTLE_TICKS);
+
+    // Then: the merged merge requests of the second project are asked for once, when it rests.
+    let second = app.project().unwrap().id;
+    assert_eq!(merge_requests_asked(&[moved, switched].concat()), []);
+    assert_eq!(
+        merge_requests_asked(&settled),
+        [(second, MergeRequestState::Merged)]
+    );
+}
+
+#[test]
+fn the_pane_title_names_the_state_in_view() {
+    // Given: the merged merge requests on the merge requests pane.
+    let mut app = loaded();
+    press(&mut app, '4');
+    switch(&mut app, 't');
+
+    // When: the screen is drawn.
+    let buffer = render(&app);
+
+    // Then: the pane title says the list holds the merged merge requests.
+    insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
+fn the_key_bar_offers_t_to_switch_the_merge_request_state() {
+    // Given: the demo data on the merge requests pane.
+    let mut app = loaded();
+    press(&mut app, '4');
+
+    // When: the screen is drawn.
+    let shown = rows(&render(&app));
+
+    // Then: the key bar offers `t/T` to switch the state.
+    let bar = shown.last().unwrap();
+    assert!(bar.contains("t/T state"), "{bar}");
 }

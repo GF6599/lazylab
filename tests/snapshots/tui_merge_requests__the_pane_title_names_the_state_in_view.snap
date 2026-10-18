@@ -1,0 +1,36 @@
+---
+source: tests/tui_merge_requests.rs
+expression: screen(&buffer)
+---
+ {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
+ 1 projects   2 pipelines   3 jobs  [4 merge requests]
+┌─ projects ───────────────────────────────────┐┌─ merge request !396 ─────────────────────────────────────────────────┐
+│[⠋ acme/platform/api                       4m]││ [info]  threads   diff                                               │
+│ ✓ acme/platform/web                      12m ││                                                                      │
+│ ⠋ acme/platform/workers                   1h ││ title      Cache the dependency downloads                            │
+│ ✓ acme/infra/terraform                    3h ││ from       feat/dep-cache                                            │
+└─────────────────────────────────────── 1/13 ─┘│ into       main                                                      │
+┌─ pipelines ──────────────────────────────────┐│ by         Dana                                                      │
+│[⠋ #61441 main                             2m]││ updated    2h ago                                                    │
+│ ✓ #61434 feat/runner-cache               39m ││                                                                      │
+│ ✗ #61427 fix/flaky-e2e                    1h ││                                                                      │
+│ ✓ #61420 main                             1h ││                                                                      │
+└─────────────────────────────────────── 1/14 ─┘│                                                                      │
+┌─ jobs ───────────────────────────────────────┐│                                                                      │
+│[✓ compile                              build]││                                                                      │
+│ ✓ image                                      ││                                                                      │
+│ ⠋ unit                                  test ││                                                                      │
+│ ⠋ integration                                ││                                                                      │
+└──────────────────────────────────────── 1/9 ─┘│                                                                      │
+┌─ merge requests · merged ────────────────────┐│                                                                      │
+│[!396 Cache the dependency downloads       2h]││                                                                      │
+│ !392 Pin the base image digest            6h ││                                                                      │
+│ !388 Fix the nightly time zone            1d ││                                                                      │
+│ !381 Add worker health checks             3d ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+└──────────────────────────────────────── 1/4 ─┘└──────────────────────────────────────────────────────────────────────┘
+ BROWSE  j/k move  l open  t/T state  [ ] tab  1-4 pane  z zoom  ? help  q quit

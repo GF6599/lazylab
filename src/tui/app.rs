@@ -13,8 +13,8 @@ use super::form::{Form, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
 use crate::gitlab::{
-    Bridge, Discussion, FileDiff, Job, MergeRequest, Page, Pipeline, Project, Status, TestReport,
-    Variable,
+    Bridge, Discussion, FileDiff, Job, MergeRequest, MergeRequestState, Page, Pipeline, Project,
+    Status, TestReport, Variable,
 };
 use crate::store::CachedProjects;
 
@@ -114,6 +114,13 @@ impl MrTab {
         MrTab::ALL[(index + delta) % MrTab::ALL.len()]
     }
 }
+
+/// The states the merge request list turns through, in the Go release's order.
+const MR_STATES: [MergeRequestState; 3] = [
+    MergeRequestState::Opened,
+    MergeRequestState::Merged,
+    MergeRequestState::Closed,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Overlay {
@@ -245,6 +252,7 @@ pub enum Msg {
     },
     MergeRequestsLoaded {
         project: u64,
+        state: MergeRequestState,
         merge_requests: Vec<MergeRequest>,
     },
     ThreadsLoaded {
@@ -316,6 +324,7 @@ pub enum Cmd {
     },
     LoadMergeRequests {
         project: u64,
+        state: MergeRequestState,
     },
     /// `merge_request` is the number GitLab shows as `!42`.
     LoadThreads {
@@ -443,6 +452,8 @@ pub struct App {
     /// The rows the detail pane gave the log when it last drew, so a scroll stops at the top.
     pub log_height: Cell<usize>,
     pub merge_requests: Vec<MergeRequest>,
+    /// The state of the merge requests the list shows.
+    pub mr_state: MergeRequestState,
     /// The same tab stays in view from one merge request to the next.
     pub mr_tab: MrTab,
     threads: Option<Threads>,
@@ -512,6 +523,7 @@ impl App {
             log_scroll: 0,
             log_height: Cell::new(0),
             merge_requests: Vec::new(),
+            mr_state: MergeRequestState::Opened,
             mr_tab: MrTab::Info,
             threads: None,
             threads_asked: None,
@@ -1109,9 +1121,10 @@ impl App {
             }
             Msg::MergeRequestsLoaded {
                 project,
+                state,
                 merge_requests,
             } => {
-                if self.project().map(|p| p.id) == Some(project) {
+                if self.selected() == Some(project) && self.mr_state == state {
                     self.merge_requests = merge_requests;
                     self.cursors[Pane::MergeRequests.index()] = 0;
                     self.clear_threads();
@@ -1218,6 +1231,12 @@ impl App {
             KeyCode::Char('t') if on_projects => {
                 self.favorites_only = !self.favorites_only;
                 return self.reshow(before);
+            }
+            KeyCode::Char('t') if self.pane == Pane::MergeRequests => {
+                return self.switch_mr_state(1);
+            }
+            KeyCode::Char('T') if self.pane == Pane::MergeRequests => {
+                return self.switch_mr_state(MR_STATES.len() - 1);
             }
             KeyCode::Char('{') if on_projects => return self.move_favorite(-1),
             KeyCode::Char('}') if on_projects => return self.move_favorite(1),
@@ -1647,6 +1666,26 @@ impl App {
         }
     }
 
+    /// The list starts again from its first row on the info tab, as in the Go release. While the
+    /// project waits, the load at the end of the wait asks for the new state.
+    fn switch_mr_state(&mut self, delta: usize) -> Vec<Cmd> {
+        let index = MR_STATES.iter().position(|&s| s == self.mr_state);
+        self.mr_state = MR_STATES[(index.unwrap_or(0) + delta) % MR_STATES.len()];
+        self.merge_requests.clear();
+        self.cursors[Pane::MergeRequests.index()] = 0;
+        self.mr_tab = MrTab::Info;
+        self.clear_threads();
+        self.clear_diff();
+        let project_waits = matches!(self.waiting, Some((Waiting::Project(_), _)));
+        match self.selected() {
+            Some(project) if !project_waits => vec![Cmd::LoadMergeRequests {
+                project,
+                state: self.mr_state,
+            }],
+            _ => Vec::new(),
+        }
+    }
+
     fn project_changed(&mut self) -> Vec<Cmd> {
         self.pipeline_page = 1;
         self.next_pipeline_page = None;
@@ -1688,7 +1727,10 @@ impl App {
                     project,
                     page: self.pipeline_page,
                 },
-                Cmd::LoadMergeRequests { project },
+                Cmd::LoadMergeRequests {
+                    project,
+                    state: self.mr_state,
+                },
             ],
             Waiting::Pipeline { project, pipeline } => vec![Cmd::LoadJobs { project, pipeline }],
             Waiting::Job { project, job } => vec![Cmd::LoadLog { project, job }],
