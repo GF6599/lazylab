@@ -1,0 +1,15 @@
+---
+source: tests/tui_test_report.rs
+expression: end
+---
+┌─ test report #61427 ─────────────────────────────────────────────────┐
+│ integration  17 passed  1 failed                                     │
+│   ✗ checkout retries a dropped connection                            │
+│     class: e2e.CheckoutTest                                          │
+│     expected 3 retries, got 1                                        │
+│         at CheckoutTest.retry(CheckoutTest.java:88)                  │
+│         at Runner.run(Runner.java:41)                                │
+│         at Runner.main(Runner.java:12)                               │
+│     retry log:                                                       │
+│     …                                                                │
+└──────────────────────────────────────────────────────────────────────┘

@@ -175,6 +175,11 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             merge_request,
             files: diffs(),
         },
+        Cmd::LoadTestReport { project, pipeline } => Msg::TestReportLoaded {
+            project,
+            pipeline,
+            report: test_report(project, pipeline),
+        },
         Cmd::ResolveThread {
             project,
             merge_request,
@@ -253,9 +258,13 @@ fn pipeline_status(project: u64, index: u64) -> &'static str {
     }
 }
 
-fn jobs(project: u64, pipeline: u64) -> Vec<crate::gitlab::Job> {
+fn status_of(project: u64, pipeline: u64) -> &'static str {
     let index = pipeline_id(project, 0).saturating_sub(pipeline) / PIPELINE_ID_STEP;
-    let status = pipeline_status(project, index);
+    pipeline_status(project, index)
+}
+
+fn jobs(project: u64, pipeline: u64) -> Vec<crate::gitlab::Job> {
+    let status = status_of(project, pipeline);
     JOB_PLAN
         .iter()
         .zip(0u64..)
@@ -288,6 +297,28 @@ fn job_status(pipeline: &str, stage: &str, name: &str) -> &'static str {
         ("failed" | "canceled", _, _) => "skipped",
         _ => "pending",
     }
+}
+
+/// A failed pipeline fails one integration case, which the other pipelines pass.
+fn test_report(project: u64, pipeline: u64) -> crate::gitlab::TestReport {
+    let failed = u32::from(status_of(project, pipeline) == "failed");
+    let case = if failed == 1 { "failed" } else { "success" };
+    decode(json!({
+        "total_time": 84.2,
+        "total_count": 60,
+        "success_count": 60 - failed,
+        "failed_count": failed,
+        "test_suites": [
+            {"name": "unit", "total_count": 42, "success_count": 42},
+            {"name": "integration", "total_count": 18, "success_count": 18 - failed,
+             "failed_count": failed, "test_cases": [{
+                "status": case,
+                "name": "checkout retries a dropped connection",
+                "classname": "e2e.CheckoutTest",
+                "system_output": "expected 3 retries, got 1\n\tat CheckoutTest.retry(CheckoutTest.java:88)\n\tat Runner.run(Runner.java:41)\n\tat Runner.main(Runner.java:12)\nretry log:\n  attempt 1 refused\n  attempt 2 never sent",
+            }]},
+        ],
+    }))
 }
 
 fn merge_requests(project: u64, now: OffsetDateTime) -> Vec<crate::gitlab::MergeRequest> {

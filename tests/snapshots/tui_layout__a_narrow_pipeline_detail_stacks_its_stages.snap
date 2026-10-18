@@ -41,4 +41,4 @@ expression: screen(&buffer)
 │                                          │
 │                                          │
 └──────────────────────────────────────────┘
- DETAIL  h back  ? help  q quit
+ DETAIL  T tests  h back  ? help  q quit

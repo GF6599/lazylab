@@ -616,3 +616,35 @@ async fn the_diff_of_a_merge_request_is_its_changed_files() {
         ["a.rs"]
     );
 }
+
+#[tokio::test]
+async fn the_test_report_of_a_pipeline_comes_back_for_that_pipeline() {
+    // Given: GitLab with an empty test report for pipeline 100 of project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/pipelines/100/test_report"))
+        .respond_with(json_body(r#"{"total_count":0,"test_suites":[]}"#))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the test report is asked for.
+    let answer = source
+        .answer(Cmd::LoadTestReport {
+            project: 1,
+            pipeline: 100,
+        })
+        .await;
+
+    // Then: the report comes back for that pipeline.
+    let Some(Msg::TestReportLoaded {
+        project: 1,
+        pipeline: 100,
+        report,
+    }) = answer
+    else {
+        panic!("a test report, got {answer:?}");
+    };
+    assert!(report.test_suites.is_empty());
+}

@@ -144,6 +144,15 @@ impl Live {
                     merge_request,
                     files,
                 }),
+            Cmd::LoadTestReport { project, pipeline } => self
+                .client
+                .pipeline_test_report(project, pipeline)
+                .await
+                .map(|report| Msg::TestReportLoaded {
+                    project,
+                    pipeline,
+                    report,
+                }),
             Cmd::ResolveThread {
                 project,
                 merge_request,
