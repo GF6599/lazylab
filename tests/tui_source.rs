@@ -13,13 +13,14 @@ use lazylab::tui::Source;
 use lazylab::tui::app::{Action, Cmd, Msg};
 use time::OffsetDateTime;
 use url::Url;
-use wiremock::matchers::{body_json, method, path, query_param};
+use wiremock::matchers::{body_json, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const PIPELINES: &str = include_str!("fixtures/pipelines.json");
 const PIPELINE_JOBS: &str = include_str!("fixtures/pipeline_jobs.json");
 const MERGE_REQUESTS: &str = include_str!("fixtures/merge_requests.json");
 const BRIDGES: &str = include_str!("fixtures/bridges.json");
+const CREATED_MERGE_REQUEST: &str = include_str!("fixtures/create_merge_request.json");
 
 fn json_body(body: &str) -> ResponseTemplate {
     ResponseTemplate::new(200)
@@ -872,4 +873,124 @@ async fn a_comment_on_a_diff_line_starts_a_thread_at_that_line() {
             reply: false,
         })
     );
+}
+
+#[tokio::test]
+async fn a_branch_search_asks_gitlab_for_its_term_and_answers_with_that_term() {
+    // Given: GitLab matches two branches for "release" in project 1, and lists one branch for no
+    // search.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/repository/branches"))
+        .and(query_param("search", "release"))
+        .respond_with(json_body(
+            r#"[{"name":"release/v1"},{"name":"release/v2"}]"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects/1/repository/branches"))
+        .and(query_param_is_missing("search"))
+        .respond_with(json_body(r#"[{"name":"main"}]"#))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    for (search, branches) in [
+        ("release", &["release/v1", "release/v2"][..]),
+        ("", &["main"]),
+    ] {
+        // When: the branches are searched for the term, then for no term.
+        let answer = source
+            .answer(Cmd::LoadBranches {
+                project: 1,
+                search: search.into(),
+            })
+            .await;
+
+        // Then: the matches come back with the term they answer.
+        assert_eq!(
+            answer,
+            Some(Msg::BranchesLoaded {
+                project: 1,
+                search: search.into(),
+                branches: branches.iter().map(|b| b.to_string()).collect(),
+            })
+        );
+    }
+}
+
+fn create_merge_request() -> Cmd {
+    Cmd::CreateMergeRequest {
+        project: 1,
+        source: "feature/login".into(),
+        target: "main".into(),
+        title: "Add login feature".into(),
+    }
+}
+
+#[tokio::test]
+async fn a_create_posts_the_branches_and_the_title_and_answers_with_the_new_merge_request() {
+    // Given: GitLab opens a merge request from feature/login into main in project 1.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/merge_requests"))
+        .and(body_json(serde_json::json!({
+            "title": "Add login feature",
+            "source_branch": "feature/login",
+            "target_branch": "main",
+            "description": "",
+        })))
+        .respond_with(
+            ResponseTemplate::new(201)
+                .insert_header("Content-Type", "application/json")
+                .set_body_string(CREATED_MERGE_REQUEST),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the merge request is created.
+    let answer = source.answer(create_merge_request()).await;
+
+    // Then: the answer is the new merge request, in its project.
+    let Some(Msg::MergeRequestCreated {
+        project,
+        merge_request,
+    }) = answer
+    else {
+        panic!("a created merge request, got {answer:?}");
+    };
+    assert_eq!(
+        (project, merge_request.iid, merge_request.title.as_str()),
+        (1, 99, "Add login feature")
+    );
+}
+
+#[tokio::test]
+async fn a_refused_create_answers_with_its_command_and_the_reason() {
+    // Given: GitLab refuses the merge request, because one is open for the branch already.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v4/projects/1/merge_requests"))
+        .respond_with(ResponseTemplate::new(409).set_body_string(
+            r#"{"message":["Another open merge request already exists for this source branch: !98"]}"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let source = Source::live(client_for(&server.uri()), None);
+
+    // When: the merge request is created.
+    let answer = source.answer(create_merge_request()).await;
+
+    // Then: the answer names the command, the refusal and its reason.
+    let Some(Msg::Failed { cmd, error }) = answer else {
+        panic!("a failure, got {answer:?}");
+    };
+    assert_eq!(cmd, create_merge_request());
+    assert!(error.contains("409") && error.contains("!98"), "{error}");
 }
