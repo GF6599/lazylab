@@ -133,6 +133,8 @@ pub enum Overlay {
     Confirm,
     /// The run or play form in `App::form`, which takes every key until it closes.
     Form,
+    /// The glab commands in `App::command_menu`, one of which goes to the clipboard.
+    CommandMenu,
 }
 
 /// A change to a pipeline or a job. Each names the project it acts in, which for a job of a
@@ -412,6 +414,13 @@ pub struct PipelineTestReport {
     pub report: Option<TestReport>,
 }
 
+#[derive(Debug)]
+pub struct CommandMenu {
+    pub project: String,
+    pub commands: Vec<GlabCommand>,
+    pub row: usize,
+}
+
 #[derive(Debug, Default)]
 pub struct Search {
     pub query: String,
@@ -438,6 +447,7 @@ pub struct App {
     pub confirm: Option<Action>,
     /// Variable values live here while the form is open, and nowhere once it closes.
     pub form: Option<Form>,
+    pub command_menu: Option<CommandMenu>,
     /// In the order the user set, which the favorites view keeps.
     pub favorites: Vec<u64>,
     pub favorites_only: bool,
@@ -524,6 +534,7 @@ impl App {
             notice: None,
             confirm: None,
             form: None,
+            command_menu: None,
             favorites: Vec::new(),
             favorites_only: false,
             search: Search::default(),
@@ -1300,6 +1311,9 @@ impl App {
         if self.overlay == Overlay::Form {
             return self.on_form_key(key);
         }
+        if self.overlay == Overlay::CommandMenu {
+            return self.on_menu_key(key);
+        }
         if self.search.typing {
             return self.on_search_key(key);
         }
@@ -1367,6 +1381,7 @@ impl App {
             KeyCode::Char('N') if self.pane == Pane::Pipelines => return self.open_run_form(),
             KeyCode::Char('P') if self.pane == Pane::Jobs => return self.open_play_form(),
             KeyCode::Char('y') => return self.copy_glab_command(),
+            KeyCode::Char('Y') => self.open_command_menu(),
             KeyCode::Char('R') => return self.propose(true),
             KeyCode::Char('C') => return self.propose(false),
             KeyCode::Char('q') => self.quit = true,
@@ -1660,12 +1675,60 @@ impl App {
 
     fn copy_glab_command(&mut self) -> Vec<Cmd> {
         match self.glab_commands().into_iter().next() {
-            Some(command) => self.copy(format!("Copied: {}", command.line), command.line),
+            Some(command) => self.copy_line(command.line),
             None => {
                 self.notice = Some(NO_GLAB_COMMAND.to_string());
                 Vec::new()
             }
         }
+    }
+
+    fn open_command_menu(&mut self) {
+        let commands = self.glab_commands();
+        let project = self.project().map(|p| p.path_with_namespace.clone());
+        match project.filter(|_| !commands.is_empty()) {
+            Some(project) => {
+                self.command_menu = Some(CommandMenu {
+                    project,
+                    commands,
+                    row: 0,
+                });
+                self.overlay = Overlay::CommandMenu;
+            }
+            None => self.notice = Some(NO_GLAB_COMMAND.to_string()),
+        }
+    }
+
+    fn on_menu_key(&mut self, key: KeyEvent) -> Vec<Cmd> {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.quit |= key.code == KeyCode::Char('c');
+            return Vec::new();
+        }
+        let Some(menu) = self.command_menu.as_mut() else {
+            self.overlay = Overlay::None;
+            return Vec::new();
+        };
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                menu.row = (menu.row + 1).min(menu.commands.len().saturating_sub(1));
+            }
+            KeyCode::Char('k') | KeyCode::Up => menu.row = menu.row.saturating_sub(1),
+            KeyCode::Enter | KeyCode::Char('y') => {
+                let line = menu.commands.get(menu.row).map(|c| c.line.clone());
+                self.close_command_menu();
+                if let Some(line) = line {
+                    return self.copy_line(line);
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('q') => self.close_command_menu(),
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    fn close_command_menu(&mut self) {
+        self.command_menu = None;
+        self.overlay = Overlay::None;
     }
 
     /// The web address of the item of the pane in view and the notice for its copy, or the reason
@@ -1712,6 +1775,10 @@ impl App {
                 Vec::new()
             }
         }
+    }
+
+    fn copy_line(&mut self, line: String) -> Vec<Cmd> {
+        self.copy(format!("Copied: {line}"), line)
     }
 
     fn copy(&mut self, notice: String, text: String) -> Vec<Cmd> {

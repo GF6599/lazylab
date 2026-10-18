@@ -117,6 +117,21 @@ fn help_shows_the_mark_and_every_key() {
 }
 
 #[test]
+fn the_command_menu_lists_every_glab_command_of_the_item() {
+    // Given: the glab command menu of the newest pipeline, on its second command.
+    let mut app = loaded();
+    press(&mut app, '2');
+    press(&mut app, 'Y');
+    press(&mut app, 'j');
+
+    // When: the screen is drawn.
+    let buffer = render(&app, 120, 32);
+
+    // Then: each command sits under its label in a frame over the screen, the second one marked.
+    insta::assert_snapshot!(screen(&buffer));
+}
+
+#[test]
 fn a_terminal_below_the_minimum_says_how_large_it_has_to_be() {
     // When: the screen is drawn at 30 by 8.
     let buffer = render(&loaded(), 30, 8);

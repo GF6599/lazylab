@@ -13,7 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use time::OffsetDateTime;
 
-use super::app::{App, Focus, Overlay};
+use super::app::{App, CommandMenu, Focus, Overlay};
 use super::form::{Field, Form};
 use super::mark;
 use super::panel::block;
@@ -50,6 +50,7 @@ const HELP: &[(&str, &str)] = &[
     ("N", "run a pipeline, with variables"),
     ("P", "play a manual job, with variables"),
     ("y", "copy the glab command of the item"),
+    ("Y", "choose a glab command of the item to copy"),
     ("ctrl+o", "copy the web address of the item"),
     ("z", "full screen for the pane in view"),
     ("?", "open or close this help"),
@@ -106,6 +107,9 @@ pub fn draw(frame: &mut Frame, app: &App, context: &Context) {
     }
     if let (Overlay::Form, Some(form)) = (app.overlay, &app.form) {
         draw_form(frame, area, form, t);
+    }
+    if let (Overlay::CommandMenu, Some(menu)) = (app.overlay, &app.command_menu) {
+        draw_command_menu(frame, area, menu, t);
     }
 }
 
@@ -238,6 +242,34 @@ fn draw_confirm(frame: &mut Frame, area: Rect, question: &str, verb: &str, t: &T
     let inner_width = lines.iter().map(Line::width).max().unwrap_or(0);
     let rect = centered(area, inner_width + 4, lines.len() + 2);
     let frame_block = block("confirm", true, t);
+    let inner = frame_block.inner(rect);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(frame_block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Each command under its label, the chosen label between the marker cells.
+fn draw_command_menu(frame: &mut Frame, area: Rect, menu: &CommandMenu, t: &Theme) {
+    let room = (area.width as usize).saturating_sub(6);
+    let mut lines = Vec::new();
+    for (row, command) in menu.commands.iter().enumerate() {
+        let chosen = row == menu.row;
+        let (open, close) = if chosen { ("[", "]") } else { (" ", " ") };
+        let label = if chosen { t.marked() } else { t.body() };
+        lines.push(Line::from(vec![
+            Span::styled(open, t.marker()),
+            Span::styled(fit(command.label, room), label),
+            Span::styled(close, t.marker()),
+        ]));
+        lines.push(Line::styled(
+            format!(" {}", fit(&command.line, room)),
+            t.dim(),
+        ));
+    }
+    let inner_width = lines.iter().map(Line::width).max().unwrap_or(0);
+    let rect = centered(area, inner_width + 4, lines.len() + 2);
+    let title = format!("glab · {}", menu.project);
+    let frame_block = block(&fit(&title, room), true, t);
     let inner = frame_block.inner(rect);
     frame.render_widget(Clear, rect);
     frame.render_widget(frame_block, rect);

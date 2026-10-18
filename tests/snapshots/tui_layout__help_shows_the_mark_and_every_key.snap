@@ -34,11 +34,11 @@ expression: screen(&buffer)
 │ ✓ image                  │ N           run a pipeline, with variables                    │                           │
 │ ⠋ unit                   │ P           play a manual job, with variables                 │                           │
 │ ⠋ integration            │ y           copy the glab command of the item                 │                           │
-└──────────────────────────│ ctrl+o      copy the web address of the item                  │                           │
-┌─ merge requests ─────────│ z           full screen for the pane in view                  │                           │
-│[!412 Cache the runner ima│ ?           open or close this help                           │                           │
-│ !409 Retry the flaky chec│ q ctrl+c    quit                                              │                           │
-│ !407 Add SSO login behind└───────────────────────────────────────────────────────────────┘                           │
-│ !401 Split the e2e suite by shard         3d ││                                                                      │
+└──────────────────────────│ Y           choose a glab command of the item to copy         │                           │
+┌─ merge requests ─────────│ ctrl+o      copy the web address of the item                  │                           │
+│[!412 Cache the runner ima│ z           full screen for the pane in view                  │                           │
+│ !409 Retry the flaky chec│ ?           open or close this help                           │                           │
+│ !407 Add SSO login behind│ q ctrl+c    quit                                              │                           │
+│ !401 Split the e2e suite └───────────────────────────────────────────────────────────────┘                           │
 └──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
  HELP  esc close

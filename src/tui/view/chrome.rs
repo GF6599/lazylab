@@ -112,6 +112,7 @@ fn mode(app: &App) -> &'static str {
         (Overlay::Help, _) => "HELP",
         (Overlay::Confirm, _) => "CONFIRM",
         (Overlay::Form, _) => "FORM",
+        (Overlay::CommandMenu, _) => "GLAB",
         (Overlay::None, Focus::Detail) => "DETAIL",
         (Overlay::None, Focus::Sidebar) => "BROWSE",
     }
@@ -124,6 +125,7 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
         _ if app.search.typing => &[("enter", "keep"), ("esc", "clear")],
         (Overlay::Help, _) => &[("esc", "close")],
         (Overlay::Confirm, _) => &[("y", "yes"), ("n", "no")],
+        (Overlay::CommandMenu, _) => &[("j/k", "move"), ("enter", "copy"), ("esc", "close")],
         (Overlay::Form, _) if app.form.as_ref().is_some_and(|f| !f.takes_variables()) => {
             &[("ctrl+s", "send"), ("enter", "new line"), ("esc", "close")]
         }
