@@ -33,4 +33,4 @@ expression: screen(&buffer)
 │                                              ││                                                                      │
 │                                              ││  deleted: db/old-cache.sql                                           │
 └──────────────────────────────────────── 1/5 ─┘└──────────────────────────────────────────────────────────────────────┘
- DETAIL  j/k line  [ ] tab  h back  ? help  q quit
+ DETAIL  j/k line  c comment  [ ] tab  h back  ? help  q quit

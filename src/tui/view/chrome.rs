@@ -152,6 +152,7 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
         {
             &[
                 ("j/k", "line"),
+                ("c", "comment"),
                 ("[ ]", "tab"),
                 ("h", "back"),
                 ("?", "help"),

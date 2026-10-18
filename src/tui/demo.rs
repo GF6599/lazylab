@@ -8,7 +8,7 @@ use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 
 use super::app::{Cmd, Msg};
-use crate::gitlab::{MergeRequestState, Page};
+use crate::gitlab::{DiffRefs, MergeRequestState, Page};
 use crate::store::CachedProjects;
 
 const PROJECTS: [(&str, &str, &str); 13] = [
@@ -185,6 +185,14 @@ pub fn answer(command: Cmd, now: OffsetDateTime) -> Option<Msg> {
             project,
             merge_request,
             files: diffs(),
+        },
+        Cmd::LoadDiffRefs {
+            project,
+            merge_request,
+        } => Msg::DiffRefsLoaded {
+            project,
+            merge_request,
+            refs: Some(diff_refs(merge_request)),
         },
         Cmd::LoadTestReport { project, pipeline } => Msg::TestReportLoaded {
             project,
@@ -457,6 +465,16 @@ fn diffs() -> Vec<crate::gitlab::FileDiff> {
     .into_iter()
     .map(decode)
     .collect()
+}
+
+/// Each merge request names commits of its own, so a comment shows which merge request it is on.
+fn diff_refs(merge_request: u64) -> DiffRefs {
+    let sha = |side: u64| format!("{:040x}", merge_request * 0x1_0000 + side);
+    DiffRefs {
+        base_sha: sha(1),
+        start_sha: sha(2),
+        head_sha: sha(3),
+    }
 }
 
 fn at(now: OffsetDateTime, minutes_ago: i64) -> String {
