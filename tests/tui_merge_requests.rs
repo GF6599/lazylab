@@ -1,4 +1,4 @@
-use lazylab::gitlab::{Discussion, MergeRequestState};
+use lazylab::gitlab::{Discussion, FileDiff, MergeRequestState};
 use lazylab::tui::app::{App, Cmd, Msg, Overlay, Pane};
 use lazylab::tui::demo;
 use lazylab::tui::form::Purpose;
@@ -681,6 +681,7 @@ fn cell_of(buffer: &Buffer, text: &str) -> (u16, u16) {
     )
 }
 
+const FIRST_HEADER: &str = "modified: .gitlab-ci.yml";
 const FIRST_LINE: &str = "   image: registry.example.com/ci/base:2026.10";
 
 fn presses(app: &mut App, c: char, n: usize) {
@@ -695,10 +696,16 @@ fn j_and_k_in_the_detail_pick_a_line_of_the_diff() {
     let mut app = on_diff();
     press(&mut app, 'l');
 
-    // Then: its first line of code is picked, between gold brackets.
+    // Then: the header of its first file is picked, between gold brackets, with its text in iris.
+    let header = render(&app);
+    assert_eq!(picked_line(&header), FIRST_HEADER);
+    let (x, y) = cell_of(&header, FIRST_HEADER);
+    assert_eq!(header[(x, y)].fg, T.iris);
+
+    // When: `j` is pressed. Then: the first line of code is picked.
+    press(&mut app, 'j');
     let first = render(&app);
     assert_eq!(picked_line(&first), FIRST_LINE);
-    assert!(shows(&first, "modified: .gitlab-ci.yml"));
 
     // When: `j` is pressed. Then: the next line is picked, and nothing on the screen moves.
     press(&mut app, 'j');
@@ -719,48 +726,55 @@ fn j_and_k_in_the_detail_pick_a_line_of_the_diff() {
     assert_eq!(added[(x, y)].fg, T.pine);
     assert_eq!(added[(x + 3, y)].fg, T.iris);
 
-    // When: `G`, then `j` past the end. Then: the last line of code, still, and the view
+    // When: `G`, then `j` past the end. Then: the header of the last file, still, and the view
     // followed it to the end of the diff.
     press(&mut app, 'G');
     press(&mut app, 'j');
     let last = render(&app);
-    assert_eq!(picked_line(&last), "-DROP TABLE cache;");
+    assert_eq!(picked_line(&last), "modified: vendor/bundle.js");
     assert!(shows(&last, "too large to show"));
 
-    // When: `g`, then `k` past the top. Then: the first line of code again, under its file.
+    // When: `g`, then `k` past the top. Then: the header of the first file again.
     press(&mut app, 'g');
     press(&mut app, 'k');
-    let top = render(&app);
-    assert_eq!(picked_line(&top), FIRST_LINE);
-    assert!(shows(&top, "modified: .gitlab-ci.yml"));
+    assert_eq!(picked_line(&render(&app)), FIRST_HEADER);
 }
 
 #[test]
-fn the_cursor_on_the_diff_rests_only_on_lines_of_code() {
+fn the_cursor_on_the_diff_rests_only_on_file_headers_and_lines_of_code() {
     // Given: the last line of the first file picked.
     let mut app = on_diff();
     press(&mut app, 'l');
-    presses(&mut app, 'j', 14);
+    presses(&mut app, 'j', 15);
     assert_eq!(picked_line(&render(&app)), "+    - just ci-compile");
 
-    // When: `j` is pressed. Then: the first line of the next file, past the blank row, the file
-    // header, the rule and the hunk header.
+    // When: `j` is pressed. Then: the header of the next file, past the blank row.
+    press(&mut app, 'j');
+    assert_eq!(
+        picked_line(&render(&app)),
+        "renamed: ci/cache.sh → ci/layers.sh"
+    );
+
+    // When: `j` is pressed. Then: its first line of code, past the rule and the hunk header.
     press(&mut app, 'j');
     assert_eq!(picked_line(&render(&app)), " #!/bin/sh");
 
-    // When: `k` is pressed. Then: back over them to the last line of the first file.
-    press(&mut app, 'k');
+    // When: `k` is pressed twice. Then: back over them to the last line of the first file.
+    presses(&mut app, 'k', 2);
     assert_eq!(picked_line(&render(&app)), "+    - just ci-compile");
 
-    // When: the last line of the second file, then `j`. Then: past its note too.
-    presses(&mut app, 'j', 4);
+    // When: the last line of the second file, then `j` twice. Then: past its note to the next
+    // header, then its first line of code.
+    presses(&mut app, 'j', 5);
     assert_eq!(picked_line(&render(&app)), " echo done");
+    press(&mut app, 'j');
+    assert_eq!(picked_line(&render(&app)), "new file: Makefile");
     press(&mut app, 'j');
     assert_eq!(picked_line(&render(&app)), "+ci: build");
 
-    // When: `G`. Then: the last line of code, and not the note of the file too large to show.
+    // When: `G`. Then: the header of the file too large to show, and not its note.
     press(&mut app, 'G');
-    assert_eq!(picked_line(&render(&app)), "-DROP TABLE cache;");
+    assert_eq!(picked_line(&render(&app)), "modified: vendor/bundle.js");
 }
 
 #[test]
@@ -770,7 +784,7 @@ fn the_picked_line_of_the_diff_shows_between_gold_brackets() {
     press(&mut app, 'l');
 
     // When: the removed line of the renamed file is picked.
-    presses(&mut app, 'j', 16);
+    presses(&mut app, 'j', 18);
 
     // Then: the view follows it, and only that line is marked.
     let buffer = render(&app);
@@ -791,10 +805,84 @@ fn another_merge_request_opens_at_the_top_of_its_diff() {
     let asked = ticks(&mut app, SETTLE_TICKS);
     answer(&mut app, asked);
 
-    // Then: its diff shows from its first file, with its first line of code picked.
+    // Then: its diff shows from its first file, with the header of that file picked.
     let buffer = render(&app);
-    assert!(shows(&buffer, "modified: .gitlab-ci.yml"));
-    assert_eq!(picked_line(&buffer), FIRST_LINE);
+    assert_eq!(picked_line(&buffer), FIRST_HEADER);
+}
+
+fn file(path: &str, diff: &str) -> FileDiff {
+    serde_json::from_value(serde_json::json!({"old_path": path, "new_path": path, "diff": diff}))
+        .unwrap()
+}
+
+fn too_large(path: &str) -> FileDiff {
+    let mut file = file(path, "");
+    file.too_large = true;
+    file
+}
+
+/// The diff tab of the first merge request with these files, and the detail pane focused.
+fn on_files(files: Vec<FileDiff>) -> App {
+    let mut app = on_diff();
+    app.update(Msg::DiffLoaded {
+        project: PROJECT,
+        merge_request: 412,
+        files,
+    });
+    press(&mut app, 'l');
+    app
+}
+
+const LARGE: [&str; 8] = [
+    "vendor/a.js",
+    "vendor/b.js",
+    "vendor/c.js",
+    "vendor/d.js",
+    "vendor/e.js",
+    "vendor/f.js",
+    "vendor/g.js",
+    "vendor/h.js",
+];
+
+#[test]
+fn g_shows_the_last_file_after_files_with_no_line_of_code() {
+    // Given: a diff of one changed line, then eight files too large to show, which need more
+    // rows than half the pane.
+    let mut files = vec![file("src/main.rs", "@@ -1 +1 @@\n-old\n+new\n")];
+    files.extend(LARGE.map(too_large));
+    let mut app = on_files(files);
+
+    // When: `G` is pressed.
+    press(&mut app, 'G');
+
+    // Then: the header of the last file is picked and on screen, with its note under it.
+    let buffer = render(&app);
+    assert_eq!(picked_line(&buffer), "modified: vendor/h.js");
+    let (_, header) = cell_of(&buffer, "modified: vendor/h.js");
+    assert!(rows(&buffer)[usize::from(header) + 2].contains("too large to show"));
+}
+
+#[test]
+fn j_walks_the_headers_of_a_diff_with_no_line_of_code() {
+    // Given: a diff of six files too large to show, in a pane too short for all of them.
+    let mut app = on_files(LARGE[..6].iter().copied().map(too_large).collect());
+    let height = 16;
+    let top = render_at(&app, height);
+    assert_eq!(picked_line(&top), "modified: vendor/a.js");
+    assert!(!shows(&top, "vendor/f.js"), "{}", screen(&top));
+
+    // When: `j` is pressed. Then: the header of the next file is picked.
+    press(&mut app, 'j');
+    assert_eq!(
+        picked_line(&render_at(&app, height)),
+        "modified: vendor/b.js"
+    );
+
+    // When: `j` is pressed past the last file. Then: the last file is picked and in view.
+    presses(&mut app, 'j', 5);
+    let end = render_at(&app, height);
+    assert_eq!(picked_line(&end), "modified: vendor/f.js");
+    assert!(!shows(&end, "vendor/a.js"), "{}", screen(&end));
 }
 
 #[test]
