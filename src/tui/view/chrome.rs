@@ -7,6 +7,7 @@ use ratatui::widgets::Paragraph;
 use super::Context;
 use crate::gitlab::Status;
 use crate::tui::app::{App, Focus, MrTab, Overlay, Pane};
+use crate::tui::form::Field;
 use crate::tui::text::{fit, spans_width, width};
 use crate::tui::theme::Theme;
 
@@ -126,6 +127,19 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
         (Overlay::Help, _) => &[("esc", "close")],
         (Overlay::Confirm, _) => &[("y", "yes"), ("n", "no")],
         (Overlay::CommandMenu, _) => &[("j/k", "move"), ("enter", "copy"), ("esc", "close")],
+        (Overlay::Form, _)
+            if app
+                .form
+                .as_ref()
+                .is_some_and(|f| f.current() == Some(Field::Title)) =>
+        {
+            &[("enter", "open"), ("tab", "next field"), ("esc", "close")]
+        }
+        (Overlay::Form, _) if app.form.as_ref().is_some_and(|f| f.merge_request.is_some()) => &[
+            ("enter", "next field"),
+            ("ctrl+s", "open"),
+            ("esc", "close"),
+        ],
         (Overlay::Form, _) if app.form.as_ref().is_some_and(|f| !f.takes_variables()) => {
             &[("ctrl+s", "send"), ("enter", "new line"), ("esc", "close")]
         }
@@ -226,6 +240,7 @@ fn hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("l", "open"),
             ("t/T", "state"),
             ("[ ]", "tab"),
+            ("N", "new"),
             ("1-4", "pane"),
             ("z", "zoom"),
             ("?", "help"),

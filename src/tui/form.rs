@@ -1,5 +1,6 @@
 //! The run and play forms: a ref for a new pipeline, and CI variables as rows of a key and a value.
 //! The comment form: the text of a comment on a merge request, in one or more lines.
+//! The merge request form: a source branch, a target branch and a title.
 
 use std::fmt;
 
@@ -24,18 +25,24 @@ pub enum Purpose {
         discussion: Option<String>,
         line: Option<DiffLine>,
     },
+    MergeRequest {
+        project: u64,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Form {
     pub purpose: Purpose,
-    /// `None` for a play, which runs where its job already is, and for a comment.
+    /// `None` for a play, which runs where its job already is, for a comment and for a merge
+    /// request.
     pub git_ref: Option<String>,
-    /// `None` for a run or a play, which take variables instead.
+    /// `None` for every form but the comment form.
     pub body: Option<String>,
+    /// `None` for every form but the merge request form.
+    pub merge_request: Option<MergeRequestFields>,
     pub variables: Vec<(String, String)>,
-    /// The field being typed: the ref or the comment first when there is one, then each row's key
-    /// and value.
+    /// The field being typed: the ref, the comment or the merge request fields first when there
+    /// are any, then each row's key and value.
     pub field: usize,
 }
 
@@ -46,10 +53,18 @@ impl fmt::Debug for Form {
         f.debug_struct("Form")
             .field("purpose", &self.purpose)
             .field("git_ref", &self.git_ref)
+            .field("merge_request", &self.merge_request)
             .field("keys", &keys)
             .field("field", &self.field)
             .finish_non_exhaustive()
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MergeRequestFields {
+    pub source: String,
+    pub target: String,
+    pub title: String,
 }
 
 pub enum Outcome {
@@ -58,10 +73,13 @@ pub enum Outcome {
     Closed,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
     Ref,
     Body,
+    Source,
+    Target,
+    Title,
     Key(usize),
     Value(usize),
 }
@@ -72,6 +90,7 @@ impl Form {
             purpose: Purpose::Run { project },
             git_ref: Some(git_ref),
             body: None,
+            merge_request: None,
             variables: Vec::new(),
             field: 0,
         }
@@ -82,6 +101,7 @@ impl Form {
             purpose: Purpose::Play { project, job, name },
             git_ref: None,
             body: None,
+            merge_request: None,
             variables: Vec::new(),
             field: 0,
         }
@@ -103,6 +123,18 @@ impl Form {
             },
             git_ref: None,
             body: Some(body),
+            merge_request: None,
+            variables: Vec::new(),
+            field: 0,
+        }
+    }
+
+    pub fn merge_request(project: u64, fields: MergeRequestFields) -> Form {
+        Form {
+            purpose: Purpose::MergeRequest { project },
+            git_ref: None,
+            body: None,
+            merge_request: Some(fields),
             variables: Vec::new(),
             field: 0,
         }
@@ -116,34 +148,42 @@ impl Form {
                 discussion: None, ..
             } => "new comment".to_string(),
             Purpose::Comment { .. } => "reply".to_string(),
+            Purpose::MergeRequest { .. } => "new merge request".to_string(),
         }
     }
 
     pub fn takes_variables(&self) -> bool {
-        !matches!(self.purpose, Purpose::Comment { .. })
+        matches!(self.purpose, Purpose::Run { .. } | Purpose::Play { .. })
     }
 
-    fn first_row_field(&self) -> usize {
-        usize::from(self.git_ref.is_some() || self.body.is_some())
+    /// The fields before the variable rows.
+    fn leading(&self) -> &'static [Field] {
+        if self.merge_request.is_some() {
+            &[Field::Source, Field::Target, Field::Title]
+        } else if self.body.is_some() {
+            &[Field::Body]
+        } else if self.git_ref.is_some() {
+            &[Field::Ref]
+        } else {
+            &[]
+        }
     }
 
     fn fields(&self) -> usize {
-        self.first_row_field() + 2 * self.variables.len()
+        self.leading().len() + 2 * self.variables.len()
     }
 
     pub fn current(&self) -> Option<Field> {
         if self.field >= self.fields() {
             return None;
         }
-        let Some(row_field) = self.field.checked_sub(self.first_row_field()) else {
-            return Some(if self.body.is_some() {
-                Field::Body
-            } else {
-                Field::Ref
-            });
-        };
+        let leading = self.leading();
+        if let Some(&field) = leading.get(self.field) {
+            return Some(field);
+        }
+        let row_field = self.field - leading.len();
         let row = row_field / 2;
-        Some(if row_field % 2 == 0 {
+        Some(if row_field.is_multiple_of(2) {
             Field::Key(row)
         } else {
             Field::Value(row)
@@ -154,6 +194,9 @@ impl Form {
         match self.current()? {
             Field::Ref => self.git_ref.as_mut(),
             Field::Body => self.body.as_mut(),
+            Field::Source => self.merge_request.as_mut().map(|m| &mut m.source),
+            Field::Target => self.merge_request.as_mut().map(|m| &mut m.target),
+            Field::Title => self.merge_request.as_mut().map(|m| &mut m.title),
             Field::Key(row) => self.variables.get_mut(row).map(|(key, _)| key),
             Field::Value(row) => self.variables.get_mut(row).map(|(_, value)| value),
         }
@@ -192,6 +235,10 @@ impl Form {
         }
         match key.code {
             KeyCode::Enter if self.takes_variables() => return self.send(),
+            KeyCode::Enter if self.current() == Some(Field::Title) => return self.send(),
+            KeyCode::Enter if self.merge_request.is_some() => {
+                self.field = (self.field + 1) % fields
+            }
             KeyCode::Enter => {
                 if let Some(text) = self.text() {
                     text.push('\n');
@@ -256,6 +303,15 @@ impl Form {
                     discussion: discussion.clone(),
                     line: line.clone(),
                     body: body.to_string(),
+                });
+            }
+            Purpose::MergeRequest { project } => {
+                let fields = self.merge_request.clone().unwrap_or_default();
+                return Outcome::Send(Cmd::CreateMergeRequest {
+                    project: *project,
+                    source: fields.source.trim().to_string(),
+                    target: fields.target.trim().to_string(),
+                    title: fields.title.trim().to_string(),
                 });
             }
         };

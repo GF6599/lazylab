@@ -10,7 +10,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use url::Url;
 
 use super::diff::{self, CodeLine, Diff};
-use super::form::{Form, Outcome};
+use super::form::{Form, MergeRequestFields, Outcome};
 use super::jobs::{self, JobRow, RowKey};
 use super::log::Log;
 use crate::gitlab::{
@@ -1401,6 +1401,9 @@ impl App {
             }
             KeyCode::Char('T') if self.pane == Pane::Pipelines => self.toggle_test_report(),
             KeyCode::Char('N') if self.pane == Pane::Pipelines => return self.open_run_form(),
+            KeyCode::Char('N') if self.pane == Pane::MergeRequests => {
+                return self.open_merge_request_form();
+            }
             KeyCode::Char('P') if self.pane == Pane::Jobs => return self.open_play_form(),
             KeyCode::Char('y') => return self.copy_glab_command(),
             KeyCode::Char('Y') => self.open_command_menu(),
@@ -1541,6 +1544,20 @@ impl App {
             .or_else(|| project.default_branch.clone())
             .unwrap_or_default();
         self.form = Some(Form::run(project.id, git_ref));
+        self.overlay = Overlay::Form;
+        Vec::new()
+    }
+
+    /// The target is the project's default branch, as in the Go release.
+    fn open_merge_request_form(&mut self) -> Vec<Cmd> {
+        let Some(project) = self.project() else {
+            return Vec::new();
+        };
+        let fields = MergeRequestFields {
+            target: project.default_branch.clone().unwrap_or_default(),
+            ..MergeRequestFields::default()
+        };
+        self.form = Some(Form::merge_request(project.id, fields));
         self.overlay = Overlay::Form;
         Vec::new()
     }

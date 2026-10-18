@@ -48,6 +48,7 @@ const HELP: &[(&str, &str)] = &[
     ("R", "retry the pipeline or job, after a question"),
     ("C", "cancel the pipeline or job, after a question"),
     ("N", "run a pipeline, with variables"),
+    ("N", "open a merge request, with a branch search"),
     ("P", "play a manual job, with variables"),
     ("y", "copy the glab command of the item"),
     ("Y", "choose a glab command of the item to copy"),
@@ -150,15 +151,18 @@ fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
     let mut cursor = None;
     if let Some(body) = &form.body {
         cursor = Some(comment_lines(body, ref_box, &mut lines, t));
+    } else if let Some(fields) = &form.merge_request {
+        for (label, field, value) in [
+            ("source", Field::Source, &fields.source),
+            ("target", Field::Target, &fields.target),
+            ("title", Field::Title, &fields.title),
+        ] {
+            let active = current == Some(field);
+            cursor = text_line(label, value, ref_box, active, &mut lines, t).or(cursor);
+        }
     } else if let Some(git_ref) = &form.git_ref {
         let active = current == Some(Field::Ref);
-        let (spans, typed) = input(git_ref, ref_box, active, t);
-        let mut line = vec![Span::styled(format!("{:<FORM_LABEL$}", "ref"), t.dim())];
-        line.extend(spans);
-        if active {
-            cursor = Some((FORM_LABEL + 1 + typed, lines.len()));
-        }
-        lines.push(Line::from(line));
+        cursor = text_line("ref", git_ref, ref_box, active, &mut lines, t);
     }
     if form.takes_variables() {
         if !lines.is_empty() {
@@ -200,6 +204,23 @@ fn draw_form(frame: &mut Frame, area: Rect, form: &Form, t: &Theme) {
             frame.set_cursor_position(Position { x, y });
         }
     }
+}
+
+/// A labelled input of one line. The answer is the cursor when the field is being typed.
+fn text_line(
+    label: &str,
+    value: &str,
+    box_width: usize,
+    active: bool,
+    lines: &mut Vec<Line<'static>>,
+    t: &Theme,
+) -> Option<(usize, usize)> {
+    let (spans, typed) = input(value, box_width, active, t);
+    let mut line = vec![Span::styled(format!("{label:<FORM_LABEL$}"), t.dim())];
+    line.extend(spans);
+    let cursor = active.then_some((FORM_LABEL + 1 + typed, lines.len()));
+    lines.push(Line::from(line));
+    cursor
 }
 
 /// The box grows with the comment up to `COMMENT_ROWS` lines, and then shows the last ones. The
