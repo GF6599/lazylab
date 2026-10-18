@@ -19,7 +19,13 @@ fn a_clipboard_write_is_dropped_and_the_colour_is_kept() {
 
     // Then: the clipboard write is gone, and the colour codes and the text remain.
     assert!(!got.contains("]52") && !got.contains('\x07'), "{got:?}");
-    for want in ["\x1b[32m", "\x1b[31m", "\x1b[0m", "Job started", "Job failed"] {
+    for want in [
+        "\x1b[32m",
+        "\x1b[31m",
+        "\x1b[0m",
+        "Job started",
+        "Job failed",
+    ] {
         assert!(got.contains(want), "{want:?} dropped from {got:?}");
     }
 }
@@ -34,10 +40,10 @@ fn every_sequence_that_acts_on_the_terminal_is_dropped() {
             "hyperlink target (OSC 8)",
             "\x1b]8;;https://evil.example\x1b\\text\x1b]8;;\x1b\\".into(),
         ),
-        ("device control string", "\x1bP0;1|17/ab\x1b\\".into()),
-        ("application program command", "\x1b_payload\x1b\\".into()),
-        ("privacy message", "\x1b^payload\x1b\\".into()),
-        ("start of string", "\x1bXpayload\x1b\\".into()),
+        ("device control string", "\x1bP0;1|HIJACKED\x1b\\".into()),
+        ("application program command", "\x1b_HIJACKED\x1b\\".into()),
+        ("privacy message", "\x1b^HIJACKED\x1b\\".into()),
+        ("start of string", "\x1bXHIJACKED\x1b\\".into()),
         ("device status report", "\x1b[6n".into()),
         // XTMODKEYS ends in 'm' as SGR does, but its '>' marker makes it a key mode change.
         ("modify keys (CSI > m)", "\x1b[>4;2m".into()),
@@ -50,13 +56,17 @@ fn every_sequence_that_acts_on_the_terminal_is_dropped() {
         ("bell", "\x07".into()),
         ("backspace overwrite", "safe\x08x".into()),
         ("C1 introducer", "\u{9b}6n".into()),
-        ("C1 string", "\u{9d}0;HIJACKED\u{9c}".into()),
+        (
+            "C1 operating system command",
+            "\u{9d}0;HIJACKED\u{9c}".into(),
+        ),
+        ("C1 device control string", "\u{90}HIJACKED\u{9c}".into()),
     ];
     for (name, input) in cases {
         // When: the filter processes the sequence.
         let got = filter(&input);
 
-        // Then: no escape, bell, backspace or C1 control remains.
+        // Then: no escape, bell, backspace or C1 control remains, and no string body.
         assert!(
             !got.contains(['\x1b', '\x07', '\x08', '\u{9b}', '\u{9c}', '\u{9d}']),
             "{name}: {input:?} gave {got:?}"

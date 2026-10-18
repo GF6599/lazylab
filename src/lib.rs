@@ -7,4 +7,5 @@ pub mod glab;
 pub mod logging;
 pub mod redact;
 pub mod store;
+pub mod termsafe;
 pub mod tui;
