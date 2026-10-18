@@ -1518,7 +1518,7 @@ impl App {
     /// the form waits for the diff refs.
     fn open_line_comment_form(&mut self, (project, merge_request): (u64, u64)) -> Vec<Cmd> {
         let Some(code) = self.picked_code_line().cloned() else {
-            self.notice = Some("There is no line of code to comment on".to_string());
+            self.notice = Some("Pick a line of code to comment on".to_string());
             return Vec::new();
         };
         let Some(diff_refs) = self.shown_diff_refs().and_then(|r| r.refs.clone()) else {
