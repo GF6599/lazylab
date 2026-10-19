@@ -4,7 +4,7 @@ expression: screen(&buffer)
 ---
  {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
  1 projects   2 pipelines   3 jobs  [4 merge requests]
-┌─ projects ───────────────────────────────────┐┌─ merge request !412 ─────────────────────────────────────────────────┐
+┌─  ★ favorites  [all] ────────────────────────┐┌─ merge request !412 ─────────────────────────────────────────────────┐
 │[⠋ acme/platform/api                       4m]││ [info]  threads   diff                                               │
 │ ✓ acme/platform/web                      12m ││                                                                      │
 │ ⠋ acme/platform/workers                   1h ││ title      Cache the runner image layers                             │

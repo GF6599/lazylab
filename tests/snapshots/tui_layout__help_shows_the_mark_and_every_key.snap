@@ -4,7 +4,7 @@ expression: screen(&buffer)
 ---
  {lazylab} ▐ gitlab.example.com ▐ acme/platform/api ▐ 2 running · 3 failed
 [1 projects]  2 pipelines  ┌─ help ────────────────────────────────────────────────────────┐
-┌─ projects ───────────────│ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │───────────────────────────┐
+┌─  ★ favorites  [all] ────│ ╭ ██╗      █████╗ ███████╗██╗   ██╗██╗      █████╗ ██████╗  ╮ │───────────────────────────┐
 │[⠋ acme/platform/api      │ │ ██║     ██╔══██╗╚══███╔╝╚██╗ ██╔╝██║     ██╔══██╗██╔══██╗ │ │-out                       │
 │ ✓ acme/platform/web      │ ┘ ██║     ███████║  ███╔╝  ╚████╔╝ ██║     ███████║██████╔╝ └ │                           │
 │ ⠋ acme/platform/workers  │ ┐ ██║     ██╔══██║ ███╔╝    ╚██╔╝  ██║     ██╔══██║██╔══██╗ ┌ │                           │
@@ -19,7 +19,7 @@ expression: screen(&buffer)
 │ ✓ acme/mobile/android-app│ h esc       back                                              │                           │
 │ ⠋ acme/docs/handbook     │ /           search the projects                               │                           │
 │                          │ f           favorite the project, or not                      │                           │
-│                          │ t           favorites only, or every project                  │                           │
+│                          │ t T         the favorites tab, or all                         │                           │
 │                          │ { }         move a favorite up, down                          │                           │
 │                          │ ctrl+r      reload the projects                               │                           │
 └──────────────────────────│ [ ]         the page of pipelines before, after               │                           │

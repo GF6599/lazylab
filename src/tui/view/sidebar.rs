@@ -10,7 +10,8 @@ use crate::gitlab::{MergeRequestState, Status};
 use crate::tui::app::{App, Focus, Pane, ProjectStatus};
 use crate::tui::jobs::JobRow;
 use crate::tui::panel::{
-    Row, block, bottom_label, folded_rule, label_style, light_corners, marked_line, window_start,
+    Row, block, bottom_label, folded_rule, label_style, light_corners, marked_line, tabbed_block,
+    window_start,
 };
 use crate::tui::text::age;
 use crate::tui::theme::Theme;
@@ -19,8 +20,9 @@ use crate::tui::theme::Theme;
 const PEEK_ROWS: u16 = 4;
 const FOCUS_MIN_ROWS: u16 = 3;
 const BORDERS: u16 = 2;
-/// The Go release names its favorites tab so, and marks each favorite with the same star.
-const FAVORITES_TITLE: &str = "★ favorites";
+/// The Go release names its two project tabs so, and marks each favorite with the same star.
+const FAVORITES_TAB: &str = "★ favorites";
+const ALL_TAB: &str = "all";
 const FAVORITE: &str = "★ ";
 /// The Go release's glyph for a project that has never run a pipeline.
 const NO_PIPELINE: &str = "∅";
@@ -100,14 +102,21 @@ fn draw_pane(frame: &mut Frame, app: &App, context: &Context, pane: Pane, area: 
     } else {
         position
     };
-    let title = match pane {
-        Pane::Projects if app.favorites_only => FAVORITES_TITLE.to_string(),
-        Pane::MergeRequests if app.mr_state != MergeRequestState::Opened => {
-            format!("{} · {}", pane.label(), app.mr_state.as_str())
+    let frame_block = match pane {
+        Pane::Projects => {
+            let tabs = [
+                (FAVORITES_TAB, app.favorites_only),
+                (ALL_TAB, !app.favorites_only),
+            ];
+            tabbed_block(&tabs, t)
         }
-        _ => pane.label().to_string(),
+        Pane::MergeRequests if app.mr_state != MergeRequestState::Opened => {
+            let title = format!("{} · {}", pane.label(), app.mr_state.as_str());
+            block(&title, false, t)
+        }
+        _ => block(pane.label(), false, t),
     };
-    let frame_block = block(&title, false, t).title_bottom(bottom_label(label, t));
+    let frame_block = frame_block.title_bottom(bottom_label(label, t));
     let list = frame_block.inner(area);
     frame.render_widget(frame_block, area);
 

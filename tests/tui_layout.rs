@@ -409,20 +409,23 @@ fn a_load_in_progress_counts_the_projects_that_have_arrived() {
 
 #[test]
 fn a_favorite_wears_a_gold_star_before_its_path() {
-    // Given: the demo data, with the second project a favorite.
+    // Given: the demo data, with the second project a favorite, on the all tab.
     let mut app = loaded();
     let path = app.projects[1].path_with_namespace.clone();
     app.update(Msg::FavoritesLoaded(vec![app.projects[1].id]));
+    press(&mut app, 't');
 
     // When: the screen is drawn.
     let buffer = render(&app, 120, 32);
 
-    // Then: a gold star sits before the favorite's status glyph, and on no other row.
+    // Then: a gold star sits before the favorite's status glyph, and on no other list row.
     let (y, row) = sidebar_row(&buffer, &path);
     let star = column_of(&row, &path) - 4;
     assert_eq!(buffer[(star, y)].symbol(), "★");
     assert_eq!(buffer[(star, y)].fg, T.gold);
-    let starred = (0..32).filter(|&y| row_text(&buffer, y).contains('★'));
+    let starred = (0..32)
+        .map(|y| row_text(&buffer, y))
+        .filter(|row| row.starts_with('│') && row.contains('★'));
     assert_eq!(starred.count(), 1);
 }
 
@@ -485,7 +488,7 @@ fn a_start_with_no_favorites_opens_on_the_all_tab() {
 
     // Then: the all tab is the active one, and every project shows.
     let (_, row, _) = projects_tabs(&buffer);
-    assert!(row.contains(" ★ favorites [all]"), "{row}");
+    assert!(row.contains(" ★ favorites  [all]"), "{row}");
     assert_eq!(app.len(Pane::Projects), app.projects.len());
 }
 

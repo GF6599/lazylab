@@ -36,7 +36,7 @@ const HELP: &[(&str, &str)] = &[
     ("h esc", "back"),
     ("/", "search the projects"),
     ("f", "favorite the project, or not"),
-    ("t", "favorites only, or every project"),
+    ("t T", "the favorites tab, or all"),
     ("{ }", "move a favorite up, down"),
     ("ctrl+r", "reload the projects"),
     ("[ ]", "the page of pipelines before, after"),

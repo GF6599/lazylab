@@ -187,24 +187,27 @@ fn f_favorites_the_project_and_saves_the_favorites_in_order() {
 
 #[test]
 fn t_shows_the_favorites_alone_in_their_order_and_keeps_the_cursor_on_its_project() {
-    // Given: two favorites, the later one higher in the list of all projects.
+    // Given: two favorites, the later one higher in the list of all projects, so a start
+    // shows them alone in their own order, with the cursor on the project it was on.
     let mut app = loaded();
     app.update(Msg::FavoritesLoaded(vec![LAZYLAB, API]));
+    assert!(app.favorites_only);
+    assert_eq!(shown_ids(&app), [LAZYLAB, API]);
     assert_eq!(app.project().unwrap().id, API);
 
     // When: t is pressed.
     press(&mut app, KeyCode::Char('t'));
 
-    // Then: only the favorites show, in their own order, with the cursor still on its project.
-    assert!(app.favorites_only);
-    assert_eq!(shown_ids(&app), [LAZYLAB, API]);
+    // Then: every project shows, with the cursor still on its project.
+    assert_eq!(app.len(Pane::Projects), app.projects.len());
     assert_eq!(app.project().unwrap().id, API);
 
     // When: t is pressed again.
     press(&mut app, KeyCode::Char('t'));
 
-    // Then: every project shows again.
-    assert_eq!(app.len(Pane::Projects), app.projects.len());
+    // Then: only the favorites show again, in their own order, with the cursor on its project.
+    assert_eq!(shown_ids(&app), [LAZYLAB, API]);
+    assert_eq!(app.project().unwrap().id, API);
 }
 
 #[test]
@@ -212,7 +215,6 @@ fn braces_move_a_favorite_and_the_cursor_moves_with_it() {
     // Given: three favorites shown alone, with the cursor on the first.
     let mut app = loaded();
     app.update(Msg::FavoritesLoaded(vec![API, WEB, WORKERS]));
-    press(&mut app, KeyCode::Char('t'));
     assert_eq!(app.project().unwrap().id, API);
 
     // When: the closing brace is pressed.
@@ -235,6 +237,7 @@ fn braces_do_nothing_while_every_project_shows() {
     // Given: two favorites, with every project shown.
     let mut app = loaded();
     app.update(Msg::FavoritesLoaded(vec![API, WEB]));
+    press(&mut app, KeyCode::Char('t'));
 
     // When: the closing brace is pressed.
     let commands = press(&mut app, KeyCode::Char('}'));
@@ -246,12 +249,11 @@ fn braces_do_nothing_while_every_project_shows() {
 
 #[test]
 fn a_favorite_not_loaded_yet_is_kept() {
-    // Given: favorites that name a project the list does not hold yet.
+    // Given: favorites that name a project the list does not hold yet, shown alone.
     let mut app = loaded();
     app.update(Msg::FavoritesLoaded(vec![999, API]));
 
-    // When: the favorites show alone, and the one there is unfavorited.
-    press(&mut app, KeyCode::Char('t'));
+    // When: the one favorite there is unfavorited.
     assert_eq!(shown_ids(&app), [API]);
     let commands = press(&mut app, KeyCode::Char('f'));
 
