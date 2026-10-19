@@ -189,9 +189,9 @@ async fn the_loop_hands_the_terminal_to_the_explorer_and_reads_how_it_ended() {
             keys.send(char('q')).unwrap();
         }
     };
-    let mut browsed = Vec::new();
-    let explore = |request: &Browse| {
-        browsed.push(request.clone());
+    let (seen, browsed) = std::sync::mpsc::channel();
+    let explore = move |request: &Browse| {
+        seen.send(request.clone()).unwrap();
         Msg::Browsed {
             program: "yazi".into(),
             ended: Ended::Exited(Some(2)),
@@ -216,7 +216,7 @@ async fn the_loop_hands_the_terminal_to_the_explorer_and_reads_how_it_ended() {
         .unwrap();
 
     // Then: the explorer got the checkout once, and its end reached the status line.
-    assert_eq!(browsed, [browse()]);
+    assert_eq!(browsed.try_iter().collect::<Vec<_>>(), [browse()]);
     assert_eq!(shown.as_deref(), Some("yazi exited with code 2"));
 }
 

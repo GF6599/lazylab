@@ -81,17 +81,18 @@ async fn session(
     let (outbox, inbox) = mpsc::unbounded_channel();
     let mut input = Input::start(outbox.clone());
     let restart = outbox.clone();
+    let program = program.to_string();
     let browse = move |request: &Browse| {
         input.stop();
         paste_off();
         ratatui::restore();
-        let ended = explorer::browse(program, env::var_os("PATH").as_deref(), request);
+        let ended = explorer::browse(&program, env::var_os("PATH").as_deref(), request);
         if let Err(e) = take_back() {
             tracing::warn!(error = %e, "take the terminal back from the explorer");
         }
         input = Input::start(restart.clone());
         Msg::Browsed {
-            program: program.to_string(),
+            program: program.clone(),
             ended,
         }
     };
@@ -173,7 +174,7 @@ pub async fn run<B: Backend>(
     (outbox, mut inbox): (UnboundedSender<Msg>, UnboundedReceiver<Msg>),
     clipboard: &mut impl Write,
     mut draw: impl FnMut(&mut Frame, &App),
-    mut browse: impl FnMut(&Browse) -> Msg,
+    mut browse: impl FnMut(&Browse) -> Msg + Send + 'static,
 ) -> Result<App, B::Error> {
     if let Source::Demo = source {
         app = app.demo();
