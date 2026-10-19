@@ -32,9 +32,20 @@ const SETTLE_TICKS: u64 = (SETTLE.as_millis() / TICK.as_millis()) as u64;
 /// The Go release asks for the pipelines and jobs in view this often.
 const REFRESH: Duration = Duration::from_secs(5);
 const REFRESH_TICKS: u64 = (REFRESH.as_millis() / TICK.as_millis()) as u64;
+/// GitLab now and then leaves one answer out, and the next refresh asks again, so a refresh
+/// shows its failure only from this many failures in a row.
+const REFRESH_FAILURES_SHOWN: u8 = 2;
 const NO_GLAB_COMMAND: &str = "No glab command for this selection";
 /// The branch the Go release browses when a project names no default branch.
 const DEFAULT_BRANCH: &str = "main";
+
+/// A load that every refresh asks for again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Refresh {
+    Pipelines,
+    Jobs,
+    ChildJobs(u64),
+}
 
 /// A selection whose lists load once the cursor has rested on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -481,6 +492,9 @@ pub struct App {
     pub total_projects: u64,
     pub loading: bool,
     pub error: Option<String>,
+    refresh_failures: HashMap<Refresh, u8>,
+    /// Shown while `error` is empty, until the same load succeeds or a key is pressed.
+    refresh_error: Option<(Refresh, String)>,
     /// What the last action did, shown until the next key.
     pub notice: Option<String>,
     /// The action the open question asks about.
@@ -580,6 +594,8 @@ impl App {
             total_projects: 0,
             loading: false,
             error: None,
+            refresh_failures: HashMap::new(),
+            refresh_error: None,
             notice: None,
             confirm: None,
             form: None,
@@ -1156,11 +1172,17 @@ impl App {
                 cmd: cmd @ (Cmd::LoadPipelines { .. } | Cmd::LoadJobs { .. }),
                 error,
             } => {
-                match cmd {
-                    Cmd::LoadPipelines { .. } => self.pipelines_asked = false,
-                    _ => self.jobs_asked = false,
-                }
-                self.error = Some(error);
+                let load = match cmd {
+                    Cmd::LoadPipelines { .. } => {
+                        self.pipelines_asked = false;
+                        Refresh::Pipelines
+                    }
+                    _ => {
+                        self.jobs_asked = false;
+                        Refresh::Jobs
+                    }
+                };
+                self.refresh_failed(load, error);
                 Vec::new()
             }
             Msg::Failed {
@@ -1168,7 +1190,7 @@ impl App {
                 error,
             } => {
                 self.children_asked.remove(&pipeline);
-                self.error = Some(error);
+                self.refresh_failed(Refresh::ChildJobs(pipeline), error);
                 Vec::new()
             }
             Msg::Failed {
@@ -1316,6 +1338,7 @@ impl App {
             }
             Msg::PipelinesLoaded { project, page } => {
                 self.pipelines_asked = false;
+                self.refresh_answered(Refresh::Pipelines);
                 if self.selected() != Some(project) || page.page != self.pipeline_page {
                     return Vec::new();
                 }
@@ -1327,6 +1350,7 @@ impl App {
                 bridges,
             } => {
                 self.jobs_asked = false;
+                self.refresh_answered(Refresh::Jobs);
                 if self.pipeline().map(|p| p.id) == Some(pipeline) {
                     self.jobs = jobs;
                     self.bridges = bridges;
@@ -1344,6 +1368,7 @@ impl App {
             }
             Msg::ChildJobsLoaded { pipeline, jobs } => {
                 self.children_asked.remove(&pipeline);
+                self.refresh_answered(Refresh::ChildJobs(pipeline));
                 self.children.insert(pipeline, jobs);
                 self.rebuild_job_rows();
                 Vec::new()
@@ -1443,6 +1468,7 @@ impl App {
             return Vec::new();
         }
         self.error = None;
+        self.refresh_error = None;
         self.notice = None;
         if self.overlay == Overlay::Confirm {
             return self.on_confirm_key(key);
@@ -2357,6 +2383,32 @@ impl App {
         }
         self.refreshed_at = self.tick;
         self.reload_lists()
+    }
+
+    fn refresh_failed(&mut self, load: Refresh, error: String) {
+        let failures = self.refresh_failures.entry(load).or_default();
+        *failures = failures.saturating_add(1);
+        if *failures >= REFRESH_FAILURES_SHOWN {
+            self.refresh_error = Some((load, error));
+        }
+    }
+
+    fn refresh_answered(&mut self, load: Refresh) {
+        self.refresh_failures.remove(&load);
+        if self
+            .refresh_error
+            .as_ref()
+            .is_some_and(|(shown, _)| *shown == load)
+        {
+            self.refresh_error = None;
+        }
+    }
+
+    /// The failure the status bar names: the last one-off failure, else a refresh that keeps
+    /// failing.
+    pub fn status_error(&self) -> Option<&str> {
+        let refresh = self.refresh_error.as_ref().map(|(_, error)| error.as_str());
+        self.error.as_deref().or(refresh)
     }
 
     /// The pipelines and the jobs in view, the log of a running job, and every open child
