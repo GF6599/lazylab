@@ -80,7 +80,7 @@ Supply the token through `GITLAB_TOKEN`, a config file, or `glab auth login`. Th
 
 Run `lazylab --help` for the flag surface. Defaults and validation rules live in `internal/config/config.go`.
 
-Config files are optional. Viper parses YAML, TOML, and JSON. Point at one with `--config <path>` or `$LAZYLAB_CONFIG`.
+Config files are optional. The Rust binary reads TOML and JSON. Point at one with `--config <path>` or `$LAZYLAB_CONFIG`.
 
 ### glab credentials
 

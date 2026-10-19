@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 
 use clap::Args;
 use figment::error::Kind;
-use figment::providers::{Env, Format, Json, Serialized, Toml, Yaml};
+use figment::providers::{Env, Format, Json, Serialized, Toml};
 use figment::{Figment, Provider};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ pub struct Flags {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explorer: Option<String>,
-    /// Optional config file (YAML, TOML, JSON)
+    /// Optional config file (TOML, JSON)
     #[arg(long)]
     #[serde(skip)]
     pub config: Option<PathBuf>,
@@ -256,10 +256,9 @@ fn with_file(sources: Figment, path: &Path) -> Result<Figment, Error> {
         .map(str::to_lowercase);
     match extension.as_deref() {
         Some("toml") => merge_file::<Toml>(sources, path),
-        Some("yaml" | "yml") => merge_file::<Yaml>(sources, path),
         Some("json") => merge_file::<Json>(sources, path),
         _ => Err(Error(format!(
-            "load config {}: unsupported file type, use .toml, .yaml, .yml or .json",
+            "load config {}: unsupported file type, use .toml or .json",
             path.display()
         ))),
     }
