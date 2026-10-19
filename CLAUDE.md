@@ -63,7 +63,7 @@ The TUI is an Elm-like loop.
 
 - `App::update(Msg) -> Vec<Cmd>` in `src/tui/app.rs` changes the state and answers with the work to start. It does no I/O. A `Msg` is a key, a paste, a tick or an answer. A `Cmd` is a load, a save, an action, a copy, a checkout or a browse.
 - `Source::answer(Cmd) -> Option<Msg>` in `src/tui/source.rs` does the work. `Source::Live` uses the GitLab client, the store and the checkouts. `Source::Demo` answers from `demo.rs`. A failed call answers `Msg::Failed` with the command and a redacted reason.
-- `run` in `src/tui/mod.rs` owns the loop. Keys come from an input thread and `Msg::Tick` comes every 100 ms, through the same channel as the answers, so the loop handles one message at a time. `Cmd::Copy` writes OSC 52 to the terminal. `Cmd::Browse` stops the input thread and gives the terminal to the explorer until it exits. The loop spawns every other command on the current-thread tokio runtime. The loop draws after each message.
+- `run` in `src/tui/mod.rs` owns the loop. Keys come from an input thread through the same channel as the answers, and the loop makes `Msg::Tick` itself every `TICK` (100 ms), so it handles one message at a time. `Cmd::Copy` writes OSC 52 to the terminal. `Cmd::Browse` stops the input thread and gives the terminal to the explorer until it exits. The explorer runs on the tokio blocking pool, so the requests in flight go on, and the loop makes no tick until the explorer ends. The loop spawns every other command on the current-thread tokio runtime. The loop draws after each message.
 
 Loads:
 
