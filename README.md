@@ -1,112 +1,210 @@
 # Lazylab
 
-[![Go Version](https://img.shields.io/github/go-mod/go-version/GF6599/lazylab)](https://go.dev/)
+[![CI](https://github.com/GF6599/lazylab/actions/workflows/ci.yml/badge.svg)](https://github.com/GF6599/lazylab/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/GF6599/lazylab)](https://goreportcard.com/report/github.com/GF6599/lazylab)
 
-Keyboard-driven terminal UI for GitLab projects, pipelines, jobs, and merge requests.
+Lazylab is a keyboard-driven terminal UI for GitLab. It shows your projects, pipelines, jobs and merge requests, and it acts on them without a browser.
 
-![Lazylab Demo](doc/demo.gif)
-
-## Background
-
-Lazylab navigates GitLab the way `lazygit` navigates git. A multi-panel TUI with vim-style keys, pipeline auto-refresh, and a yazi-inspired file explorer. For scripting, lazylab does not reinvent a CLI. Press `y` on any focused item to copy the equivalent [`glab`](https://gitlab.com/gitlab-org/cli) command. Press `Y` to browse every `glab` command for it. The TUI is for interactive discovery. `glab` is for execution.
+![Lazylab demo](doc/demo.gif)
 
 ## Install
 
-Homebrew, on macOS. Homebrew serves lazylab as a cask, and a cask does not install on Linux:
+Lazylab runs on macOS and Linux.
+
+### Homebrew
 
 ```bash
-brew install --cask GF6599/tap/lazylab
+brew install GF6599/tap/lazylab
 ```
 
-With a Go toolchain:
+Earlier releases came as a Homebrew cask. If you installed the cask, remove it before you install the formula:
 
 ```bash
-go install github.com/GF6599/lazylab/cmd/lazylab@latest
+brew uninstall --cask lazylab
 ```
 
-Or take a binary from the [releases page](https://github.com/GF6599/lazylab/releases). Each archive holds the binary for one platform, and `checksums.txt` covers every archive in the release:
+### Release archive
 
-```bash
-tar -xzf lazylab_<version>_<os>_<arch>.tar.gz
-sudo mv lazylab /usr/local/bin/
-```
+The [releases page](https://github.com/GF6599/lazylab/releases) has one archive for each platform:
 
-Or build from source:
+- `lazylab-aarch64-apple-darwin.tar.xz`
+- `lazylab-x86_64-apple-darwin.tar.xz`
+- `lazylab-aarch64-unknown-linux-musl.tar.xz`
+- `lazylab-x86_64-unknown-linux-musl.tar.xz`
+
+The Linux binaries are static musl builds, so they need no system libraries. Each archive has a `.sha256` file beside it, and `sha256.sum` holds the checksums of all of them. Unpack the archive and put the `lazylab` binary in a folder on your `PATH`.
+
+### From source
+
+You need [rustup](https://rustup.rs). `rust-toolchain.toml` sets the Rust version, and rustup installs that version on the first build.
 
 ```bash
 git clone https://github.com/GF6599/lazylab.git
-cd lazylab && go build ./cmd/lazylab
+cd lazylab
+cargo install --locked --path .
 ```
 
-Every route needs a GitLab personal access token with `api` scope, or an authenticated [`glab`](https://gitlab.com/gitlab-org/cli). See [Configuration](#configuration). The two Go routes also need Go 1.26 or later. Homebrew and the released binaries need no toolchain.
+Cargo puts the binary in `~/.cargo/bin`.
 
-Run `lazylab --version` to report which build you have.
+Run `lazylab --version` to see which version you have.
 
 ## Usage
 
-### TUI
+Lazylab needs a GitLab personal access token with the `api` scope, or a `glab` that is logged in.
 
 ```bash
 export GITLAB_TOKEN=glpat-xxxx
-lazylab
+lazylab --host https://gitlab.example.com
 ```
 
-The UI opens on the alternate screen. Press `?` for the contextual help overlay, which lists every keybinding for the focused panel. Quit with `q` or `Ctrl+C`.
+Without `--host`, lazylab connects to `https://gitlab.com`. You can also put the token and the host in a config file. When no token is set, lazylab asks [`glab`](https://gitlab.com/gitlab-org/cli) for the token that `glab auth login` stored. With no host set, it also takes the host of `glab`. With a host set, it takes only a token that `glab` stored for that host.
 
-To explore the UI without a token, pass `--demo` for fake data.
+To try lazylab with sample data and no GitLab, run:
 
-### Themes
+```bash
+lazylab --demo
+```
 
-The TUI paints its own palette and does not borrow the terminal's, so it renders the same wherever you run it. Press `~` to cycle the ten presets. The choice persists per host.
+### Screen
 
-Rose Pine is the default. The others are Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Dracula, Nord, Solarized Dark, Kanagawa, Everforest Dark, and One Dark.
+Lazylab has four panes: projects, pipelines, jobs and merge requests. A sidebar lists the items of the pane, and the detail pane shows the selected item. At 100 columns or more, the two are side by side. In a narrower terminal, lazylab shows one of them at a time. The terminal must be at least 40 columns by 10 rows.
 
-### Emitting glab commands
+Press `?` to see every key. The main keys are:
 
-lazylab is TUI-only. Rather than ship its own scripting CLI, it generates [`glab`](https://gitlab.com/gitlab-org/cli) commands for whatever you have focused:
+| Key | Action |
+|---|---|
+| `j` `k` `↑` `↓` | Move |
+| `g` `G` | First, last |
+| `ctrl+d` `ctrl+u` | Page down, up |
+| `1` to `4`, `tab` | Choose a pane |
+| `l` `enter` | Open the detail pane |
+| `h` `esc` | Back |
+| `z` | Full screen for the pane in view |
+| `?` | Open or close the help |
+| `q` `ctrl+c` | Quit |
 
-- `y` copies the most useful `glab` command for the focused project, pipeline, job, or merge request to the clipboard.
-- `Y` opens a preview overlay listing every `glab` command for that item (`j`/`k` to move, `enter` or `y` to copy, `esc` to close).
+### Projects
 
-Every emitted command carries `-R <group/project>`, so it targets the project you were browsing regardless of your shell's working directory. Paste it, run it, or drop it into a script. You need [`glab`](https://gitlab.com/gitlab-org/cli) on your `PATH` to run them.
+The projects pane has two tabs, `★ favorites` and `all`. Lazylab opens on the favorites tab when you have favorites. The glyph before each project is the status of its latest pipeline.
+
+| Key | Action |
+|---|---|
+| `t` `T` | Change between the favorites tab and the all tab |
+| `f` | Add the project to the favorites, or remove it |
+| `{` `}` | Move a favorite up, down |
+| `/` | Search the projects |
+| `ctrl+r` | Load the projects again from GitLab |
+
+### Pipelines and jobs
+
+The jobs pane shows the jobs of the selected pipeline. The detail pane of a job shows its log. Lazylab loads the pipelines and the jobs in view again every 5 seconds.
+
+| Key | Action |
+|---|---|
+| `[` `]` | The page of pipelines before, after |
+| `T` | The test report of the pipeline, or its stages |
+| `N` | Run a pipeline, with a ref and variables |
+| `P` | Play a manual job, with variables |
+| `R` | Retry the pipeline or the job, after a question |
+| `C` | Cancel the pipeline or the job, after a question |
+
+### Merge requests
+
+The detail pane of a merge request has three tabs: info, threads and diff.
+
+| Key | Action |
+|---|---|
+| `t` `T` | The next, previous state: opened, merged, closed |
+| `[` `]` | The tab before, after |
+| `r` | Resolve or reopen the thread |
+| `c` | Start a thread, reply to a thread, or comment on the diff line |
+| `N` | Open a merge request, with a branch search |
+
+### Copy a glab command or an address
+
+Lazylab does not have its own scripting commands. It gives you the [`glab`](https://gitlab.com/gitlab-org/cli) command for the selected project, pipeline, job or merge request.
+
+| Key | Action |
+|---|---|
+| `y` | Copy the main `glab` command of the item |
+| `Y` | Open a menu of all `glab` commands of the item, and copy one |
+| `ctrl+o` | Copy the web address of the item |
+
+Each command names its project with `-R`, so it works from any folder. For a host other than gitlab.com, `-R` gets the full address of the project. To copy, lazylab sends the text to the terminal with OSC 52. Your terminal must support OSC 52. The copy also works over SSH. You need `glab` only to run a command, not to copy it.
+
+### Browse the files
+
+Press `e` to browse the files of the item in a file explorer. Lazylab makes a shallow `git` checkout of the ref, then gives the terminal to the explorer. Quit the explorer to go back to lazylab.
+
+- On a project, the ref is the default branch.
+- On a pipeline or a job, the ref is the commit that the pipeline built.
+- On a merge request, the ref is the source branch.
+
+The explorer is [yazi](https://yazi-rs.github.io) by default. Set another one with `--explorer` or with `explorer` in the config file. Give a program name on your `PATH` or an absolute path. Lazylab refuses a relative path. The explorer gets two environment variables: `LAZYLAB_PROJECT_URL`, the web address of the project, and `LAZYLAB_REF`, the branch or commit of the checkout. A key binding of the explorer can use them to make the GitLab address of a file.
+
+`e` needs `git` on your `PATH`. The token goes to `git` only in its environment, never in an argument or a file. The demo has no files to browse.
 
 ## Configuration
 
-A GitLab token is the only required value, and you can skip even that when `glab` is logged in (see below). Everything else has a default. Precedence (highest first): CLI flags > env vars (`GITLAB_*` prefix) > config file > glab credentials > compiled defaults.
+| Flag | Environment variable | Config file key | Default |
+|---|---|---|---|
+| `--host` | `GITLAB_HOST` | `host` | `https://gitlab.com` |
+| `--token` | `GITLAB_TOKEN` | `token` | none |
+| `--projects-per-page` | `GITLAB_PROJECTS_PER_PAGE` | `projects-per-page` | `30`, at most `100` |
+| `--log-level` | `GITLAB_LOG_LEVEL` | `log-level` | `error` |
+| `--explorer` | none | `explorer` | `yazi` |
+| `--demo` | `GITLAB_DEMO` | `demo` | off |
+| `--config` | `LAZYLAB_CONFIG` | none | none |
 
-Supply the token through `GITLAB_TOKEN`, a config file, or `glab auth login`. The `--token` flag works and stays supported, but prefer the others. A command-line argument is visible to every local user through the process list. Your shell also writes it to the history file.
+The log level is one of `debug`, `info`, `warn` or `error`. Lazylab also reads the config file path from `GITLAB_TUI_CONFIG` when `--config` and `LAZYLAB_CONFIG` are not set.
 
-Run `lazylab --help` for the flag surface. Defaults and validation rules live in `internal/config/config.go`.
+Precedence, highest first:
 
-Config files are optional. The Rust binary reads TOML and JSON. Point at one with `--config <path>` or `$LAZYLAB_CONFIG`.
+1. Flags
+2. Environment variables
+3. The config file
+4. The credentials of `glab`, for the token and the host only
+5. Defaults
 
-### glab credentials
+Do not use `--token`. Every local user can see a command-line argument in the process list, and your shell writes it to the history file. Use `GITLAB_TOKEN`, a config file, or `glab auth login`.
 
-If no token is supplied by flag, env, or config file, lazylab falls back to the credentials [`glab`](https://gitlab.com/gitlab-org/cli) has stored (from `glab auth login`). It borrows both the token and the host glab is configured for. A glab-authenticated user can then run `lazylab` with no further setup, including on self-hosted GitLab. An explicit `--host` / `GITLAB_HOST` is still honored. glab only fills what you leave unset.
+A config file is optional. Lazylab reads TOML (`.toml`) and JSON (`.json`), and it chooses the format from the file extension. It refuses every other type, YAML included.
 
-## How it works
+```toml
+host = "https://gitlab.example.com"
+projects-per-page = 50
+explorer = "lf"
+```
 
-Lazylab is a Bubble Tea state machine. Every GitLab call runs as a command that returns a message. No fetch blocks a keystroke, and the panels repaint from state on the next frame. Pipeline data refreshes on a 5-second tick.
+### Files
 
-The `glab` emitters are pure. They map whatever you have focused to a command string and perform no I/O, which is why `y` works with `glab` absent from your `PATH`. You need it only to run the command.
+Lazylab keeps its files in one folder. When lazylab creates the folder, only your user can open it.
 
-The tree assumes two rules. Every byte the TUI writes passes one ANSI filter first, so remote content cannot move the cursor or repaint the screen. No token reaches the terminal unscrubbed either. The log handler redacts what it writes, and every error shown in the UI passes the same redactor.
+- macOS: `~/Library/Caches/lazylab`
+- Linux: `$XDG_CACHE_HOME/lazylab`, or `~/.cache/lazylab` when `XDG_CACHE_HOME` is not set
 
-### Caching
+The folder holds:
 
-The TUI persists three files under the OS cache directory (`~/Library/Caches/lazylab` on macOS, `~/.cache/lazylab` on Linux), each keyed by GitLab host:
+- `projects_<host>.json`: the project list. When this file is less than one day old, a start shows the list from it. Otherwise, lazylab loads the list from GitLab. Press `ctrl+r` to load the list from GitLab at any time.
+- `favorites_<host>.json`: your favorites and their order.
+- `lazylab.log`: the log of the last session. Each start empties it. Lazylab removes tokens from each line. With `--log-level debug`, the log has a line for each GitLab request, with its status and duration.
+- `checkouts/<host>/<project>/<ref>`: the checkouts that `e` makes. The next `e` on the same project and ref uses the checkout again. Delete the folder to free the space.
 
-- `projects_<host>.json` holds the project list. Force-refresh with `Ctrl+R`.
-- `favorites_<host>.json` holds pinned projects.
-- `preferences_<host>.json` holds layout, theme, and tab state.
-
-Pipeline status lives in an in-memory LRU (last 100 projects) with a 5-second refresh tick. Delete the files on disk to start over.
+`<host>` is the scheme and the host name, for example `https_gitlab_com`.
 
 ## Development
 
-The project ships a justfile. Run `just --list` for the recipe surface. Tests run with `go test -race ./...`. Coverage targets `>80%` for `internal/gitlab`.
+The `justfile` has the development commands. Run `just --list` to see all of them.
+
+```bash
+just test                            # cargo test
+just lint                            # rustfmt check, clippy, and the RustSec advisory scan
+just run https://gitlab.example.com  # run against a host, with GITLAB_TOKEN from the environment or .env
+just demo                            # build a release binary and record doc/demo.gif with vhs
+just release-dry-run                 # build the release archive and the Homebrew formula, and publish nothing
+```
+
+`just lint` needs [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) and a network connection. `just demo` needs [vhs](https://github.com/charmbracelet/vhs). `just release-dry-run` needs [dist](https://github.com/axodotdev/cargo-dist).
 
 ## License
 
