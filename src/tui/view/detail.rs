@@ -11,7 +11,9 @@ use crate::gitlab::{Discussion, Status, TestCaseStatus};
 use crate::tui::app::{App, Focus, MrTab, Pane};
 use crate::tui::diff::{self, Kind};
 use crate::tui::jobs::JobRow;
-use crate::tui::panel::{Row, block, bottom_label, kv, light_corners, marked_line, window_start};
+use crate::tui::panel::{
+    Row, block, bottom_label, kv, light_corners, marked_line, tab_spans, window_start,
+};
 use crate::tui::text::{age, clamp_spans, expand_tabs, fit, pad, width as text_width};
 use crate::tui::theme::Theme;
 
@@ -453,21 +455,11 @@ fn thread(
     lines
 }
 
-/// The other tabs keep blank cells where the marker goes, so no label moves when the tab changes.
 fn mr_tabs(current: MrTab, t: &Theme) -> Line<'static> {
-    let mut spans = Vec::new();
-    for tab in MrTab::ALL {
-        let on = tab == current;
-        let (open, close) = if on { ("[", "]") } else { (" ", " ") };
-        spans.push(Span::styled(open, t.marker()));
-        spans.push(Span::styled(
-            tab.label(),
-            if on { t.marked() } else { t.title() },
-        ));
-        spans.push(Span::styled(close, t.marker()));
-        spans.push(Span::raw(" "));
-    }
-    Line::from(spans)
+    let tabs: Vec<_> = (MrTab::ALL.into_iter())
+        .map(|tab| (tab.label(), tab == current))
+        .collect();
+    Line::from(tab_spans(&tabs, t))
 }
 
 fn status_label(status: Status) -> &'static str {
