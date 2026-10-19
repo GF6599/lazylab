@@ -94,10 +94,21 @@ jobs:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
+      # Every Linux target is musl. The cc crate compiles the C code in
+      # aws-lc-sys and ring with musl-gcc, which this package provides.
+      - name: Install musl-gcc
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
       - name: Build artifacts
         env:
           TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
           DIST_ARGS: ${{ matrix.dist_args }}
+          # On a gnu host the cc crate asks for aarch64-linux-musl-gcc, and
+          # musl-tools installs only musl-gcc, which builds for the runner's
+          # own architecture.
+          CC_aarch64_unknown_linux_musl: musl-gcc
         run: |
           read -ra dist_args <<< "$DIST_ARGS"
           dist build ${TAG_FLAG:+"$TAG_FLAG"} --print=linkage --output-format=json "${dist_args[@]}" > dist-manifest.json
