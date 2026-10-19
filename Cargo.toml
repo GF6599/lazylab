@@ -5,6 +5,8 @@ edition = "2024"
 rust-version = "1.93"
 description = "Terminal UI for GitLab"
 license = "MIT"
+repository = "https://github.com/GF6599/lazylab"
+homepage = "https://github.com/GF6599/lazylab"
 publish = false
 
 [dependencies]
@@ -29,6 +31,9 @@ url = "2"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+[profile.dist]
+inherits = "release"
 
 [dev-dependencies]
 figment = { version = "0.10", features = ["test"] }
