@@ -6,24 +6,12 @@ members = ["cargo:."]
 # reads that as "do not release" unless this overrides it.
 dist = true
 cargo-dist-version = "0.33.0"
+# release.yml is kept by hand, because dist writes contents: write for every job
+# and installs itself with curl into a shell.
+allow-dirty = ["ci"]
 ci = "github"
 installers = ["homebrew"]
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
 hosting = "github"
 tap = "GF6599/homebrew-tap"
 publish-jobs = ["homebrew"]
-# A dispatch with the default tag "dry-run" builds every artifact and publishes
-# nothing. A tag push cannot start a release in this mode.
-dispatch-releases = true
-# The host job accepts a skipped build, so a plan job that fails does not stop a
-# publish. The host job does refuse a failed local artifacts job.
-local-artifacts-jobs = ["./release-check"]
-
-# dist writes each value after the "@" as it is, so the comment lands in the
-# workflow next to the commit it names. A bump of these actions in release.yml
-# must also change this table, because dist plan fails on a workflow that this
-# config does not generate.
-[dist.github-action-commits]
-"actions/checkout" = "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
-"actions/upload-artifact" = "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2"
-"actions/download-artifact" = "9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2"
