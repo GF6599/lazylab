@@ -445,6 +445,67 @@ fn the_projects_pane_names_its_search_and_its_favorites_view() {
     assert!(favorites.contains("★ favorites"), "{favorites}");
 }
 
+/// The title row of the projects pane, and the column of the opening marker of its active tab.
+fn projects_tabs(buffer: &Buffer) -> (u16, String, u16) {
+    let (y, row) = (0..buffer.area.height)
+        .map(|y| (y, row_text(buffer, y)))
+        .find(|(_, row)| row.contains("favorites") && row.contains("all"))
+        .unwrap_or_else(|| panic!("no projects tabs in\n{}", screen(buffer)));
+    let open = column_of(&row, "[");
+    (y, row, open)
+}
+
+#[test]
+fn a_start_with_a_saved_favorite_opens_on_the_favorites_tab() {
+    // Given: the demo data.
+    let mut app = loaded();
+    let favorite = app.projects[1].id;
+
+    // When: the saved favorites arrive with one project, and the screen is drawn.
+    app.update(Msg::FavoritesLoaded(vec![favorite]));
+    let buffer = render(&app, 120, 32);
+
+    // Then: the projects title names both tabs, with the gold marker around the favorites tab
+    // in iris, and only the favorite shows.
+    let (y, row, open) = projects_tabs(&buffer);
+    assert!(row.contains("[★ favorites]  all "), "{row}");
+    assert_eq!(buffer[(open, y)].fg, T.gold);
+    assert_eq!(buffer[(open + 1, y)].fg, T.iris);
+    assert_eq!(app.len(Pane::Projects), 1);
+}
+
+#[test]
+fn a_start_with_no_favorites_opens_on_the_all_tab() {
+    // Given: the demo data.
+    let mut app = loaded();
+
+    // When: the saved favorites arrive empty, and the screen is drawn.
+    app.update(Msg::FavoritesLoaded(Vec::new()));
+    let buffer = render(&app, 120, 32);
+
+    // Then: the all tab is the active one, and every project shows.
+    let (_, row, _) = projects_tabs(&buffer);
+    assert!(row.contains(" ★ favorites [all]"), "{row}");
+    assert_eq!(app.len(Pane::Projects), app.projects.len());
+}
+
+#[test]
+fn t_and_shift_t_move_between_the_projects_tabs() {
+    // Given: a start on the favorites tab.
+    let mut app = loaded();
+    app.update(Msg::FavoritesLoaded(vec![app.projects[0].id]));
+
+    // When: t is pressed. Then: the all tab is active.
+    press(&mut app, 't');
+    let (_, row, _) = projects_tabs(&render(&app, 120, 32));
+    assert!(row.contains("[all]"), "{row}");
+
+    // When: T is pressed. Then: the favorites tab is active again.
+    press(&mut app, 'T');
+    let (_, row, _) = projects_tabs(&render(&app, 120, 32));
+    assert!(row.contains("[★ favorites]"), "{row}");
+}
+
 #[test]
 fn each_project_shows_its_latest_pipeline_before_its_path() {
     // Given: the demo data, with known statuses for three projects and one still loading.
