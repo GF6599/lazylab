@@ -17,7 +17,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::json;
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
-use wiremock::matchers::method;
+use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 const PATH: &str = "acme/platform/api";
@@ -225,7 +225,7 @@ async fn the_loop_hands_the_terminal_to_the_explorer_and_reads_how_it_ended() {
     assert_eq!(shown.as_deref(), Some("yazi exited with code 2"));
 }
 
-/// Answers every request with an empty list, and tells the test each time it gets one.
+/// Answers with an empty list, and tells the test each time it gets a request.
 struct Served(Sender<()>);
 
 impl Respond for Served {
@@ -236,12 +236,24 @@ impl Respond for Served {
 }
 
 #[tokio::test]
-async fn a_load_asked_before_the_explorer_reaches_gitlab_while_the_explorer_is_open() {
-    // Given: a GitLab that reports each request, and a screen that reports a finished checkout
-    // as soon as the first page of projects is asked for.
+async fn a_load_in_flight_goes_on_while_the_explorer_is_open() {
+    // Given: a GitLab that answers the projects page with a redirect after half a second, and
+    // reports when the client follows it. A client that cannot run while the explorer is open
+    // never reads the redirect, even when it sent the first request before the explorer opened.
     let server = MockServer::start().await;
+    let moved = format!("{}/api/v4/moved", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("location", moved.as_str())
+                .set_delay(Duration::from_millis(500)),
+        )
+        .mount(&server)
+        .await;
     let (served, requests) = channel();
     Mock::given(method("GET"))
+        .and(path("/api/v4/moved"))
         .respond_with(Served(served))
         .mount(&server)
         .await;
@@ -256,7 +268,7 @@ async fn a_load_asked_before_the_explorer_reaches_gitlab_while_the_explorer_is_o
             sent = true;
         }
     };
-    // And: an explorer that stays open until GitLab gets a request, for at most two seconds.
+    // And: an explorer that stays open until the redirect is followed, for at most two seconds.
     let quit = outbox.clone();
     let (heard, reached) = channel();
     let explore = move |_: &Browse| {
@@ -285,7 +297,7 @@ async fn a_load_asked_before_the_explorer_reaches_gitlab_while_the_explorer_is_o
         .expect("the loop ends once q arrives")
         .unwrap();
 
-    // Then: the page request reached GitLab while the explorer was still open.
+    // Then: the client read the redirect and followed it while the explorer was still open.
     assert_eq!(reached.try_iter().collect::<Vec<_>>(), [true]);
 }
 
