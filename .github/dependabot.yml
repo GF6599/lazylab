@@ -19,12 +19,12 @@ updates:
           - minor
           - patch
 
-  - package-ecosystem: gomod
+  - package-ecosystem: cargo
     directory: "/"
     schedule:
       interval: weekly
     groups:
-      go-dependencies:
+      cargo-dependencies:
         patterns:
           - "*"
         update-types:
