@@ -36,10 +36,10 @@ release-dry-run:
 	# exported. Leaving it set writes gitlab.com download URLs into the cask.
 	env -u GITLAB_TOKEN goreleaser release --snapshot --clean --skip=publish
 
-# Build a binary and record the VHS demo
+# Build the Rust binary and record the VHS demo
 [group('run')]
 demo:
-	go build -o lazylab ./cmd/lazylab
+	cargo build --release --locked
 	vhs demo.tape
 
 # Build then copy the darwin binary into ~/self-made-bin
