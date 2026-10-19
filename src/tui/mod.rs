@@ -189,8 +189,18 @@ pub async fn run<B: Backend>(
             match command {
                 Cmd::Copy(text) => copy(clipboard, &text),
                 Cmd::Browse(request) => {
+                    // The explorer blocks until it exits. On the blocking pool it leaves the
+                    // runtime free to drive the requests in flight, which would otherwise time out.
+                    let browsing = tokio::task::spawn_blocking(move || {
+                        let ended = browse(&request);
+                        (browse, ended)
+                    });
+                    let (back, ended) = browsing
+                        .await
+                        .unwrap_or_else(|e| panic::resume_unwind(e.into_panic()));
+                    browse = back;
                     // A send fails only once the loop has ended, when no one needs the answer.
-                    let _ = outbox.send(browse(&request));
+                    let _ = outbox.send(ended);
                     terminal.clear()?;
                 }
                 command => dispatch(command, &source, &outbox),
