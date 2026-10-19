@@ -510,6 +510,38 @@ fn t_and_shift_t_move_between_the_projects_tabs() {
 }
 
 #[test]
+fn the_detail_pane_describes_the_project_under_the_cursor_in_a_filtered_list() {
+    // Given: the demo data, and a project far from the top of the full list.
+    let mut app = loaded();
+    let target = app.projects[3].clone();
+    let shows = |app: &App| {
+        let shown = screen(&render(app, 120, 32));
+        let titled = shown.contains(&format!("┌─ {} ", target.path_with_namespace));
+        (titled && shown.contains(&target.web_url), shown)
+    };
+
+    // When: the target is the only favorite, so the favorites tab lists it alone.
+    app.update(Msg::FavoritesLoaded(vec![target.id]));
+
+    // Then: the detail pane names it and gives its web address.
+    let (described, shown) = shows(&app);
+    assert!(described, "{shown}");
+
+    // When: every project shows, and a search finds the target alone.
+    press(&mut app, 't');
+    press(&mut app, '/');
+    target
+        .path_with_namespace
+        .chars()
+        .for_each(|c| press(&mut app, c));
+
+    // Then: the detail pane describes the target too.
+    assert_eq!(app.len(Pane::Projects), 1);
+    let (described, shown) = shows(&app);
+    assert!(described, "{shown}");
+}
+
+#[test]
 fn each_project_shows_its_latest_pipeline_before_its_path() {
     // Given: the demo data, with known statuses for three projects and one still loading.
     let mut app = loaded();
