@@ -64,6 +64,8 @@ lint:
 	go tool govulncheck ./...
 	cargo fmt --check
 	cargo clippy --all-targets --locked -- -D warnings
+	# Fetches the RustSec advisory database, which also needs the network.
+	cargo deny check advisories
 
 # Report unreachable code (informational, test-only functions are expected)
 [group('dev')]

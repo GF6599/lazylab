@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 
 use clap::Args;
 use figment::error::Kind;
-use figment::providers::{Env, Format, Json, Serialized, Toml, Yaml};
+use figment::providers::{Env, Format, Json, Serialized, Toml};
 use figment::{Figment, Provider};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ pub struct Flags {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explorer: Option<String>,
-    /// Optional config file (YAML, TOML, JSON)
+    /// Optional config file (TOML, JSON)
     #[arg(long)]
     #[serde(skip)]
     pub config: Option<PathBuf>,
@@ -256,10 +256,9 @@ fn with_file(sources: Figment, path: &Path) -> Result<Figment, Error> {
         .map(str::to_lowercase);
     match extension.as_deref() {
         Some("toml") => merge_file::<Toml>(sources, path),
-        Some("yaml" | "yml") => merge_file::<Yaml>(sources, path),
         Some("json") => merge_file::<Json>(sources, path),
         _ => Err(Error(format!(
-            "load config {}: unsupported file type, use .toml, .yaml, .yml or .json",
+            "load config {}: unsupported file type, use .toml or .json",
             path.display()
         ))),
     }
@@ -610,33 +609,49 @@ mod tests {
     }
 
     #[test]
-    fn yaml_and_json_files_are_read_by_their_extension() {
+    fn a_json_file_is_read_by_its_extension() {
         Jail::expect_with(|jail| {
-            // Given: the same settings as YAML and as JSON.
+            // Given: settings as JSON.
             jail.clear_env();
-            jail.create_file("a.yaml", "projects-per-page: 50\nlog-level: info\n")?;
             jail.create_file(
                 "b.json",
                 r#"{"projects-per-page": 60, "log-level": "warn"}"#,
             )?;
-            let read = |file: &str| {
-                load(&Flags {
-                    config: Some(file.into()),
-                    ..flags("t")
-                })
-                .unwrap()
-            };
-            // Then: both are read.
+            // When: the settings load from it.
+            let config = load(&Flags {
+                config: Some("b.json".into()),
+                ..flags("t")
+            })
+            .unwrap();
+            // Then: it is read.
             assert_eq!(
-                (read("a.yaml").projects_per_page, read("a.yaml").log_level),
-                (50, Level::INFO)
-            );
-            assert_eq!(
-                (read("b.json").projects_per_page, read("b.json").log_level),
+                (config.projects_per_page, config.log_level),
                 (60, Level::WARN)
             );
             Ok(())
         });
+    }
+
+    #[test]
+    fn a_yaml_file_is_refused_with_the_supported_types() {
+        for file in ["a.yaml", "a.yml"] {
+            Jail::expect_with(|jail| {
+                // Given: valid settings as YAML.
+                jail.clear_env();
+                jail.create_file(file, "projects-per-page: 50\n")?;
+                // When: the settings load from it.
+                let message = error(&Flags {
+                    config: Some(file.into()),
+                    ..flags("t")
+                });
+                // Then: the error names the file and the types that load.
+                assert_eq!(
+                    message,
+                    format!("load config {file}: unsupported file type, use .toml or .json")
+                );
+                Ok(())
+            });
+        }
     }
 
     #[test]
@@ -696,7 +711,6 @@ mod tests {
             jail.clear_env();
             jail.create_file("number.toml", "token = 123456789012")?;
             jail.create_file("syntax.toml", "token = \"abcdefghijkl")?;
-            jail.create_file("number.yaml", "token: 123456789012\n")?;
             jail.create_file("number.json", r#"{"token": 123456789012}"#)?;
             let from_file = |file: &str| {
                 error(&Flags {
@@ -714,7 +728,6 @@ mod tests {
             let rejected = [
                 (from_file("number.toml"), "123456789012", "number.toml"),
                 (from_file("syntax.toml"), "abcdefghijkl", "syntax.toml"),
-                (from_file("number.yaml"), "123456789012", "number.yaml"),
                 (from_file("number.json"), "123456789012", "number.json"),
                 (
                     bad_host("https://oauth2:s3cretvalue@gitlab .com"),
