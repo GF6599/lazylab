@@ -80,7 +80,6 @@ async fn session(
 ) -> io::Result<()> {
     let (outbox, inbox) = mpsc::unbounded_channel();
     let mut input = Input::start(outbox.clone());
-    tick(outbox.clone());
     let restart = outbox.clone();
     let browse = move |request: &Browse| {
         input.stop();
@@ -164,24 +163,9 @@ impl Input {
     }
 }
 
-fn tick(outbox: UnboundedSender<Msg>) {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(TICK);
-        // The explorer holds the loop for as long as the reader browses, and the ticks it
-        // missed would otherwise arrive at once.
-        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        loop {
-            interval.tick().await;
-            if outbox.send(Msg::Tick).is_err() {
-                return;
-            }
-        }
-    });
-}
-
-/// Keys, ticks and finished work all arrive through `inbox`, so they are handled one at a time.
-/// A copy goes to `clipboard`, which is the output the terminal draws to. `browse` has the
-/// terminal while the explorer runs, and answers how it ended.
+/// Keys and finished work arrive through `inbox`, and a tick comes every `TICK`, so they are
+/// handled one at a time. A copy goes to `clipboard`, which is the output the terminal draws to.
+/// `browse` has the terminal while the explorer runs, and answers how it ended.
 pub async fn run<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
@@ -195,6 +179,10 @@ pub async fn run<B: Backend>(
         app = app.demo();
     }
     let mut commands = app.start();
+    let mut ticks = tokio::time::interval(TICK);
+    // The loop does not poll the interval while the explorer has the terminal, and the ticks it
+    // missed would otherwise arrive at once.
+    ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
         for command in commands.drain(..) {
             match command {
@@ -211,7 +199,11 @@ pub async fn run<B: Backend>(
             break;
         }
         terminal.draw(|frame| draw(frame, &app))?;
-        match inbox.recv().await {
+        let next = tokio::select! {
+            msg = inbox.recv() => msg,
+            _ = ticks.tick() => Some(Msg::Tick),
+        };
+        match next {
             Some(msg) => commands = app.update(msg),
             None => break,
         }
