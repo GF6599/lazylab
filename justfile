@@ -15,10 +15,9 @@ default:
 run HOST="https://gitlab.com":
 	cargo run --locked -- --host {{HOST}}
 
-# Run the Go tests with the race detector, then the Rust tests
+# Run the Rust tests
 [group('dev')]
 test:
-	go test -race ./...
 	cargo test --locked
 
 # Build an optimized binary into target/release/
@@ -44,29 +43,18 @@ install: build
 	cp target/release/lazylab ~/self-made-bin/lazylab
 	codesign -s - ~/self-made-bin/lazylab
 
-# Format the Go code with gofumpt and the Rust code with rustfmt
+# Format the Rust code with rustfmt
 [group('dev')]
 fmt:
-	go tool gofumpt -w .
 	cargo fmt
 
 # Every static check CI runs, in the same order
 [group('dev')]
 lint:
-	go vet ./...
-	go tool staticcheck ./...
-	go tool gofumpt -l -d .
-	# Reaches vuln.go.dev, so this recipe needs a network connection.
-	go tool govulncheck ./...
 	cargo fmt --check
 	cargo clippy --all-targets --locked -- -D warnings
-	# Fetches the RustSec advisory database, which also needs the network.
+	# Fetches the RustSec advisory database, so this recipe needs a network connection.
 	cargo deny check advisories
-
-# Report unreachable code (informational, test-only functions are expected)
-[group('dev')]
-deadcode:
-	~/go/bin/deadcode ./...
 
 # Remove build artifacts
 [group('build')]
