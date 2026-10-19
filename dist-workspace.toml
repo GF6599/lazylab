@@ -1,0 +1,17 @@
+[workspace]
+members = ["cargo:."]
+
+[dist]
+# Cargo.toml sets publish = false to keep the crate off crates.io, and dist
+# reads that as "do not release" unless this overrides it.
+dist = true
+cargo-dist-version = "0.33.0"
+# release.yml is kept by hand, because dist writes contents: write for every job
+# and installs itself with curl into a shell.
+allow-dirty = ["ci"]
+ci = "github"
+installers = ["homebrew"]
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-musl", "x86_64-apple-darwin", "x86_64-unknown-linux-musl"]
+hosting = "github"
+tap = "GF6599/homebrew-tap"
+publish-jobs = ["homebrew"]

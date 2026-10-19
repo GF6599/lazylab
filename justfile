@@ -21,20 +21,16 @@ test:
 	go test -race ./...
 	cargo test --locked
 
-# Build darwin and linux binaries into build/
+# Build an optimized binary into target/release/
 [group('build')]
 build:
-	mkdir -p build
-	GOOS=darwin GOARCH=$(go env GOARCH) go build -o build/lazylab-darwin-$(go env GOARCH) ./cmd/lazylab
-	GOOS=linux GOARCH=amd64 go build -o build/lazylab-linux-amd64 ./cmd/lazylab
+	cargo build --release --locked
 
-# Render a full release into dist/ and publish none of it
+# Render the release archive and Homebrew formula for this machine into target/distrib/, and publish none of it
 [group('build')]
 release-dry-run:
-	# GITLAB_TOKEN is cleared because goreleaser reads the release host from
-	# whichever token variable it finds, and running lazylab needs that one
-	# exported. Leaving it set writes gitlab.com download URLs into the cask.
-	env -u GITLAB_TOKEN goreleaser release --snapshot --clean --skip=publish
+	dist plan
+	dist build
 
 # Build the Rust binary and record the VHS demo
 [group('run')]
@@ -42,10 +38,10 @@ demo:
 	cargo build --release --locked
 	vhs demo.tape
 
-# Build then copy the darwin binary into ~/self-made-bin
+# Build then copy the binary into ~/self-made-bin
 [group('build')]
 install: build
-	cp build/lazylab-darwin-$(go env GOARCH) ~/self-made-bin/lazylab
+	cp target/release/lazylab ~/self-made-bin/lazylab
 	codesign -s - ~/self-made-bin/lazylab
 
 # Format the Go code with gofumpt and the Rust code with rustfmt
@@ -75,4 +71,4 @@ deadcode:
 # Remove build artifacts
 [group('build')]
 clean:
-	rm -rf build dist lazylab
+	rm -rf target/distrib lazylab
