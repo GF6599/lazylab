@@ -1,4 +1,7 @@
+mod common;
+
 use std::path::PathBuf;
+use std::sync::mpsc::{Sender, channel};
 use std::time::Duration;
 
 use lazylab::checkout::Revision;
@@ -14,6 +17,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::json;
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
+use wiremock::matchers::method;
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 const PATH: &str = "acme/platform/api";
 const WEB_URL: &str = "https://gitlab.example.com/acme/platform/api";
@@ -189,7 +194,7 @@ async fn the_loop_hands_the_terminal_to_the_explorer_and_reads_how_it_ended() {
             keys.send(char('q')).unwrap();
         }
     };
-    let (seen, browsed) = std::sync::mpsc::channel();
+    let (seen, browsed) = channel();
     let explore = move |request: &Browse| {
         seen.send(request.clone()).unwrap();
         Msg::Browsed {
@@ -218,6 +223,70 @@ async fn the_loop_hands_the_terminal_to_the_explorer_and_reads_how_it_ended() {
     // Then: the explorer got the checkout once, and its end reached the status line.
     assert_eq!(browsed.try_iter().collect::<Vec<_>>(), [browse()]);
     assert_eq!(shown.as_deref(), Some("yazi exited with code 2"));
+}
+
+/// Answers every request with an empty list, and tells the test each time it gets one.
+struct Served(Sender<()>);
+
+impl Respond for Served {
+    fn respond(&self, _: &Request) -> ResponseTemplate {
+        let _ = self.0.send(());
+        ResponseTemplate::new(200).set_body_json(json!([]))
+    }
+}
+
+#[tokio::test]
+async fn a_load_asked_before_the_explorer_reaches_gitlab_while_the_explorer_is_open() {
+    // Given: a GitLab that reports each request, and a screen that reports a finished checkout
+    // as soon as the first page of projects is asked for.
+    let server = MockServer::start().await;
+    let (served, requests) = channel();
+    Mock::given(method("GET"))
+        .respond_with(Served(served))
+        .mount(&server)
+        .await;
+    let source = Source::live(common::client_for(&server.uri()), None);
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let (outbox, inbox) = mpsc::unbounded_channel();
+    let keys = outbox.clone();
+    let mut sent = false;
+    let draw = move |_: &mut ratatui::Frame, app: &App| {
+        if app.loading && !sent {
+            keys.send(Msg::CheckedOut(browse())).unwrap();
+            sent = true;
+        }
+    };
+    // And: an explorer that stays open until GitLab gets a request, for at most two seconds.
+    let quit = outbox.clone();
+    let (heard, reached) = channel();
+    let explore = move |_: &Browse| {
+        let request = requests.recv_timeout(Duration::from_secs(2));
+        heard.send(request.is_ok()).unwrap();
+        quit.send(char('q')).unwrap();
+        Msg::Browsed {
+            program: "yazi".into(),
+            ended: Ended::Closed,
+        }
+    };
+    let mut clipboard = Vec::new();
+
+    // When: the loop runs, for at most five seconds.
+    let running = run(
+        &mut terminal,
+        App::new(30),
+        source,
+        (outbox, inbox),
+        &mut clipboard,
+        draw,
+        explore,
+    );
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("the loop ends once q arrives")
+        .unwrap();
+
+    // Then: the page request reached GitLab while the explorer was still open.
+    assert_eq!(reached.try_iter().collect::<Vec<_>>(), [true]);
 }
 
 fn git(dir: &std::path::Path, args: &[&str]) {
