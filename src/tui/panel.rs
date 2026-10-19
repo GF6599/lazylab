@@ -11,18 +11,42 @@ use super::theme::Theme;
 const BORDER: BorderType = BorderType::Plain;
 
 pub fn block(title: &str, padded: bool, t: &Theme) -> Block<'static> {
-    let mut block = Block::bordered()
+    let block = framed(vec![Span::styled(format!(" {title} "), t.title())], t);
+    if padded {
+        block.padding(Padding::horizontal(1))
+    } else {
+        block
+    }
+}
+
+/// A frame whose title is a row of tabs, the active one between the markers.
+pub fn tabbed_block(tabs: &[(&'static str, bool)], t: &Theme) -> Block<'static> {
+    let mut title = vec![Span::raw(" ")];
+    title.extend(tab_spans(tabs, t));
+    framed(title, t)
+}
+
+fn framed(title: Vec<Span<'static>>, t: &Theme) -> Block<'static> {
+    let mut spans = vec![Span::styled("─", t.border())];
+    spans.extend(title);
+    Block::bordered()
         .border_type(BORDER)
         .border_style(t.border())
         .style(t.surface())
-        .title(Line::from(vec![
-            Span::styled("─", t.border()),
-            Span::styled(format!(" {title} "), t.title()),
-        ]));
-    if padded {
-        block = block.padding(Padding::horizontal(1));
+        .title(Line::from(spans))
+}
+
+/// The other tabs keep blank cells where the marker goes, so no label moves when the tab changes.
+pub fn tab_spans(tabs: &[(&'static str, bool)], t: &Theme) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for &(label, on) in tabs {
+        let (open, close) = if on { ("[", "]") } else { (" ", " ") };
+        spans.push(Span::styled(open, t.marker()));
+        spans.push(Span::styled(label, if on { t.marked() } else { t.title() }));
+        spans.push(Span::styled(close, t.marker()));
+        spans.push(Span::raw(" "));
     }
-    block
+    spans
 }
 
 /// The region-scale form of the `[ ]` marker.

@@ -1156,8 +1156,10 @@ impl App {
                 commands
             }
             Msg::CacheLoaded(cached) => self.cache_loaded(cached),
+            // Only a start loads the favorites, so this opens the favorites tab when there are any.
             Msg::FavoritesLoaded(ids) => {
                 let before = self.selected();
+                self.favorites_only = !ids.is_empty();
                 self.favorites = ids;
                 self.reshow(before)
             }
@@ -1514,7 +1516,7 @@ impl App {
                 return self.reshow(before);
             }
             KeyCode::Char('f') if on_projects => return self.toggle_favorite(),
-            KeyCode::Char('t') if on_projects => {
+            KeyCode::Char('t' | 'T') if on_projects => {
                 self.favorites_only = !self.favorites_only;
                 return self.reshow(before);
             }
