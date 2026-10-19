@@ -113,7 +113,7 @@ fn view(app: &App, context: &Context, body: Rect, t: &Theme) -> (String, Vec<Lin
         )]
     };
     match app.pane {
-        Pane::Projects => app.projects.get(cursor).map(|p| {
+        Pane::Projects => app.project().map(|p| {
             let lines = vec![
                 kv("about", text(p.description.clone().unwrap_or_default()), t),
                 kv(
