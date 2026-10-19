@@ -1,12 +1,15 @@
+mod common;
+
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::mpsc::{Sender, channel};
+use std::time::{Duration, Instant};
 
 use lazylab::checkout::Revision;
 use lazylab::config::{Mode, Token};
 use lazylab::explorer::{Browse, Ended};
 use lazylab::gitlab::Project;
 use lazylab::store::CachedProjects;
-use lazylab::tui::app::{App, Cmd, Msg};
+use lazylab::tui::app::{App, Cmd, Msg, TICK};
 use lazylab::tui::{Source, demo, run};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -14,6 +17,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::json;
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 const PATH: &str = "acme/platform/api";
 const WEB_URL: &str = "https://gitlab.example.com/acme/platform/api";
@@ -189,9 +194,9 @@ async fn the_loop_hands_the_terminal_to_the_explorer_and_reads_how_it_ended() {
             keys.send(char('q')).unwrap();
         }
     };
-    let mut browsed = Vec::new();
-    let explore = |request: &Browse| {
-        browsed.push(request.clone());
+    let (seen, browsed) = channel();
+    let explore = move |request: &Browse| {
+        seen.send(request.clone()).unwrap();
         Msg::Browsed {
             program: "yazi".into(),
             ended: Ended::Exited(Some(2)),
@@ -216,8 +221,139 @@ async fn the_loop_hands_the_terminal_to_the_explorer_and_reads_how_it_ended() {
         .unwrap();
 
     // Then: the explorer got the checkout once, and its end reached the status line.
-    assert_eq!(browsed, [browse()]);
+    assert_eq!(browsed.try_iter().collect::<Vec<_>>(), [browse()]);
     assert_eq!(shown.as_deref(), Some("yazi exited with code 2"));
+}
+
+/// Answers with an empty list, and tells the test each time it gets a request.
+struct Served(Sender<()>);
+
+impl Respond for Served {
+    fn respond(&self, _: &Request) -> ResponseTemplate {
+        let _ = self.0.send(());
+        ResponseTemplate::new(200).set_body_json(json!([]))
+    }
+}
+
+#[tokio::test]
+async fn a_load_in_flight_goes_on_while_the_explorer_is_open() {
+    // Given: a GitLab that answers the projects page with a redirect after half a second, and
+    // reports when the client follows it. A client that cannot run while the explorer is open
+    // never reads the redirect, even when it sent the first request before the explorer opened.
+    let server = MockServer::start().await;
+    let moved = format!("{}/api/v4/moved", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/api/v4/projects"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("location", moved.as_str())
+                .set_delay(Duration::from_millis(500)),
+        )
+        .mount(&server)
+        .await;
+    let (served, requests) = channel();
+    Mock::given(method("GET"))
+        .and(path("/api/v4/moved"))
+        .respond_with(Served(served))
+        .mount(&server)
+        .await;
+    let source = Source::live(common::client_for(&server.uri()), None);
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let (outbox, inbox) = mpsc::unbounded_channel();
+    let keys = outbox.clone();
+    let mut sent = false;
+    let draw = move |_: &mut ratatui::Frame, app: &App| {
+        if app.loading && !sent {
+            keys.send(Msg::CheckedOut(browse())).unwrap();
+            sent = true;
+        }
+    };
+    // And: an explorer that stays open until the redirect is followed, for at most two seconds.
+    let quit = outbox.clone();
+    let (heard, reached) = channel();
+    let explore = move |_: &Browse| {
+        let request = requests.recv_timeout(Duration::from_secs(2));
+        heard.send(request.is_ok()).unwrap();
+        quit.send(char('q')).unwrap();
+        Msg::Browsed {
+            program: "yazi".into(),
+            ended: Ended::Closed,
+        }
+    };
+    let mut clipboard = Vec::new();
+
+    // When: the loop runs, for at most five seconds.
+    let running = run(
+        &mut terminal,
+        App::new(30),
+        source,
+        (outbox, inbox),
+        &mut clipboard,
+        draw,
+        explore,
+    );
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("the loop ends once q arrives")
+        .unwrap();
+
+    // Then: the client read the redirect and followed it while the explorer was still open.
+    assert_eq!(reached.try_iter().collect::<Vec<_>>(), [true]);
+}
+
+#[tokio::test]
+async fn the_ticks_the_explorer_spans_do_not_arrive_at_once_when_it_ends() {
+    // Given: a screen that reports a finished checkout once the projects are shown and notes the
+    // clock. It notes the clock again half a tick after the end of the explorer shows, so any
+    // ticks that wait in the loop have arrived, then quits.
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let (outbox, inbox) = mpsc::unbounded_channel();
+    let keys = outbox.clone();
+    let mut before = None;
+    let mut ended = None;
+    let mut after = None;
+    let draw = |_: &mut ratatui::Frame, app: &App| {
+        if !app.projects.is_empty() && before.is_none() {
+            before = Some(app.tick);
+            keys.send(Msg::CheckedOut(browse())).unwrap();
+        }
+        if app.error.is_some() && ended.is_none() {
+            ended = Some(Instant::now());
+        }
+        if ended.is_some_and(|at| at.elapsed() >= TICK / 2) && after.is_none() {
+            after = Some(app.tick);
+            keys.send(char('q')).unwrap();
+        }
+    };
+    // And: an explorer that stays open for ten ticks.
+    let open = TICK * 10;
+    let explore = move |_: &Browse| {
+        std::thread::sleep(open);
+        Msg::Browsed {
+            program: "yazi".into(),
+            ended: Ended::Exited(Some(2)),
+        }
+    };
+    let mut clipboard = Vec::new();
+
+    // When: the loop runs, for at most five seconds.
+    let running = run(
+        &mut terminal,
+        App::new(30),
+        Source::Demo,
+        (outbox, inbox),
+        &mut clipboard,
+        draw,
+        explore,
+    );
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("the loop ends once q arrives")
+        .unwrap();
+
+    // Then: the clock moved a few steps around the explorer, not the ten it was open for.
+    let moved = after.unwrap() - before.unwrap();
+    assert!(moved < 5, "the clock moved {moved} steps");
 }
 
 fn git(dir: &std::path::Path, args: &[&str]) {
