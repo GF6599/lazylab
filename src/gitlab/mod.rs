@@ -2,7 +2,7 @@
 
 use std::fmt;
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Method, RequestBuilder, Response, StatusCode, redirect};
@@ -214,11 +214,27 @@ fn header_number<T: FromStr>(headers: &HeaderMap, name: &str) -> Option<T> {
     headers.get(name)?.to_str().ok()?.trim().parse().ok()
 }
 
+/// The screen shows only the last failure, so the log keeps every request and how long it took.
 async fn send(operation: &'static str, request: RequestBuilder) -> Result<Response, Error> {
-    request
-        .send()
-        .await
-        .map_err(|e| Error::transport(operation, e))
+    let (client, request) = request.build_split();
+    let request = request.map_err(|e| Error::transport(operation, e))?;
+    let path = request.url().path().to_owned();
+    let started = Instant::now();
+    let answer = client.execute(request).await;
+    let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    match answer {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let version = response.version();
+            tracing::debug!(operation, path = %path, status, ?version, elapsed_ms, "request answered");
+            Ok(response)
+        }
+        Err(e) => {
+            let error = Error::transport(operation, e);
+            tracing::warn!(operation, path = %path, elapsed_ms, error = %error, "request failed");
+            Err(error)
+        }
+    }
 }
 
 async fn decode<T: DeserializeOwned>(

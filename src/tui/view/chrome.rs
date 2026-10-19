@@ -280,7 +280,7 @@ pub(super) fn draw_status(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
         Span::styled(format!(" {} ", mode(app)), t.badge()),
         Span::raw(" "),
     ];
-    if let Some(error) = &app.error {
+    if let Some(error) = app.status_error() {
         let error = fit(error, room.saturating_sub(spans_width(&spans)));
         spans.push(Span::styled(error, Style::new().fg(t.love)));
     } else if let Some(notice) = &app.notice {
