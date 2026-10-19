@@ -2,13 +2,11 @@
 .DS_Store
 Thumbs.db
 
-/build/
 /lazylab
 .claude
 *.out
 debug.log
 debug.log,
-/dist/
 
 # Environment / secrets
 .env
