@@ -154,6 +154,25 @@ fn a_commit_checked_out_before_opens_again_without_a_fetch() {
 }
 
 #[test]
+fn a_commit_folder_that_holds_no_commit_is_fetched_again() {
+    // Given: the folder of a commit, left as a repository with no commit by a fetch that stopped.
+    let remote = Remote::new();
+    let commit = Revision::Commit(remote.push("main", "one"));
+    let cache = TempDir::new().unwrap();
+    let checkouts = remote.checkouts(cache.path());
+    let folder = checkouts.folder(PROJECT, &commit);
+    fs::create_dir_all(&folder).unwrap();
+    git(&folder, &["init", "--quiet"]);
+
+    // When: the commit is checked out.
+    let dir = checkouts.check_out(PROJECT, &commit).unwrap();
+
+    // Then: the folder holds the commit.
+    assert_eq!(readme(&dir), "one");
+    assert_eq!(git(&dir, &["rev-parse", "HEAD"]), commit.name());
+}
+
+#[test]
 fn a_ref_that_looks_like_an_option_reaches_git_as_a_ref() {
     // Given: a project, and refs that would run a program if git read them as an option.
     let remote = Remote::new();
