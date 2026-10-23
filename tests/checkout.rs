@@ -67,6 +67,16 @@ impl Remote {
         git(&self.work, &["rev-parse", "HEAD"])
     }
 
+    /// Moves the project away, so every later fetch of it fails.
+    fn close(&self) {
+        let bare = self
+            .host
+            .to_file_path()
+            .unwrap()
+            .join(format!("{PROJECT}.git"));
+        fs::rename(&bare, bare.with_extension("gone")).unwrap();
+    }
+
     fn checkouts(&self, cache: &Path) -> Checkouts {
         Checkouts::new(cache, &self.host, Token::new(TOKEN))
     }
@@ -123,6 +133,24 @@ fn a_pipeline_commit_is_checked_out_by_its_sha_when_no_branch_ends_there() {
     assert_eq!(readme(&dir), "one");
     assert_eq!(git(&dir, &["rev-parse", "HEAD"]), older);
     assert_eq!(git(&dir, &["rev-list", "--count", "HEAD"]), "1");
+}
+
+#[test]
+fn a_commit_checked_out_before_opens_again_without_a_fetch() {
+    // Given: a commit that is checked out, and a project that no fetch can reach any more.
+    let remote = Remote::new();
+    let commit = Revision::Commit(remote.push("main", "one"));
+    let cache = TempDir::new().unwrap();
+    let checkouts = remote.checkouts(cache.path());
+    let first = checkouts.check_out(PROJECT, &commit).unwrap();
+    remote.close();
+
+    // When: the same commit is checked out again.
+    let second = checkouts.check_out(PROJECT, &commit);
+
+    // Then: it opens the same folder, which a fetch could not have filled.
+    assert_eq!(second.unwrap(), first);
+    assert_eq!(readme(&first), "one");
 }
 
 #[test]
