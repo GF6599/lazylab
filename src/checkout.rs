@@ -114,16 +114,36 @@ impl Checkouts {
         Ok([git(&["init", "--quiet"]), fetch, checkout])
     }
 
-    /// Blocks until git has finished, and returns the folder that holds the files.
+    /// Blocks until git has finished, and returns the folder that holds the files. A commit never
+    /// changes, so a folder that already holds it opens without a fetch.
     pub fn check_out(&self, project: &str, revision: &Revision) -> Result<PathBuf, Error> {
         let commands = self.commands(project, revision)?;
         let dir = self.folder(project, revision);
+        if let Revision::Commit(commit) = revision
+            && head(&dir).as_deref() == Some(commit.as_str())
+        {
+            return Ok(dir);
+        }
         store::create_dir(&dir).map_err(|e| Error(format!("create {}: {e}", dir.display())))?;
         for mut command in commands {
             run(&mut command)?;
         }
         Ok(dir)
     }
+}
+
+/// The commit that git finds at `dir`, or `None` when it finds none. In a folder with no
+/// repository of its own, git reads a repository above it, so only a match with the asked commit
+/// proves a checkout.
+fn head(dir: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--verify", "--quiet", "HEAD"])
+        .current_dir(dir)
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    output.status.success().then_some(commit)
 }
 
 /// The output is read rather than shown, because the screen is drawn while git runs. The remote
