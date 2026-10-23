@@ -134,7 +134,7 @@ Each command names its project with `-R`, so it works from any folder. For a hos
 
 ### Browse the files
 
-Press `e` to browse the files of the item in a file explorer. Lazylab makes a shallow `git` checkout of the ref, then gives the terminal to the explorer. Quit the explorer to go back to lazylab.
+Press `e` to browse the files of the item in a file explorer. Lazylab makes a shallow `git` checkout of the ref, then gives the terminal to the explorer. A commit that is already checked out opens at once, with no fetch. A branch is fetched each time, because it can move. Quit the explorer to go back to lazylab.
 
 - On a project, the ref is the default branch.
 - On a pipeline or a job, the ref is the commit that the pipeline built.
